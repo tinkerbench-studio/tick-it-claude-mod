@@ -66,3 +66,14 @@ test('when Tick-it cannot answer get_mod_config, or answers badly, the mod keeps
   })
   expect(JSON.stringify(again.context)).toContain('Finish by moving the ticket to In review with update_ticket')
 })
+
+test('the mod sends its version, and shows Tick-it’s notice once when it is too old', async ($, on) => {
+  const net: Net = { modConfig: { ...served, minModVersion: '9.0.0', notice: 'This tick-it mod (0.22.0) is older than 9.0.0. Update it.' } }
+  const seen = engine(on, { lines: 10 }, true, {}, net)
+  await start($)
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-143' })
+  expect(seen.ticketCalls.find(c => c.tool === 'get_mod_config')?.args).toEqual({ key: 'TCK-143', modVersion: '0.22.0' })
+  expect(seen.toasts.filter(t => t.includes('older than 9.0.0'))).toHaveLength(1)
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-143' })
+  expect(seen.toasts.filter(t => t.includes('older than 9.0.0'))).toHaveLength(1)
+})

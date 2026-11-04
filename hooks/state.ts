@@ -19,6 +19,8 @@ export const REPORT_TOOL = 'report_session'
 /** How the instruction Tick-it sends for a suggested breakdown begins (apps/mcp/src/breakdown-offer.ts). */
 export const BREAKDOWN_SUGGESTION = 'Tick-it suggests breaking '
 
+/** This release of the mod, sent to Tick-it with get_mod_config so an older one can be told to update. A check keeps it equal to .claude-plugin/plugin.json. */
+export const MOD_VERSION = '0.22.0'
 export const BUDGET: Record<TicketSize, number> = { XS: 100, S: 300, M: 700, L: 1500 }
 export const WARN_AT = 0.8
 export const STATUSES: TicketStatus[] = ['In progress', 'In review', 'Ready to merge', 'Ready', 'Backlog', 'Done']

@@ -3,7 +3,7 @@ import type { EngineInterface } from 'claude-code'
 import type { AttachmentRef, MemoryRef, Ticket, TicketSize } from '../types'
 
 import { brief, servedConfig, storeServed } from './board'
-import { TICKIT_SERVER, TICKIT_CONNECTORS, DEFAULT_ROUNDS, MAX_ROUND_LIMIT, SIZES } from './state'
+import { TICKIT_SERVER, TICKIT_CONNECTORS, DEFAULT_ROUNDS, MAX_ROUND_LIMIT, MOD_VERSION, SIZES } from './state'
 
 // Declared in this file: the engine reads an atom only where it is written (a module cannot use one imported from state.ts).
 const tickets = atom({ plugin: 'tick-it', key: 'tickets' } as const, [])
@@ -11,6 +11,8 @@ const tickets = atom({ plugin: 'tick-it', key: 'tickets' } as const, [])
 const instructions = atom({ plugin: 'tick-it', key: 'instructions' } as const, '')
 /** The review rounds by ticket size, fetched with the instructions and kept as they were when Tick-it cannot say. */
 const rounds = atom({ plugin: 'tick-it', key: 'rounds' } as const, { repository: '', limits: DEFAULT_ROUNDS } as { repository: string; limits: Record<TicketSize, number> })
+/** The notice Tick-it last gave about this mod being too old, so it is shown once. */
+const noticed = atom({ plugin: 'tick-it', key: 'modNotice' } as const, '')
 /** The files attached to the ticket just taken (and its epic) and the memories recalled for it, fetched with get_ticket when it is taken and read locally after. */
 const attachments = atom({ plugin: 'tick-it', key: 'attachments' } as const, { ticket: '', files: [], memories: [] } as { ticket: string; files: AttachmentRef[]; memories: MemoryRef[] })
 /** The session Tick-it started this one as: set by its first message, reported to as the work goes on. */
@@ -114,8 +116,13 @@ export async function fetchInstructions($: EngineInterface): Promise<void> {
 
 /** Asks Tick-it for what the mod shares with it (get_mod_config): size budgets, review round defaults and the brief lines naming this ticket. Kept as they were when it cannot say. */
 export async function fetchModConfig($: EngineInterface, ticket: string): Promise<void> {
-  const got = await callTickit($, 'get_mod_config', { key: ticket }).catch(() => ({ ok: false as const, why: 'unreachable' }))
+  const got = await callTickit($, 'get_mod_config', { key: ticket, modVersion: MOD_VERSION }).catch(() => ({ ok: false as const, why: 'unreachable' }))
   if (!got.ok) return
+  const notice = got.value.notice
+  if (typeof notice === 'string' && notice !== '' && notice !== (await read($, noticed))) {
+    await update($, noticed, () => notice)
+    $.ui.toast(`tick-it: ${notice}`)
+  }
   const v = got.value as { sizeBudgets?: Record<string, unknown>; defaultReviewRounds?: Record<string, unknown>; briefLines?: Record<string, unknown> }
   const budgets = v.sizeBudgets
   const lines = v.briefLines

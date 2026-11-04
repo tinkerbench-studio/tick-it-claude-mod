@@ -43,3 +43,9 @@ test('draft-ticket and plan-epic point to the breakdown rules and the UI-evidenc
     expect(skill).toContain('UI-evidence checklist')
   }
 })
+
+test('the version the mod sends to Tick-it is the one in plugin.json', () => {
+  const plugin = JSON.parse(read('.claude-plugin/plugin.json'))
+  const sent = /export const MOD_VERSION = '([^']+)'/.exec(read('hooks/state.ts'))?.[1]
+  assert.equal(sent, plugin.version)
+})
