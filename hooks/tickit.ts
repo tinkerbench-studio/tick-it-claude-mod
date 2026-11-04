@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 import type { AttachmentRef, MemoryRef, Ticket, TicketSize } from '../types'
 
-import { brief } from './board'
+import { brief, servedConfig, storeServed } from './board'
 import { TICKIT_SERVER, TICKIT_CONNECTORS, DEFAULT_ROUNDS, MAX_ROUND_LIMIT, SIZES } from './state'
 
 // Declared in this file: the engine reads an atom only where it is written (a module cannot use one imported from state.ts).
@@ -112,16 +112,29 @@ export async function fetchInstructions($: EngineInterface): Promise<void> {
   }
 }
 
+/** Asks Tick-it for what the mod shares with it (get_mod_config): size budgets, review round defaults and the brief lines naming this ticket. Kept as they were when it cannot say. */
+export async function fetchModConfig($: EngineInterface, ticket: string): Promise<void> {
+  const got = await callTickit($, 'get_mod_config', { key: ticket }).catch(() => ({ ok: false as const, why: 'unreachable' }))
+  if (!got.ok) return
+  const v = got.value as { sizeBudgets?: Record<string, unknown>; defaultReviewRounds?: Record<string, unknown>; briefLines?: Record<string, unknown> }
+  const budgets = v.sizeBudgets
+  const lines = v.briefLines
+  if (budgets === undefined || lines === undefined || !SIZES.every(size => typeof budgets[size] === 'number') || !['memories', 'memoryTools', 'deferredTools', 'done', 'branch'].every(k => typeof lines[k] === 'string') || !Array.isArray(lines.addToTicket)) return
+  await storeServed($, { sizeBudgets: budgets as Record<TicketSize, number>, ticket, briefLines: lines as never })
+  const defaults = v.defaultReviewRounds
+  if (defaults !== undefined && SIZES.every(size => typeof defaults[size] === 'number')) await update($, rounds, kept => (kept.repository === '' ? { repository: '', limits: defaults as Record<TicketSize, number> } : kept))
+}
+
 /** The review rounds a ticket of this size gets before the one past the limit, as of the last fetch. */
 export async function roundLimit($: EngineInterface, size: TicketSize): Promise<number> {
   const held = await read($, rounds)
-  return (held.repository === (await repositoryHere($)) ? held.limits : DEFAULT_ROUNDS)[size]
+  return (held.repository === (await repositoryHere($)) || held.repository === '' ? held.limits : DEFAULT_ROUNDS)[size]
 }
 
 /** A ticket's brief with the repository's instructions, as of the last fetch. */
 export async function briefOf($: EngineInterface, t: Ticket): Promise<string> {
   const held = await read($, attachments)
-  return brief(t, await read($, tickets), await read($, instructions), held.ticket === t.id ? held.files : [], held.ticket === t.id ? held.memories : [])
+  return brief(t, await read($, tickets), await read($, instructions), held.ticket === t.id ? held.files : [], held.ticket === t.id ? held.memories : [], await servedConfig($))
 }
 
 /** Fetches the ticket's attachments (get_ticket) into the mod's state; none when Tick-it cannot say. */
@@ -137,5 +150,5 @@ export async function fetchAttachments($: EngineInterface, t: Ticket): Promise<v
 
 /** The brief of a ticket just taken: the instructions are fetched afresh first. */
 export async function freshBriefOf($: EngineInterface, t: Ticket): Promise<string> {
-  return (await Promise.all([fetchInstructions($), fetchAttachments($, t)]), briefOf($, t))
+  return (await Promise.all([fetchInstructions($), fetchAttachments($, t), fetchModConfig($, t.id)]), briefOf($, t))
 }

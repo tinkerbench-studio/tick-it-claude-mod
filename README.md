@@ -19,7 +19,9 @@ The repository is private, so Claude Code clones it with your own git credential
 
 When an edit is refused for passing the size budget, the refusal gives Claude three choices to put to you: raise a new ticket for the extra work (same epic, Backlog, blocked by this ticket), raise this ticket to the next size with `update_ticket` (the guard then measures against the new budget), or leave it as scoped. A ticket already at L has no bigger size, so its second choice is to split it. A ticket with no epic gets its new ticket without one.
 
-Tests: `claude plugin test .`. CI does not run them yet, because they need the `claude` CLI.
+Tests: `claude plugin test .` runs the hook tests in `tests/`, and `node --test checks/*.test.mjs` checks the skills' wording. CI runs both.
+
+Shared settings: the size budgets, default review rounds and the brief's instruction lines come from Tick-it's `get_mod_config` tool when a ticket is taken (`hooks/tickit.ts`, `fetchModConfig`). The copies in `hooks/state.ts` and `hooks/board.ts` are only the fallback for when Tick-it cannot answer.
 
 ## Pull requests
 
