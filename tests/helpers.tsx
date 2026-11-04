@@ -123,7 +123,7 @@ export const engine = (
     if (e.tool !== 'record_runs') {
       const a = e.args as Record<string, unknown>
       seen.ticketCalls.push({ tool: e.tool, args: a, server: e.server })
-      if (e.tool === 'get_mod_config') return net.modConfig === undefined ? refuse('No such tool') : net.modConfig === 'unreachable' ? refuseOr('unreachable') : answer(net.modConfig)
+      if (e.tool === 'get_mod_config') return typeof a.modVersion !== 'string' || a.modVersion === '' ? refuse('modVersion is required') : net.modConfig === undefined ? refuse('No such tool') : net.modConfig === 'unreachable' ? refuseOr('unreachable') : answer(net.modConfig)
       if (a.repository !== 'acme/web-app') return refuse(`No tickets in ${String(a.repository)} yet. create_ticket adds the first one.`)
       if (e.tool === 'list_tickets') {
         if (net.pageSize === undefined) return answer({ tickets: seen.server })
