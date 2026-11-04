@@ -1,0 +1,11 @@
+{
+  "name": "tickit",
+  "owner": { "name": "tinkerbench-studio" },
+  "plugins": [
+    {
+      "name": "tick-it",
+      "source": "./",
+      "description": "Tick-it tickets in the session, from the Tick-it MCP server: a board, the ticket's brief for Claude, a size budget on edits, and review agents that steward it to Done."
+    }
+  ]
+}
