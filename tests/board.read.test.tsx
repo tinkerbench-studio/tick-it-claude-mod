@@ -73,3 +73,16 @@ test('signed out: the last board read still shows, with why, and nothing moves',
   expect(seen.ticketCalls).toHaveLength(calls)
   expect(seen.server.find(t => t.key === 'TCK-143')?.status).toBe('Ready')
 })
+
+test('a ticket missing from the last board read is not called "no ticket" when the board could not be read', async ($, on) => {
+  const net: Net = {}
+  engine(on, { lines: 0 }, false, {}, net)
+  await start($)
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'board' })
+  net.connected = false
+  const taken = await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-999' })
+  expect(taken.text).toContain('Could not read the board to find TCK-999: not connected to Tick-it')
+  expect(taken.text).not.toContain('No ticket')
+  net.connected = true
+  expect((await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-999' })).text).toBe('No ticket TCK-999. Try /tick-it board.')
+})
