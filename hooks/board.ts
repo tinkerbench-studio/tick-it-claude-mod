@@ -173,7 +173,7 @@ export async function save($: EngineInterface, list: Ticket[]) {
 }
 
 /** A ticket as Tick-it's tools spell it. */
-export type RemoteTicket = { key: string; title: string; epic: string | null; size: TicketSize; status: TicketStatus; description?: string | null; acceptance: string[]; blockedBy?: string[]; blocks?: string[]; url?: string }
+export type RemoteTicket = { key: string; title: string; epic: string | null; size: TicketSize; status: TicketStatus; description?: string | null; acceptance: string[]; blockedBy?: string[]; blocks?: string[]; labels?: string[]; url?: string }
 export const fromRemote = (r: RemoteTicket): Ticket => ({
   id: r.key,
   title: r.title,
@@ -184,6 +184,7 @@ export const fromRemote = (r: RemoteTicket): Ticket => ({
   acceptance: r.acceptance,
   blockedBy: r.blockedBy ?? [],
   blocks: r.blocks ?? [],
+  ...(r.labels === undefined ? {} : { labels: r.labels }),
   ...(r.url === undefined ? {} : { url: r.url }),
 })
 
@@ -248,7 +249,7 @@ export async function refreshPullRequest($: EngineInterface, id: string): Promis
   const states = ['open', 'closed', 'merged', 'unknown']
   const cis = ['pending', 'success', 'failure']
   const view: PullRequestView | null =
-    found === undefined ? null : { number: found.number, state: states.includes(found.state) ? found.state : 'unknown', draft: found.draft === true, ci: cis.includes(found.ci as string) ? found.ci : null, behind: typeof found.behind === 'boolean' ? found.behind : null, conflicting: (found as { mergeState?: string }).mergeState === 'conflicting', queued: (found as { mergeQueue?: unknown }).mergeQueue != null, ciInstructed: found.ciInstructed === true }
+    found === undefined ? null : { number: found.number, state: states.includes(found.state) ? found.state : 'unknown', draft: found.draft === true, ci: cis.includes(found.ci as string) ? found.ci : null, behind: typeof found.behind === 'boolean' ? found.behind : null, conflicting: (found as { mergeState?: string }).mergeState === 'conflicting', queued: (found as { mergeQueue?: unknown }).mergeQueue != null, ciInstructed: found.ciInstructed === true, url: typeof found.url === 'string' ? found.url : `https://github.com/${repository}/pull/${found.number}` }
   await update($, pullRequest, () => view)
   await update($, pullRequestError, () => null)
   // CI turning failing is said once, with the pane opened; it speaks again only after CI has left failing.
@@ -260,6 +261,12 @@ export async function refreshPullRequest($: EngineInterface, id: string): Promis
     await $.ui.open({ id: PANE, title: 'Tick-it' })
   }
 }
+
+/** The milestone whose epics hold the ticket's epic, if any. */
+export const milestoneOf = (roadmap: MilestoneView[], t: Ticket): string | undefined => roadmap.find(m => m.epics.some(epic => epic.title === t.epic))?.title
+
+/** Clipped to `max` characters with an ellipsis, for the band. */
+export const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text)
 
 /** "#12 draft · CI passing": the pull request as the pane words it. */
 export const pullRequestLine = (pr: PullRequestView): string => {

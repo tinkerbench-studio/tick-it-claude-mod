@@ -1,8 +1,8 @@
 import type { MilestoneView } from '../types'
 import { atom, read, update } from 'claude-code'
 import type { Register } from 'claude-code'
-import { PANE, WARN_AT, groupsOf, COLOR } from './state'
-import { budgetOf, boardStops, pickMilestone, nextMilestone, milestoneLine, findCurrent, pullRequestLine, fixCi, rerunFailed, openPullRequest } from './board'
+import { PANE, TICKET_PANE, WARN_AT, groupsOf, COLOR } from './state'
+import { budgetOf, boardStops, pickMilestone, nextMilestone, milestoneLine, milestoneOf, clip, findCurrent, pullRequestLine, fixCi, rerunFailed, openPullRequest } from './board'
 import { take, finish } from './work'
 import { reviewAgain, stopStewarding, summarise, reviewLine, findingRows } from './reviews'
 
@@ -49,15 +49,25 @@ export const registerUi: Register = on => {
     const pr = await read($, pullRequest)
     const prError = await read($, pullRequestError)
     const tone = lines > budget ? COLOR.over : lines >= budget * WARN_AT ? COLOR.warn : COLOR.ok
+    const milestone = milestoneOf(await read($, milestones), t)
+    const details = () => void $.ui.open({ id: TICKET_PANE, title: t.id })
 
     return (
       <Box flexDirection="row" gap={1} flexWrap="wrap">
         <Text color={COLOR.accent}>◆</Text>
-        <Text bold>{t.id}</Text>
+        <Button key="ticket" plain onPress={details}>
+          <Text bold>{t.id}</Text>
+        </Button>
         <Text wrap="truncate-end">{t.title}</Text>
         <Text color={COLOR.dim}>· {t.status} · diff</Text>
         <Text color={tone}>{`${lines}/${budget}`}</Text>
-        {(pr !== null || prError !== null) && <Text color={prError === null ? COLOR.dim : COLOR.warn}>{pr === null ? `pull request not read yet (${prError ?? ''})` : `${pullRequestLine(pr)} · ${lines} lines${prError === null ? '' : ` (last read; ${prError})`}`}</Text>}
+        {pr !== null && (
+          <Button key="pull-request" plain onPress={details}>
+            <Text color={prError === null ? COLOR.dim : COLOR.warn}>{`${pullRequestLine(pr)}${pr.queued ? ' · in merge queue' : ''}${pr.conflicting ? ' · conflicting' : ''} · ${lines} lines${prError === null ? '' : ` (last read; ${prError})`}`}</Text>
+          </Button>
+        )}
+        {pr === null && prError !== null && <Text color={COLOR.warn}>{`pull request not read yet (${prError})`}</Text>}
+        {milestone !== undefined && <Text color={COLOR.dim}>{`◇ ${clip(milestone, 24)}`}</Text>}
         <Button key="board" label="Board" onPress={() => void $.ui.open({ id: PANE, title: 'Tick-it' })} />
         <Button key="done" label="Done" onPress={() => void finish($, 'In review')} />
       </Box>
@@ -144,6 +154,36 @@ export const registerUi: Register = on => {
             </Box>
           )
         })}
+      </Box>
+    )
+  })
+
+  on('ui.render', { component: 'Pane', requestId: TICKET_PANE }, async ($, e) => {
+    const { Box, Text, Link, Markdown } = $.ui.resolve(e)
+    const t = await findCurrent($)
+    if (t === undefined) return <Text color={COLOR.dim}>No ticket is taken.</Text>
+    const pr = await read($, pullRequest)
+    const milestone = milestoneOf(await read($, milestones), t)
+
+    return (
+      <Box flexDirection="column" gap={1}>
+        <Text bold>
+          {t.id} {t.title}
+        </Text>
+        <Text color={COLOR.dim}>{[t.status, t.size, t.epic, ...(milestone === undefined ? [] : [milestone])].join(' · ')}</Text>
+        {(t.labels ?? []).length > 0 && <Text>{`Labels: ${(t.labels ?? []).join(', ')}`}</Text>}
+        {t.url !== undefined && (
+          <Text>
+            <Link key="ticket-link" href={t.url} label={`${t.id} in Tick-it`} />
+          </Text>
+        )}
+        {pr?.url !== undefined && (
+          <Text>
+            <Link key="pr-link" href={pr.url} label={`#${pr.number} on GitHub`} />
+          </Text>
+        )}
+        {t.description !== undefined && <Markdown key="description" text={t.description} />}
+        {t.acceptance.length > 0 && <Markdown key="acceptance" text={t.acceptance.map(a => `- ${a}`).join('\n')} />}
       </Box>
     )
   })

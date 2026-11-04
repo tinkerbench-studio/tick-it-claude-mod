@@ -18,6 +18,7 @@ export type Ticket = {
   /** Keys of the tickets that must be Done first, and of those waiting on this one. */
   blockedBy?: string[]
   blocks?: string[]
+  labels?: string[]
   url?: string
 }
 
@@ -105,6 +106,8 @@ export type PullRequestView = {
   queued: boolean
   /** Tick-it has already told the ticket's session about CI failing on the current head commit. */
   ciInstructed: boolean
+  /** Its page on GitHub; absent on one read by an older mod. */
+  url?: string
 }
 
 export type StewardPhase = 'reviewing' | 'fixing' | 'done' | 'stopped'

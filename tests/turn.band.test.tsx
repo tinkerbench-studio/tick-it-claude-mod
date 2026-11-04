@@ -91,3 +91,33 @@ test('the band stays empty with no ticket taken', async ($, on) => {
   expect(await ui.find({ type: 'Text', text: /\/100/ })).toBeUndefined()
   await ui.unmount()
 })
+
+test("the band names the ticket's milestone and queue state, and its key and pull request open the ticket pane", async ($, on) => {
+  const net: Net = {
+    pullRequests: [{ number: 12, state: 'open', draft: false, ci: 'success', mergeQueue: { position: 1 } }],
+    milestones: [{ title: 'Checkout launch before the holiday freeze', dueOn: null, epics: [{ title: 'One-page checkout', tickets: 2, done: 0 }], tickets: 2, done: 0 }],
+  }
+  const seen = engine(on, { lines: 12 }, true, {}, net)
+  Object.assign(seen.server[0]!, { labels: ['checkout', 'api'], description: 'Keep the **step** across reloads.', url: 'https://app.tick-it.dev/r/acme/web-app/t/TCK-143' })
+  await start($)
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-143' })
+  await $.turn.complete({ turnId: 't1', reason: 'answer', answer: 'ok', durationMs: 1 } as never)
+
+  const band = await $.ui.mount({ plugin: 'tick-it', surface: 'terminal', ...BAND })
+  expect(await band.find({ type: 'Text', text: '#12 open · CI passing · in merge queue · 12 lines' })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: '◇ Checkout launch before…' })).toBeDefined()
+  await band.press({ key: 'pull-request' })
+  await band.press({ key: 'ticket' })
+  expect(seen.opened.filter(id => id === 'tick-it-ticket')).toHaveLength(2)
+  await band.unmount()
+
+  const pane = await $.ui.mount({ plugin: 'tick-it', surface: 'desktop', component: 'Pane', requestId: 'tick-it-ticket', props: { title: 'TCK-143', isFocused: true, bodyColumns: 60, placement: 'dock', scroll: { offset: 0, bodyRows: 30 }, view: {} } } as const)
+  expect(await pane.find({ type: 'Text', text: 'In progress · XS · One-page checkout · Checkout launch before the holiday freeze' })).toBeDefined()
+  expect(await pane.find({ type: 'Text', text: 'Labels: checkout, api' })).toBeDefined()
+  expect(await pane.find({ type: 'Link', text: 'TCK-143 in Tick-it' })).toBeDefined()
+  expect(await pane.find({ type: 'Link', text: '#12 on GitHub' })).toBeDefined()
+  expect(await pane.find({ type: 'Markdown', text: 'Keep the **step** across reloads.' })).toBeDefined()
+  expect(await pane.find({ type: 'Markdown', text: '- GET /checkout resumes at stored step' })).toBeDefined()
+  expect(JSON.stringify(await pane.drawn())).toContain('https://github.com/acme/web-app/pull/12')
+  await pane.unmount()
+})
