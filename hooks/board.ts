@@ -42,6 +42,29 @@ export const boardStops = (roadmap: MilestoneView[], list: Ticket[]): MilestoneV
   return [...roadmap, other]
 }
 
+/**
+ * Ticket keys written in a reply (TCK-2, any prefix) as markdown links to the ticket, in bold with its title, so a press
+ * opens its pane. Only tickets on the board are linked (so "UTF-8" is left alone); code, fences and links already written are not touched.
+ */
+export const linkTickets = (text: string, list: Ticket[]): { text: string; hrefs: string[] } => {
+  const known = new Map(list.map(t => [t.id, t]))
+  const hrefs = new Set<string>()
+  const linked = text
+    .split(/(```[\s\S]*?```|`[^`\n]*`|\[[^\]\n]*\]\([^)\n]*\))/)
+    .map((part, i) =>
+      i % 2 === 1
+        ? part
+        : part.replace(/\b[A-Za-z]{3}-[1-9]\d*\b/g, key => {
+            const t = known.get(key.toUpperCase())
+            if (t?.url === undefined) return key
+            hrefs.add(t.url)
+            return `[**${t.title.replace(/[[\]]/g, '')} (${t.id})**](${t.url})`
+          }),
+    )
+    .join('')
+  return { text: linked, hrefs: [...hrefs] }
+}
+
 /** The milestone the board shows: the chosen one, else the first on the roadmap; undefined with no milestones. */
 export const pickMilestone = (roadmap: MilestoneView[], chosen: string | null): MilestoneView | undefined => roadmap.find(m => m.title === chosen) ?? roadmap[0]
 

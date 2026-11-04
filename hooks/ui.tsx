@@ -2,7 +2,7 @@ import type { MilestoneView, TicketStatus } from '../types'
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 import { PANE, TICKET_PANE, WARN_AT, groupsOf, COLOR } from './state'
-import { budgetOf, boardStops, pickMilestone, nextMilestone, milestoneLine, milestoneOf, findCurrent, pullRequestLine, startSession, fixCi, rerunFailed, openPullRequest } from './board'
+import { budgetOf, linkTickets, boardStops, pickMilestone, nextMilestone, milestoneLine, milestoneOf, findCurrent, pullRequestLine, startSession, fixCi, rerunFailed, openPullRequest } from './board'
 import { take } from './work'
 import { reviewAgain, stopStewarding, summarise, reviewLine, findingRows } from './reviews'
 
@@ -68,6 +68,31 @@ export const registerUi: Register = on => {
         <Text color={COLOR.dim}>· {t.status} · diff</Text>
         <Text color={tone}>{`${lines}/${budget}`}</Text>
         <Button key="board" label="Board" onPress={() => void $.ui.open({ id: PANE, title: 'Tick-it' })} />
+      </Box>
+    )
+  })
+
+  // A ticket written in a reply becomes a link that opens its pane. A summary row, or a reply that names none, is drawn as it was.
+  on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
+    if (e.props.isSummary) return next(e)
+    const list = await read($, tickets)
+    const { text, hrefs } = linkTickets(e.props.text, list)
+    if (hrefs.length === 0) return next(e)
+    const { Box, Text, Markdown } = $.ui.resolve(e)
+    return (
+      <Box flexDirection="row" gap={1}>
+        {e.props.isFirstOfReply && <Text>●</Text>}
+        <Box flexGrow={1} flexDirection="column">
+          <Markdown
+            key="tickets"
+            text={text}
+            pressableLinks={hrefs}
+            onLinkPress={link => {
+              const t = list.find(one => one.url === link.href)
+              if (t !== undefined) void viewTicket($, t.id)
+            }}
+          />
+        </Box>
       </Box>
     )
   })
