@@ -50,6 +50,16 @@ test('a canvas board change with committed board-beside-story pictures and no re
   expect(seen.ticketCalls.some(c => c.tool === 'update_ticket' && c.args.status === 'In review')).toBe(true)
 })
 
+test('a canvas board change whose committed images are not board-beside-story pictures is still refused', async ($, on) => {
+  const other = 'docs/change-screenshots/TCK-151/picker-side-by-side.png'
+  engine(on, { lines: 5, numstatZ: BOARD_FILES, tree: [IMG, other], gh: body(`${IMG}
+${other}
+`) })
+  await start($)
+  await $.prompt.submit(typed(STARTED))
+  expect((await finishReview($ as never)).deny).toContain('has board-beside-story pictures')
+})
+
 test('a UI change with every picture, the board pictures and a description that lists them goes to review', async ($, on) => {
   const seen = engine(on, { lines: 5, numstatZ: BOARD_FILES, tree: [IMG], shots: ['reports/design-canvas/shots/Board-side-by-side.png'], gh: body(`Changes\n${IMG}\n`) })
   await start($)
