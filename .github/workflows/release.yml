@@ -1,0 +1,48 @@
+name: Release
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  # A change to the plugin itself must raise `version`, or installs never see it.
+  version-bumped:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Version is raised when the plugin changes
+        run: |
+          base=origin/${{ github.base_ref }}
+          if git diff --quiet "$base"...HEAD -- hooks skills types .claude-plugin/plugin.json; then
+            echo "Plugin files unchanged: no bump needed."
+            exit 0
+          fi
+          old=$(git show "$base:.claude-plugin/plugin.json" | node -p 'JSON.parse(require("fs").readFileSync(0)).version')
+          new=$(node -p 'require("./.claude-plugin/plugin.json").version')
+          if [ "$old" = "$new" ]; then
+            echo "::error file=.claude-plugin/plugin.json::The plugin changed but version is still $old. Raise it."
+            exit 1
+          fi
+          echo "version $old -> $new"
+
+  # Merged to main with a version that has no tag yet: tag that commit and cut a release.
+  tag:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tag v<version> and release it
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=v$(node -p 'require("./.claude-plugin/plugin.json").version')
+          if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null; then
+            echo "$tag already exists."
+            exit 0
+          fi
+          gh release create "$tag" --target "$GITHUB_SHA" --title "$tag" --generate-notes

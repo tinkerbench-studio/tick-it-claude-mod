@@ -8,20 +8,30 @@ The manifest points at Tick-it on `https://mcp.tick-it.dev/mcp`. To use a local 
 
 ## Install
 
-In Claude Code, add this repository as a marketplace, then install the plugin from it:
+In Claude Code, add the tinkerbench-studio marketplace, then install the plugin from it:
 
 ```
-/plugin marketplace add tinkerbench-studio/tick-it-claude-mod
-/plugin install tick-it@tickit
+/plugin marketplace add tinkerbench-studio/marketplace
+/plugin install tick-it@tinkerbench-studio
 ```
 
-The repository is private, so Claude Code clones it with your own git credentials (`gh auth login` or a credential helper). For a newer version: `/plugin marketplace update tickit`, then restart Claude Code. For development, `claude --plugin-dir .` loads it from a clone.
+The repositories are private, so Claude Code clones them with your own git credentials (`gh auth login` or a credential helper). For a newer version: `/plugin marketplace update tinkerbench-studio`, then `/plugin update tick-it@tinkerbench-studio` and restart Claude Code. For development, `claude --plugin-dir .` loads it from a clone.
 
 When an edit is refused for passing the size budget, the refusal gives Claude three choices to put to you: raise a new ticket for the extra work (same epic, Backlog, blocked by this ticket), raise this ticket to the next size with `update_ticket` (the guard then measures against the new budget), or leave it as scoped. A ticket already at L has no bigger size, so its second choice is to split it. A ticket with no epic gets its new ticket without one.
 
 Tests: `claude plugin test .` runs the hook tests in `tests/`, and `node --test checks/*.test.mjs` checks the skills' wording. CI runs both.
 
 Shared settings: the size budgets, default review rounds and the brief's instruction lines come from Tick-it's `get_mod_config` tool when a ticket is taken (`hooks/tickit.ts`, `fetchModConfig`). The copies in `hooks/state.ts` and `hooks/board.ts` are only the fallback for when Tick-it cannot answer.
+
+## Releases
+
+The marketplace (`tinkerbench-studio/marketplace`) pins this plugin to a git tag, `v<version>`, so an install gets a release and not whatever is on `main`. To release:
+
+1. Raise `version` in `.claude-plugin/plugin.json` in the change that is released. CI fails a pull request that changes `hooks/`, `skills/`, `types/` or `plugin.json` without raising it.
+2. Merge it. CI tags the merge commit `v<version>` and creates a GitHub release (`.github/workflows/release.yml`); nothing is done by hand.
+3. In the marketplace, set `ref` of the `tick-it` entry to `v<version>` and merge that.
+
+Installed copies update only after step 3, and only when `version` changed.
 
 ## Pull requests
 
