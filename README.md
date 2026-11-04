@@ -33,6 +33,10 @@ The marketplace (`tinkerbench-studio/marketplace`) pins this plugin to a git tag
 
 Installed copies update only after step 3, and only when `version` changed.
 
+## Ticket references in replies
+
+A ticket key Claude writes in a reply (`TCK-2`, or the repository's own prefix, in any case) is drawn as a bold link with the ticket's title, `Title (TCK-2)`. Pressing it opens the ticket pane. Only tickets on the board are linked, so `UTF-8` is left alone, and code, fences and links already written are not touched (`linkTickets` in `hooks/board.ts`, drawn by the `AssistantMessage` hook in `hooks/ui.tsx`).
+
 ## Pull requests
 
 At `/tick-it done` the mod tells Tick-it the branch the ticket was built on and, if `gh` finds an open pull request for it, its number (`link_pull_request`); a call that does not get through waits and is sent again with the outbox. Tick-it also finds the pull request itself from its description. The Tick-it GitHub App then keeps the ticket's pull request state and CI, and the merge moves the ticket to Done. If clean review rounds find its pull request still open, the ticket stays In review and the mod says it moves to Done when it merges.
