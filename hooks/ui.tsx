@@ -2,7 +2,7 @@ import type { MilestoneView, TicketStatus } from '../types'
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 import { PANE, TICKET_PANE, WARN_AT, groupsOf, COLOR } from './state'
-import { budgetOf, boardStops, pickMilestone, nextMilestone, milestoneLine, milestoneOf, findCurrent, fixCi, rerunFailed, openPullRequest } from './board'
+import { budgetOf, boardStops, pickMilestone, nextMilestone, milestoneLine, milestoneOf, findCurrent, pullRequestLine, startSession, fixCi, rerunFailed, openPullRequest } from './board'
 import { take } from './work'
 import { reviewAgain, stopStewarding, summarise, reviewLine, findingRows } from './reviews'
 
@@ -20,6 +20,7 @@ const steward = atom({ plugin: 'tick-it', key: 'steward' } as const, null)
 /** Whether the stewarding pane lists the round's optional findings; they stay behind a key until asked for. */
 const showOptional = atom({ plugin: 'tick-it', key: 'showOptional' } as const, false)
 /** The ticket the details pane shows, by key; the taken ticket when it is null or no longer on the board. */
+const sessionLink = atom({ plugin: 'tick-it', key: 'sessionLink' } as const, null as { ticket: string; href: string } | null)
 const viewed = atom({ plugin: 'tick-it', key: 'viewed' } as const, null as string | null)
 
 const viewTicket = async ($: EngineInterface, id: string) => {
@@ -180,33 +181,80 @@ export const registerUi: Register = on => {
   })
 
   on('ui.render', { component: 'Pane', requestId: TICKET_PANE }, async ($, e) => {
-    const { Box, Text, Link, Markdown } = $.ui.resolve(e)
-    const id = (await read($, viewed)) ?? (await read($, current))
-    const t = (await read($, tickets)).find(one => one.id === id)
+    const { Box, Text, Button, Link, Markdown } = $.ui.resolve(e)
+    const board = await read($, tickets)
+    const taken = await read($, current)
+    const id = (await read($, viewed)) ?? taken
+    const t = board.find(one => one.id === id)
     if (t === undefined) return <Text color={COLOR.dim}>No ticket is shown.</Text>
-    // The pull request read is the taken ticket's.
-    const pr = t.id === (await read($, current)) ? await read($, pullRequest) : null
+    // The pull request and the diff read are the taken ticket's.
+    const mine = t.id === taken
+    const pr = mine ? await read($, pullRequest) : null
+    const lines = mine ? await read($, diffLines) : 0
+    const budget = await budgetOf($, t.size)
     const milestone = milestoneOf(await read($, milestones), t)
+    const link = await read($, sessionLink)
+    // Another ticket: pressing it shows that ticket here; one off the board links to its page, built from this ticket's.
+    const ref = (key: string) => {
+      const other = board.find(one => one.id === key)
+      if (other !== undefined) {
+        return (
+          <Box key={`ref-${key}`} flexDirection="row" gap={1}>
+            <Button key={`ref-${key}-open`} plain onPress={() => void viewTicket($, key)}>
+              <Text bold color={COLOR.accent}>{key}</Text>
+            </Button>
+            <Text wrap="truncate-end">{other.title}</Text>
+            <Text color={STATUS_COLOR[other.status] ?? COLOR.dim}>{other.status}</Text>
+          </Box>
+        )
+      }
+      const href = t.url?.replace(t.id, key)
+      return (
+        <Text key={`ref-${key}`}>{href === undefined ? key : <Link key={`ref-${key}-link`} href={href} label={key} />}</Text>
+      )
+    }
+    const section = (name: string, rows: unknown) => (
+      <Box key={`section-${name}`} flexDirection="column">
+        <Text color={COLOR.dim}>{name}</Text>
+        {rows as never}
+      </Box>
+    )
+    const waitingOn = t.blockedBy ?? []
+    const blocks = t.blocks ?? []
+    const labels = t.labels ?? []
 
     return (
       <Box flexDirection="column" gap={1}>
-        <Text bold>
-          {t.id} {t.title}
-        </Text>
-        <Text color={COLOR.dim}>{[t.status, t.size, t.epic, ...(milestone === undefined ? [] : [milestone])].join(' · ')}</Text>
-        {(t.labels ?? []).length > 0 && <Text>{`Labels: ${(t.labels ?? []).join(', ')}`}</Text>}
-        {t.url !== undefined && (
-          <Text>
-            <Link key="ticket-link" href={t.url} label={`${t.id} in Tick-it`} />
+        <Box key="head" flexDirection="column">
+          <Text bold>
+            {t.id} {t.title}
           </Text>
-        )}
-        {pr?.url !== undefined && (
-          <Text>
-            <Link key="pr-link" href={pr.url} label={`#${pr.number} on GitHub`} />
-          </Text>
-        )}
-        {t.description !== undefined && <Markdown key="description" text={t.description} />}
-        {t.acceptance.length > 0 && <Markdown key="acceptance" text={t.acceptance.map(a => `- ${a}`).join('\n')} />}
+          <Box flexDirection="row" gap={1} flexWrap="wrap">
+            <Text color={STATUS_COLOR[t.status] ?? COLOR.dim}>{t.status}</Text>
+            <Text color={COLOR.dim}>{[t.size, t.epic, ...(milestone === undefined ? [] : [milestone])].join(' · ')}</Text>
+          </Box>
+          {pr !== null && (
+            <Box flexDirection="row" gap={1} flexWrap="wrap">
+              <Text color={pr.ci === 'failure' ? COLOR.over : pr.ci === 'success' ? COLOR.ok : COLOR.dim}>{`${pullRequestLine(pr)}${pr.queued ? ' · in merge queue' : ''}${pr.conflicting ? ' · conflicting' : ''}`}</Text>
+              <Text color={lines > budget ? COLOR.over : COLOR.dim}>{`${lines}/${budget} lines`}</Text>
+            </Box>
+          )}
+          <Box flexDirection="row" gap={2}>
+            {t.url !== undefined && <Link key="ticket-link" href={t.url} label="Open in Tick-it" />}
+            {pr?.url !== undefined && <Link key="pr-link" href={pr.url} label="Open PR on GitHub" />}
+          </Box>
+          {!mine && !['Done', 'Superseded', 'Dropped'].includes(t.status) && (
+            <Box flexDirection="row" gap={2}>
+              <Button key="start-session" label="t Start a session on this ticket" onPress={async () => void $.ui.toast(await startSession($, t.id))} />
+              {link?.ticket === t.id && <Link key="session-link" href={link.href} label="Open the new session" />}
+            </Box>
+          )}
+        </Box>
+        {waitingOn.length > 0 && section('WAITING ON', waitingOn.map(ref))}
+        {blocks.length > 0 && section('BLOCKS', blocks.map(ref))}
+        {t.description !== undefined && section('DESCRIPTION', <Markdown key="description" text={t.description} />)}
+        {t.acceptance.length > 0 && section('ACCEPTANCE', <Markdown key="acceptance" text={t.acceptance.map(a => `- ${a}`).join('\n')} />)}
+        {labels.length > 0 && section('LABELS', <Text>{labels.join(' · ')}</Text>)}
       </Box>
     )
   })

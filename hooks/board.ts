@@ -21,6 +21,8 @@ export type BriefLines = { memories: string; memoryTools: string; deferredTools:
 export type Served = { sizeBudgets: Record<TicketSize, number>; ticket: string; briefLines: BriefLines }
 const served = atom({ plugin: 'tick-it', key: 'served' } as const, null as Served | null)
 const steward = atom({ plugin: 'tick-it', key: 'steward' } as const, null)
+/** The link Tick-it gave for the session it last started from the ticket pane. */
+const sessionLink = atom({ plugin: 'tick-it', key: 'sessionLink' } as const, null as { ticket: string; href: string } | null)
 
 /**
  * What the board can show, in order: the roadmap's milestones, then a last stop for the tickets in no milestone
@@ -339,6 +341,24 @@ export async function openPullRequest($: EngineInterface): Promise<string> {
   if (out === undefined) return 'tick-it: could not open the pull request: gh did not start.'
   if (out.exitCode !== 0) return `tick-it: could not open #${pr.number}: ${(out.stderr.trim() || 'gh failed').slice(0, 150)}`
   return `tick-it: opened #${pr.number} on GitHub.`
+}
+
+/** Every string in a Tick-it answer, however deep. */
+const stringsOf = (value: unknown): string[] => (typeof value === 'string' ? [value] : typeof value === 'object' && value !== null ? Object.values(value).flatMap(stringsOf) : [])
+
+/**
+ * The pane's t: starts a Claude Code session on the ticket on this computer
+ * (Tick-it's start_session) and keeps the link that opens it for the pane.
+ * Says what happened, or why not (the ticket is held by a live session, say).
+ */
+export async function startSession($: EngineInterface, id: string): Promise<string> {
+  const repository = await repositoryHere($)
+  if (repository === undefined) return 'tick-it: this folder has no GitHub origin remote, so tick-it does not know which repository it is.'
+  const started = await callTickit($, 'start_session', { repository, key: id, place: 'local' })
+  if (!started.ok) return `tick-it: could not start a session on ${id}: ${started.why}`
+  const href = stringsOf(started.value).find(text => text.startsWith('claude-cli://'))
+  await update($, sessionLink, () => (href === undefined ? null : { ticket: id, href }))
+  return href === undefined ? `tick-it: started a session on ${id}.` : `tick-it: started a session on ${id}; open it from the ticket pane.`
 }
 
 /** The ticket's status as Tick-it has it now, or undefined when it cannot say. */
