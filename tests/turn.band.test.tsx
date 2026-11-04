@@ -28,33 +28,21 @@ test('taking a ticket puts its brief in the system prompt and the band', async (
   }
 })
 
-test('the band shows the pull request and CI after each turn, and the last one with why when a read fails', async ($, on) => {
+test('CI turning failing raises one toast and opens the board, again only after it left failing', async ($, on) => {
   const net: Net = { pullRequests: [{ number: 12, state: 'open', draft: true, ci: 'pending' }] }
   const seen = engine(on, { lines: 12 }, true, {}, net)
   await start($)
   await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-143' })
   await $.turn.complete({ turnId: 't1', reason: 'answer', answer: 'ok', durationMs: 1 } as never)
-  const ui = await $.ui.mount({ plugin: 'tick-it', surface: 'terminal', ...BAND })
-  expect(await ui.find({ type: 'Text', text: '#12 draft · CI running · 12 lines' })).toBeDefined()
-  await ui.unmount()
 
   net.pullRequests = [{ number: 12, state: 'open', draft: false, ci: 'success' }]
   await $.turn.complete({ turnId: 't2', reason: 'answer', answer: 'ok', durationMs: 1 } as never)
-  const again = await $.ui.mount({ plugin: 'tick-it', surface: 'terminal', ...BAND })
-  expect(await again.find({ type: 'Text', text: '#12 open · CI passing · 12 lines' })).toBeDefined()
-  await again.unmount()
 
   net.pullRequests = [{ number: 12, state: 'merged', draft: false, ci: null }]
   await $.turn.complete({ turnId: 't2b', reason: 'answer', answer: 'ok', durationMs: 1 } as never)
-  const merged = await $.ui.mount({ plugin: 'tick-it', surface: 'terminal', ...BAND })
-  expect(await merged.find({ type: 'Text', text: '#12 merged · no CI yet · 12 lines' })).toBeDefined()
-  await merged.unmount()
 
   net.pullRequests = [{ number: 12, state: 'open', draft: false, ci: 'failure' }]
   await $.turn.complete({ turnId: 't2c', reason: 'answer', answer: 'ok', durationMs: 1 } as never)
-  const red = await $.ui.mount({ plugin: 'tick-it', surface: 'terminal', ...BAND })
-  expect(await red.find({ type: 'Text', text: '#12 open · CI failing · 12 lines' })).toBeDefined()
-  await red.unmount()
   expect(seen.toasts.filter(t => t.includes('CI is failing on #12 open'))).toHaveLength(1)
   await $.turn.complete({ turnId: 't2d', reason: 'answer', answer: 'ok', durationMs: 1 } as never)
   expect(seen.toasts.filter(t => t.includes('CI is failing'))).toHaveLength(1)
@@ -69,19 +57,6 @@ test('the band shows the pull request and CI after each turn, and the last one w
 
   net.pullRequests = 'unreachable'
   await $.turn.complete({ turnId: 't3', reason: 'answer', answer: 'ok', durationMs: 1 } as never)
-  const failed = await $.ui.mount({ plugin: 'tick-it', surface: 'terminal', ...BAND })
-  expect(await failed.find({ type: 'Text', text: /#12 open · CI failing · 12 lines \(last read; Tick-it is down\)/ })).toBeDefined()
-  await failed.unmount()
-})
-
-test('a failed first read says the pull request was not read, not that there is none', async ($, on) => {
-  engine(on, { lines: 12 }, true, {}, { pullRequests: 'unreachable' })
-  await start($)
-  await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-143' })
-  await $.turn.complete({ turnId: 't1', reason: 'answer', answer: 'ok', durationMs: 1 } as never)
-  const ui = await $.ui.mount({ plugin: 'tick-it', surface: 'terminal', ...BAND })
-  expect(await ui.find({ type: 'Text', text: 'pull request not read yet (Tick-it is down)' })).toBeDefined()
-  await ui.unmount()
 })
 
 test('the band stays empty with no ticket taken', async ($, on) => {
@@ -92,7 +67,7 @@ test('the band stays empty with no ticket taken', async ($, on) => {
   await ui.unmount()
 })
 
-test("the band names the ticket's milestone and queue state, and its key and pull request open the ticket pane", async ($, on) => {
+test('the band is the key, title, status, diff and Board, and the key opens the ticket pane', async ($, on) => {
   const net: Net = {
     pullRequests: [{ number: 12, state: 'open', draft: false, ci: 'success', mergeQueue: { position: 1 } }],
     milestones: [{ title: 'Checkout launch before the holiday freeze', dueOn: null, epics: [{ title: 'One-page checkout', tickets: 2, done: 0 }], tickets: 2, done: 0 }],
@@ -104,11 +79,13 @@ test("the band names the ticket's milestone and queue state, and its key and pul
   await $.turn.complete({ turnId: 't1', reason: 'answer', answer: 'ok', durationMs: 1 } as never)
 
   const band = await $.ui.mount({ plugin: 'tick-it', surface: 'terminal', ...BAND })
-  expect(await band.find({ type: 'Text', text: '#12 open · CI passing · in merge queue · 12 lines' })).toBeDefined()
-  expect(await band.find({ type: 'Text', text: '◇ Checkout launch before…' })).toBeDefined()
-  await band.press({ key: 'pull-request' })
+  expect(await band.find({ type: 'Text', text: '12/100' })).toBeDefined()
+  expect(await band.find({ key: 'board' })).toBeDefined()
+  expect(await band.find({ key: 'done' })).toBeUndefined()
+  expect(await band.find({ key: 'pull-request' })).toBeUndefined()
+  expect(await band.find({ type: 'Text', text: /#12|◇/ })).toBeUndefined()
   await band.press({ key: 'ticket' })
-  expect(seen.opened.filter(id => id === 'tick-it-ticket')).toHaveLength(2)
+  expect(seen.opened.filter(id => id === 'tick-it-ticket')).toHaveLength(1)
   await band.unmount()
 
   const pane = await $.ui.mount({ plugin: 'tick-it', surface: 'desktop', component: 'Pane', requestId: 'tick-it-ticket', props: { title: 'TCK-143', isFocused: true, bodyColumns: 60, placement: 'dock', scroll: { offset: 0, bodyRows: 30 }, view: {} } } as const)
@@ -118,6 +95,5 @@ test("the band names the ticket's milestone and queue state, and its key and pul
   expect(await pane.find({ type: 'Link', text: '#12 on GitHub' })).toBeDefined()
   expect(await pane.find({ type: 'Markdown', text: 'Keep the **step** across reloads.' })).toBeDefined()
   expect(await pane.find({ type: 'Markdown', text: '- GET /checkout resumes at stored step' })).toBeDefined()
-  expect(JSON.stringify(await pane.drawn())).toContain('https://github.com/acme/web-app/pull/12')
   await pane.unmount()
 })

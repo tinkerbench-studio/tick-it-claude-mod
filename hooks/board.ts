@@ -265,9 +265,6 @@ export async function refreshPullRequest($: EngineInterface, id: string): Promis
 /** The milestone whose epics hold the ticket's epic, if any. */
 export const milestoneOf = (roadmap: MilestoneView[], t: Ticket): string | undefined => roadmap.find(m => m.epics.some(epic => epic.title === t.epic))?.title
 
-/** Clipped to `max` characters with an ellipsis, for the band. */
-export const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text)
-
 /** "#12 draft · CI passing": the pull request as the pane words it. */
 export const pullRequestLine = (pr: PullRequestView): string => {
   const state = pr.state === 'open' || pr.state === 'unknown' ? (pr.draft ? 'draft' : 'open') : pr.state

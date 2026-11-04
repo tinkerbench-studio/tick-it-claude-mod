@@ -2,8 +2,8 @@ import type { MilestoneView } from '../types'
 import { atom, read, update } from 'claude-code'
 import type { Register } from 'claude-code'
 import { PANE, TICKET_PANE, WARN_AT, groupsOf, COLOR } from './state'
-import { budgetOf, boardStops, pickMilestone, nextMilestone, milestoneLine, milestoneOf, clip, findCurrent, pullRequestLine, fixCi, rerunFailed, openPullRequest } from './board'
-import { take, finish } from './work'
+import { budgetOf, boardStops, pickMilestone, nextMilestone, milestoneLine, milestoneOf, findCurrent, fixCi, rerunFailed, openPullRequest } from './board'
+import { take } from './work'
 import { reviewAgain, stopStewarding, summarise, reviewLine, findingRows } from './reviews'
 
 // Declared in this file: the engine reads an atom only where it is written (a module cannot use one imported from state.ts).
@@ -15,7 +15,6 @@ const milestones = atom({ plugin: 'tick-it', key: 'milestones' } as const, [] as
 /** The milestone the board shows, by title; the first one when it is null or no longer on the roadmap. */
 const shownMilestone = atom({ plugin: 'tick-it', key: 'shownMilestone' } as const, null as string | null)
 const pullRequest = atom({ plugin: 'tick-it', key: 'pullRequest' } as const, null)
-const pullRequestError = atom({ plugin: 'tick-it', key: 'pullRequestError' } as const, null)
 const reviews = atom({ plugin: 'tick-it', key: 'reviews' } as const, [])
 const steward = atom({ plugin: 'tick-it', key: 'steward' } as const, null)
 /** Whether the stewarding pane lists the round's optional findings; they stay behind a key until asked for. */
@@ -46,30 +45,18 @@ export const registerUi: Register = on => {
     const { Box, Text, Button } = $.ui.resolve(e)
     const lines = await read($, diffLines)
     const budget = await budgetOf($, t.size)
-    const pr = await read($, pullRequest)
-    const prError = await read($, pullRequestError)
     const tone = lines > budget ? COLOR.over : lines >= budget * WARN_AT ? COLOR.warn : COLOR.ok
-    const milestone = milestoneOf(await read($, milestones), t)
-    const details = () => void $.ui.open({ id: TICKET_PANE, title: t.id })
 
     return (
       <Box flexDirection="row" gap={1} flexWrap="wrap">
         <Text color={COLOR.accent}>◆</Text>
-        <Button key="ticket" plain onPress={details}>
+        <Button key="ticket" plain onPress={() => void $.ui.open({ id: TICKET_PANE, title: t.id })}>
           <Text bold>{t.id}</Text>
         </Button>
         <Text wrap="truncate-end">{t.title}</Text>
         <Text color={COLOR.dim}>· {t.status} · diff</Text>
         <Text color={tone}>{`${lines}/${budget}`}</Text>
-        {pr !== null && (
-          <Button key="pull-request" plain onPress={details}>
-            <Text color={prError === null ? COLOR.dim : COLOR.warn}>{`${pullRequestLine(pr)}${pr.queued ? ' · in merge queue' : ''}${pr.conflicting ? ' · conflicting' : ''} · ${lines} lines${prError === null ? '' : ` (last read; ${prError})`}`}</Text>
-          </Button>
-        )}
-        {pr === null && prError !== null && <Text color={COLOR.warn}>{`pull request not read yet (${prError})`}</Text>}
-        {milestone !== undefined && <Text color={COLOR.dim}>{`◇ ${clip(milestone, 24)}`}</Text>}
         <Button key="board" label="Board" onPress={() => void $.ui.open({ id: PANE, title: 'Tick-it' })} />
-        <Button key="done" label="Done" onPress={() => void finish($, 'In review')} />
       </Box>
     )
   })
