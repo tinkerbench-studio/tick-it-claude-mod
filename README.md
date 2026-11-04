@@ -27,8 +27,8 @@ Shared settings: the size budgets, default review rounds and the brief's instruc
 
 The marketplace (`tinkerbench-studio/marketplace`) pins this plugin to a git tag, `v<version>`, so an install gets a release and not whatever is on `main`. To release:
 
-1. Raise `version` in `.claude-plugin/plugin.json` in the change that is released, and merge it.
-2. Tag the merge commit and push the tag: `git tag v<version> <commit> && git push origin v<version>`.
+1. Raise `version` in `.claude-plugin/plugin.json` in the change that is released. CI fails a pull request that changes `hooks/`, `skills/`, `types/` or `plugin.json` without raising it.
+2. Merge it. CI tags the merge commit `v<version>` and creates a GitHub release (`.github/workflows/release.yml`); nothing is done by hand.
 3. In the marketplace, set `ref` of the `tick-it` entry to `v<version>` and merge that.
 
 Installed copies update only after step 3, and only when `version` changed.
