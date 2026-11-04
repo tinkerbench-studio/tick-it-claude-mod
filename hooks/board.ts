@@ -21,6 +21,8 @@ export type BriefLines = { memories: string; memoryTools: string; deferredTools:
 export type Served = { sizeBudgets: Record<TicketSize, number>; ticket: string; briefLines: BriefLines }
 const served = atom({ plugin: 'tick-it', key: 'served' } as const, null as Served | null)
 const steward = atom({ plugin: 'tick-it', key: 'steward' } as const, null)
+/** The link Tick-it gave for the session it last started from the ticket pane. */
+const sessionLink = atom({ plugin: 'tick-it', key: 'sessionLink' } as const, null as { ticket: string; href: string } | null)
 
 /**
  * What the board can show, in order: the roadmap's milestones, then a last stop for the tickets in no milestone
@@ -173,7 +175,7 @@ export async function save($: EngineInterface, list: Ticket[]) {
 }
 
 /** A ticket as Tick-it's tools spell it. */
-export type RemoteTicket = { key: string; title: string; epic: string | null; size: TicketSize; status: TicketStatus; description?: string | null; acceptance: string[]; blockedBy?: string[]; blocks?: string[]; url?: string }
+export type RemoteTicket = { key: string; title: string; epic: string | null; size: TicketSize; status: TicketStatus; description?: string | null; acceptance: string[]; blockedBy?: string[]; blocks?: string[]; labels?: string[]; url?: string }
 export const fromRemote = (r: RemoteTicket): Ticket => ({
   id: r.key,
   title: r.title,
@@ -184,6 +186,7 @@ export const fromRemote = (r: RemoteTicket): Ticket => ({
   acceptance: r.acceptance,
   blockedBy: r.blockedBy ?? [],
   blocks: r.blocks ?? [],
+  ...(r.labels === undefined ? {} : { labels: r.labels }),
   ...(r.url === undefined ? {} : { url: r.url }),
 })
 
@@ -248,7 +251,7 @@ export async function refreshPullRequest($: EngineInterface, id: string): Promis
   const states = ['open', 'closed', 'merged', 'unknown']
   const cis = ['pending', 'success', 'failure']
   const view: PullRequestView | null =
-    found === undefined ? null : { number: found.number, state: states.includes(found.state) ? found.state : 'unknown', draft: found.draft === true, ci: cis.includes(found.ci as string) ? found.ci : null, behind: typeof found.behind === 'boolean' ? found.behind : null, conflicting: (found as { mergeState?: string }).mergeState === 'conflicting', queued: (found as { mergeQueue?: unknown }).mergeQueue != null, ciInstructed: found.ciInstructed === true }
+    found === undefined ? null : { number: found.number, state: states.includes(found.state) ? found.state : 'unknown', draft: found.draft === true, ci: cis.includes(found.ci as string) ? found.ci : null, behind: typeof found.behind === 'boolean' ? found.behind : null, conflicting: (found as { mergeState?: string }).mergeState === 'conflicting', queued: (found as { mergeQueue?: unknown }).mergeQueue != null, ciInstructed: found.ciInstructed === true, url: typeof found.url === 'string' ? found.url : `https://github.com/${repository}/pull/${found.number}` }
   await update($, pullRequest, () => view)
   await update($, pullRequestError, () => null)
   // CI turning failing is said once, with the pane opened; it speaks again only after CI has left failing.
@@ -260,6 +263,9 @@ export async function refreshPullRequest($: EngineInterface, id: string): Promis
     await $.ui.open({ id: PANE, title: 'Tick-it' })
   }
 }
+
+/** The milestone whose epics hold the ticket's epic, if any. */
+export const milestoneOf = (roadmap: MilestoneView[], t: Ticket): string | undefined => roadmap.find(m => m.epics.some(epic => epic.title === t.epic))?.title
 
 /** "#12 draft · CI passing": the pull request as the pane words it. */
 export const pullRequestLine = (pr: PullRequestView): string => {
@@ -335,6 +341,24 @@ export async function openPullRequest($: EngineInterface): Promise<string> {
   if (out === undefined) return 'tick-it: could not open the pull request: gh did not start.'
   if (out.exitCode !== 0) return `tick-it: could not open #${pr.number}: ${(out.stderr.trim() || 'gh failed').slice(0, 150)}`
   return `tick-it: opened #${pr.number} on GitHub.`
+}
+
+/** Every string in a Tick-it answer, however deep. */
+const stringsOf = (value: unknown): string[] => (typeof value === 'string' ? [value] : typeof value === 'object' && value !== null ? Object.values(value).flatMap(stringsOf) : [])
+
+/**
+ * The pane's t: starts a Claude Code session on the ticket on this computer
+ * (Tick-it's start_session) and keeps the link that opens it for the pane.
+ * Says what happened, or why not (the ticket is held by a live session, say).
+ */
+export async function startSession($: EngineInterface, id: string): Promise<string> {
+  const repository = await repositoryHere($)
+  if (repository === undefined) return 'tick-it: this folder has no GitHub origin remote, so tick-it does not know which repository it is.'
+  const started = await callTickit($, 'start_session', { repository, key: id, place: 'local' })
+  if (!started.ok) return `tick-it: could not start a session on ${id}: ${started.why}`
+  const href = stringsOf(started.value).find(text => text.startsWith('claude-cli://'))
+  await update($, sessionLink, () => (href === undefined ? null : { ticket: id, href }))
+  return href === undefined ? `tick-it: started a session on ${id}.` : `tick-it: started a session on ${id}; open it from the ticket pane.`
 }
 
 /** The ticket's status as Tick-it has it now, or undefined when it cannot say. */

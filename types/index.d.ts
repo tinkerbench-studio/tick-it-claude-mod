@@ -18,6 +18,7 @@ export type Ticket = {
   /** Keys of the tickets that must be Done first, and of those waiting on this one. */
   blockedBy?: string[]
   blocks?: string[]
+  labels?: string[]
   url?: string
 }
 
@@ -105,6 +106,8 @@ export type PullRequestView = {
   queued: boolean
   /** Tick-it has already told the ticket's session about CI failing on the current head commit. */
   ciInstructed: boolean
+  /** Its page on GitHub; absent on one read by an older mod. */
+  url?: string
 }
 
 export type StewardPhase = 'reviewing' | 'fixing' | 'done' | 'stopped'
@@ -143,6 +146,10 @@ declare module 'claude-code' {
       /** Why the board could not be read from Tick-it, shown with the cached board; null once it is read. */
       boardError: string | null
       current: string | null
+      /** The ticket the details pane shows; the taken one when null. */
+      viewed: string | null
+      /** The link to the session last started from the ticket pane. */
+      sessionLink: { ticket: string; href: string } | null
       diffLines: number
       /** The current ticket's newest pull request; the last one read stays when a read fails. */
       pullRequest: PullRequestView | null

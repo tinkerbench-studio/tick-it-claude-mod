@@ -6,6 +6,8 @@ import type { TicketSize, TicketStatus } from '../types'
 // server first and the cache follows what the server answered.
 
 export const PANE = 'tick-it-board'
+/** The taken ticket's details, opened from its key or pull request in the band. */
+export const TICKET_PANE = 'tick-it-ticket'
 export const STORE_KEY = 'tickets'
 export const STARTED_KEY = 'started-session'
 /** The first line of a session Tick-it started for a ticket. */

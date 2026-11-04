@@ -150,6 +150,7 @@ export const engine = (
         if (net.linkRefused) throw new Error('connection refused')
         return net.linkRejected ? refuse('No ticket TCK-143 in acme/web-app.') : answer({ pullRequests: [] })
       }
+      if (e.tool === 'start_session') return answer({ session: { id: 's_new1234567' }, local: { link: `claude-cli://open?q=work+on+${String(a.key)}` } })
       if (e.tool === 'add_attachment') return answer({ attachment: { id: 'att1', name: a.name, type: a.type } })
       if (e.tool === 'create_ticket') {
         const ticket: Remote = { key: `TCK-${200 + seen.server.length}`, title: String(a.title), epic: null, size: a.size as Remote['size'], status: 'Ready', acceptance: [], assignee: null }
