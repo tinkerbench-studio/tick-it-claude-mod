@@ -1,8 +1,8 @@
 import type { MilestoneView } from '../types'
 import { atom, read, update } from 'claude-code'
 import type { Register } from 'claude-code'
-import { PANE, BUDGET, WARN_AT, groupsOf, COLOR } from './state'
-import { boardStops, pickMilestone, nextMilestone, milestoneLine, findCurrent, pullRequestLine, fixCi, rerunFailed, openPullRequest } from './board'
+import { PANE, WARN_AT, groupsOf, COLOR } from './state'
+import { budgetOf, boardStops, pickMilestone, nextMilestone, milestoneLine, findCurrent, pullRequestLine, fixCi, rerunFailed, openPullRequest } from './board'
 import { take, finish } from './work'
 import { reviewAgain, stopStewarding, summarise, reviewLine, findingRows } from './reviews'
 
@@ -45,7 +45,7 @@ export const registerUi: Register = on => {
     }
     const { Box, Text, Button } = $.ui.resolve(e)
     const lines = await read($, diffLines)
-    const budget = BUDGET[t.size]
+    const budget = await budgetOf($, t.size)
     const pr = await read($, pullRequest)
     const prError = await read($, pullRequestError)
     const tone = lines > budget ? COLOR.over : lines >= budget * WARN_AT ? COLOR.warn : COLOR.ok

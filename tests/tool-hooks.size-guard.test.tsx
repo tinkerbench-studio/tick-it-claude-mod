@@ -75,3 +75,11 @@ for (const [size, budget] of [
     expect(JSON.stringify(await write(60))).toContain(`${size} budget of ${budget}`)
   })
 }
+
+test('the guard measures against the budget Tick-it serves, not the mod’s copy', async ($, on) => {
+  engine(on, { lines: 90 }, true, {}, { modConfig: { sizeBudgets: { XS: 120, S: 120, M: 120, L: 120 }, defaultReviewRounds: { XS: 2, S: 3, M: 5, L: 6 }, maxReviewRounds: 10, briefLines: { memories: 'm', memoryTools: 't', deferredTools: 'd', done: 'f', branch: 'b', addToTicket: ['a'] } } })
+  await start($)
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-143' })
+  const write = (count: number) => $.tool.call({ tool: 'Write', file_path: '/repo/api/b.ts', content: Array.from({ length: count }, (_, i) => `line ${i}`).join('\n') })
+  expect(JSON.stringify(await write(40))).toContain('XS budget of 120')
+})

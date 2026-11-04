@@ -1,0 +1,19 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Skill wording checks
+        run: node --test checks/*.test.mjs
+      - name: Plugin tests
+        run: |
+          npm install -g @anthropic-ai/claude-code
+          claude plugin test .

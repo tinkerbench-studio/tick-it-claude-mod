@@ -1,9 +1,9 @@
 import { atom, read } from 'claude-code'
 import type { Register } from 'claude-code'
 import type { TicketSize } from '../types'
-import { BUDGET, SIZES } from './state'
+import { SIZES } from './state'
 import { repositoryHere, freshBriefOf } from './tickit'
-import { changedLines, nextSize, findCurrent, save, showStatus } from './board'
+import { budgetOf, changedLines, nextSize, findCurrent, save, showStatus } from './board'
 import { readText, measureDiff, refreshDiff, take, finishedByClaude } from './work'
 
 // Declared in this file: the engine reads an atom only where it is written (a module cannot use one imported from state.ts).
@@ -26,7 +26,7 @@ export const registerTools: Register = on => {
       estimate = changedLines(await readText($, e.file_path), e.content)
     }
     const now = await measureDiff($)
-    const budget = BUDGET[t.size]
+    const budget = await budgetOf($, t.size)
     if (now + estimate > budget) {
       return {
         deny:

@@ -70,6 +70,8 @@ export type Net = {
   instructions?: string
   /** The review rounds by ticket size, as get_repository_settings answers them; not answered when absent. */
   reviewRounds?: Record<string, number>
+  /** What get_mod_config answers; 'unreachable' makes the call fail, and absent leaves it unanswered (the mod keeps its own copies). */
+  modConfig?: Record<string, unknown> | 'unreachable'
   /** The repository's autoMerge setting, as get_repository_settings answers it. */
   autoMerge?: boolean
   /** What report_session answers as the session's instructions, such as resolving a merge conflict. */
@@ -121,6 +123,7 @@ export const engine = (
     if (e.tool !== 'record_runs') {
       const a = e.args as Record<string, unknown>
       seen.ticketCalls.push({ tool: e.tool, args: a, server: e.server })
+      if (e.tool === 'get_mod_config') return net.modConfig === undefined ? refuse('No such tool') : net.modConfig === 'unreachable' ? refuseOr('unreachable') : answer(net.modConfig)
       if (a.repository !== 'acme/web-app') return refuse(`No tickets in ${String(a.repository)} yet. create_ticket adds the first one.`)
       if (e.tool === 'list_tickets') {
         if (net.pageSize === undefined) return answer({ tickets: seen.server })

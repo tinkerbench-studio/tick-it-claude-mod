@@ -1,9 +1,9 @@
 import { atom, read } from 'claude-code'
 import type { Register } from 'claude-code'
 import type { TicketSize } from '../types'
-import { PANE, BUDGET, groupsOf, SIZES, USAGE } from './state'
+import { PANE, groupsOf, SIZES, USAGE } from './state'
 import { callTickit, repositoryHere, briefOf, freshBriefOf } from './tickit'
-import { findCurrent, save, fromRemote, refreshBoard, setStatus } from './board'
+import { budgetOf, findCurrent, save, fromRemote, refreshBoard, setStatus } from './board'
 import type { RemoteTicket } from './board'
 import { attachFile, recordPullRequest, take, finish, uiRefusal } from './work'
 import { startRound, reviewReport } from './reviews'
@@ -39,8 +39,9 @@ export const registerCommand: Register = on => {
       case 'take': {
         const t = await take($, rest[0] ?? '')
         if (typeof t === 'string') return { text: t }
-        const lines = [`◆ ${t.id} ${t.title} · ${t.size} · ${t.epic}`, ...t.acceptance.map(a => `  [ ] ${a}`), `  Budget ${BUDGET[t.size]} changed lines. The brief is in Claude's system prompt.`]
-        return { text: lines.join('\n'), context: [await freshBriefOf($, t)] }
+        const fresh = await freshBriefOf($, t)
+        const lines = [`◆ ${t.id} ${t.title} · ${t.size} · ${t.epic}`, ...t.acceptance.map(a => `  [ ] ${a}`), `  Budget ${await budgetOf($, t.size)} changed lines. The brief is in Claude's system prompt.`]
+        return { text: lines.join('\n'), context: [fresh] }
       }
       case 'done': {
         const t = await findCurrent($)
