@@ -8,6 +8,8 @@ export const BOARD_SHOTS_DIR = 'reports/design-canvas/shots'
 const IMAGE = /\.(png|jpe?g|webp|gif)$/i
 /** A changed canvas board (copy or map entry), which has a story to draw beside it. */
 const BOARD = /(^|\/)design\/canvas\/boards\/[^/]+\.(map\.json|dc\.html)$/
+/** A committed copy of a board-beside-story picture, by the name docs/design-system.md gives it. */
+const BESIDE_STORY = /\/board-beside-story-[^/]+\.png$/
 
 /** What is missing for a UI change to be reviewed: one line each, with how to produce it. Empty when the evidence is there or the change touches no UI. */
 export function uiEvidenceProblems(input: { ticket: string; changed: readonly string[]; committed: readonly string[]; boardShots: readonly string[]; /** The pull request description; '' for a branch with no pull request yet; null when it could not be read (the description is then not checked). */ description: string | null }): string[] {
@@ -21,8 +23,8 @@ export function uiEvidenceProblems(input: { ticket: string; changed: readonly st
       `${folder} has no picture on the branch (before/after images from ui:compare; a story the change adds may carry its after alone). Take the before from the merge base (git fetch origin && git worktree add ../tick-it-base "$(git merge-base HEAD origin/main)", then npm run ui:shots -- shots/before ../tick-it-base/apps/web/src) and the after from the branch (npm run ui:shots -- shots/after), run npm run ui:compare -- shots/before shots/after ${folder}, then commit them there. ${how}.`,
     )
   const boards = input.changed.filter(p => BOARD.test(p))
-  // The pictures may sit in the ignored reports folder or be committed beside the before/after images (board-beside-story-*.png).
-  const besideStory = input.boardShots.some(p => p.endsWith('-side-by-side.png')) || images.some(p => /board-beside-story|side-by-side/i.test(p))
+  // The pictures may sit in the ignored reports folder or be committed beside the before/after images as board-beside-story-<Board>[-light].png.
+  const besideStory = input.boardShots.some(p => p.endsWith('-side-by-side.png')) || images.some(p => BESIDE_STORY.test(p))
   if (boards.length > 0 && !besideStory) problems.push(`This branch changes a canvas board or board-map entry (${boards.slice(0, 3).join(', ')}) but neither ${BOARD_SHOTS_DIR} nor ${folder} has board-beside-story pictures. Run npm run build-storybook, then npm run design-canvas:shots. ${how}.`)
   const missing = images.filter(p => !(input.description ?? '').includes(p))
   if (input.description !== null && images.length > 0 && missing.length > 0) problems.push(`The pull request description does not list ${missing.length === 1 ? 'this image' : 'these images'} by path: ${missing.join(', ')}. Open the pull request if there is none, then list each one per line as plain text (no image markup) and name every visible difference. ${how}.`)
