@@ -146,6 +146,8 @@ declare module 'claude-code' {
       /** Why the board could not be read from Tick-it, shown with the cached board; null once it is read. */
       boardError: string | null
       current: string | null
+      /** The ticket the details pane shows; the taken one when null. */
+      viewed: string | null
       diffLines: number
       /** The current ticket's newest pull request; the last one read stays when a read fails. */
       pullRequest: PullRequestView | null

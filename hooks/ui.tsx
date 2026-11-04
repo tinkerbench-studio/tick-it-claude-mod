@@ -1,6 +1,6 @@
-import type { MilestoneView } from '../types'
+import type { MilestoneView, TicketStatus } from '../types'
 import { atom, read, update } from 'claude-code'
-import type { Register } from 'claude-code'
+import type { EngineInterface, Register } from 'claude-code'
 import { PANE, TICKET_PANE, WARN_AT, groupsOf, COLOR } from './state'
 import { budgetOf, boardStops, pickMilestone, nextMilestone, milestoneLine, milestoneOf, findCurrent, fixCi, rerunFailed, openPullRequest } from './board'
 import { take } from './work'
@@ -19,6 +19,15 @@ const reviews = atom({ plugin: 'tick-it', key: 'reviews' } as const, [])
 const steward = atom({ plugin: 'tick-it', key: 'steward' } as const, null)
 /** Whether the stewarding pane lists the round's optional findings; they stay behind a key until asked for. */
 const showOptional = atom({ plugin: 'tick-it', key: 'showOptional' } as const, false)
+/** The ticket the details pane shows, by key; the taken ticket when it is null or no longer on the board. */
+const viewed = atom({ plugin: 'tick-it', key: 'viewed' } as const, null as string | null)
+
+const viewTicket = async ($: EngineInterface, id: string) => {
+  await update($, viewed, () => id)
+  await $.ui.open({ id: TICKET_PANE, title: id })
+}
+
+const STATUS_COLOR: Partial<Record<TicketStatus, string>> = { 'In progress': COLOR.accent, 'In review': COLOR.warn, 'Ready to merge': COLOR.ok }
 
 export const registerUi: Register = on => {
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
@@ -50,7 +59,7 @@ export const registerUi: Register = on => {
     return (
       <Box flexDirection="row" gap={1} flexWrap="wrap">
         <Text color={COLOR.accent}>◆</Text>
-        <Button key="ticket" plain onPress={() => void $.ui.open({ id: TICKET_PANE, title: t.id })}>
+        <Button key="ticket" plain onPress={() => void viewTicket($, t.id)}>
           <Text bold>{t.id}</Text>
         </Button>
         <Text wrap="truncate-end">{t.title}</Text>
@@ -117,39 +126,66 @@ export const registerUi: Register = on => {
             <Button key="open-pr" label="g Open PR on GitHub" onPress={async () => void $.ui.toast(await openPullRequest($))} />
           </Box>
         )}
-        {groupsOf(shown).map(status => {
-          const rows = shown.filter(t => t.status === status)
-          return (
-            <Box key={`group-${status}`} flexDirection="column">
-              <Text bold>
-                {status} <Text color={COLOR.dim}>{rows.length}</Text>
-              </Text>
-              {rows.length === 0 && <Text color={COLOR.dim}>none</Text>}
-              {rows.map(t => (
-                <Button
-                  key={t.id}
-                  plain
-                  onPress={async () => {
-                    const took = await take($, t.id)
-                    $.ui.toast(typeof took === 'string' ? `tick-it: ${took}` : `tick-it: took ${took.id}. Its brief is with Claude.`)
-                  }}
-                >
-                  {t.id === taken ? '◆ ' : '  '}
-                  {t.id} {t.title} <Text color={COLOR.dim}>{t.size}</Text>
-                </Button>
-              ))}
+        <Box key="table" flexDirection="column">
+          <Box key="table-head" flexDirection="row" gap={1}>
+            <Box width={11}>
+              <Text color={COLOR.dim}>KEY</Text>
             </Box>
-          )
-        })}
+            <Box flexGrow={1}>
+              <Text color={COLOR.dim}>TICKET</Text>
+            </Box>
+            <Box width={4}>
+              <Text color={COLOR.dim}>SIZE</Text>
+            </Box>
+            <Box width={14}>
+              <Text color={COLOR.dim}>STATUS</Text>
+            </Box>
+          </Box>
+          {shown.length === 0 && <Text color={COLOR.dim}>none</Text>}
+          {groupsOf(shown).flatMap(status =>
+            shown
+              .filter(t => t.status === status)
+              .map(t => (
+                <Box key={`row-${t.id}`} flexDirection="row" gap={1}>
+                  <Box width={11}>
+                    <Button key={`open-${t.id}`} plain onPress={() => void viewTicket($, t.id)}>
+                      <Text bold color={t.id === taken ? COLOR.accent : undefined}>{`${t.id === taken ? '◆ ' : '  '}${t.id}`}</Text>
+                    </Button>
+                  </Box>
+                  <Box flexGrow={1} flexDirection="column">
+                    <Button
+                      key={t.id}
+                      plain
+                      onPress={async () => {
+                        const took = await take($, t.id)
+                        $.ui.toast(typeof took === 'string' ? `tick-it: ${took}` : `tick-it: took ${took.id}. Its brief is with Claude.`)
+                      }}
+                    >
+                      {t.title}
+                    </Button>
+                    <Text color={COLOR.dim} wrap="truncate-end">{t.epic}</Text>
+                  </Box>
+                  <Box width={4}>
+                    <Text>{t.size}</Text>
+                  </Box>
+                  <Box width={14}>
+                    <Text color={STATUS_COLOR[t.status] ?? COLOR.dim}>{t.status}</Text>
+                  </Box>
+                </Box>
+              )),
+          )}
+        </Box>
       </Box>
     )
   })
 
   on('ui.render', { component: 'Pane', requestId: TICKET_PANE }, async ($, e) => {
     const { Box, Text, Link, Markdown } = $.ui.resolve(e)
-    const t = await findCurrent($)
-    if (t === undefined) return <Text color={COLOR.dim}>No ticket is taken.</Text>
-    const pr = await read($, pullRequest)
+    const id = (await read($, viewed)) ?? (await read($, current))
+    const t = (await read($, tickets)).find(one => one.id === id)
+    if (t === undefined) return <Text color={COLOR.dim}>No ticket is shown.</Text>
+    // The pull request read is the taken ticket's.
+    const pr = t.id === (await read($, current)) ? await read($, pullRequest) : null
     const milestone = milestoneOf(await read($, milestones), t)
 
     return (
