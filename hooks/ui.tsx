@@ -9,6 +9,7 @@ import { reviewAgain, stopStewarding, summarise, reviewLine, findingRows } from 
 // Declared in this file: the engine reads an atom only where it is written (a module cannot use one imported from state.ts).
 const tickets = atom({ plugin: 'tick-it', key: 'tickets' } as const, [])
 const current = atom({ plugin: 'tick-it', key: 'current' } as const, null)
+const boardError = atom({ plugin: 'tick-it', key: 'boardError' } as const, null)
 const diffLines = atom({ plugin: 'tick-it', key: 'diffLines' } as const, 0)
 /** The roadmap, in order, as list_milestones answers it; empty when the repository has none or Tick-it could not be asked. */
 const milestones = atom({ plugin: 'tick-it', key: 'milestones' } as const, [] as MilestoneView[])
@@ -75,6 +76,7 @@ export const registerUi: Register = on => {
     const { Box, Text, Button } = $.ui.resolve(e)
     const list = await read($, tickets)
     const taken = await read($, current)
+    const problem = await read($, boardError)
     const s = await read($, steward)
     const stewarded = s === null ? [] : (await read($, reviews)).filter(r => r.ticket === s.ticket)
     const optionalShown = await read($, showOptional)
@@ -95,6 +97,7 @@ export const registerUi: Register = on => {
             {roadmap.length > 1 && <Button key="milestone-next" label="m next milestone" onPress={async () => void (await update($, shownMilestone, () => nextMilestone(roadmap, milestone.title)))} />}
           </Box>
         )}
+        {problem !== null && <Text color={COLOR.warn}>{`Could not read the board: ${problem}.`}</Text>}
         <Text color={COLOR.dim}>Press a ticket to take it.</Text>
         {s !== null && (
           <Box key="steward" flexDirection="column">

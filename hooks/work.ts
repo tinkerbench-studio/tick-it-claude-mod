@@ -11,6 +11,7 @@ import { uiEvidenceRefusal } from './ui-check'
 // Declared in this file: the engine reads an atom only where it is written (a module cannot use one imported from state.ts).
 const tickets = atom({ plugin: 'tick-it', key: 'tickets' } as const, [])
 const current = atom({ plugin: 'tick-it', key: 'current' } as const, null)
+const boardError = atom({ plugin: 'tick-it', key: 'boardError' } as const, null)
 const diffLines = atom({ plugin: 'tick-it', key: 'diffLines' } as const, 0)
 /** The session Tick-it started this one as: set by its first message, reported to as the work goes on. */
 const startedSession = atom({ plugin: 'tick-it', key: 'started' } as const, null)
@@ -243,7 +244,11 @@ export const firstLine = (answer: string) =>
 export async function take($: EngineInterface, id: string): Promise<Ticket | string> {
   const wanted = id.toUpperCase()
   if ((await read($, tickets)).find(one => one.id === wanted) === undefined) await refreshBoard($)
-  if ((await read($, tickets)).find(one => one.id === wanted) === undefined) return `No ticket ${id}. Try /tick-it board.`
+  if ((await read($, tickets)).find(one => one.id === wanted) === undefined) {
+    // A board that could not be read says nothing about the ticket: give the reason, not "no ticket".
+    const problem = await read($, boardError)
+    return problem === null ? `No ticket ${id}. Try /tick-it board.` : `Could not read the board to find ${wanted}: ${problem}.`
+  }
   // Tick-it answers the session it keeps for this: one it started, or one it made now. Reports go to it.
   const adopt = async (session: string) => {
     const repository = await repositoryHere($)
