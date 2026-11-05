@@ -1,0 +1,36 @@
+{
+  "about": "What the mod sends Tick-it and the fields of each answer it reads. Tick-it's CI checks every call against the tool's inputSchema and every answer against its outputSchema (docs/api-compatibility.md in tick-it). An answer lists only the fields the mod reads. Add a call or a field here when the mod starts using it.",
+  "calls": [
+    { "tool": "get_mod_config", "args": { "key": "TCK-143" } },
+    { "tool": "get_repository_settings", "args": { "repository": "acme/web-app" } },
+    { "tool": "list_tickets", "args": { "repository": "acme/web-app" } },
+    { "tool": "list_tickets", "args": { "repository": "acme/web-app", "cursor": "50" } },
+    { "tool": "list_milestones", "args": { "repository": "acme/web-app" } },
+    { "tool": "get_ticket", "args": { "repository": "acme/web-app", "key": "TCK-143" } },
+    { "tool": "get_ticket", "args": { "repository": "acme/web-app", "key": "TCK-143", "include": ["attachments", "memories"] } },
+    { "tool": "list_pull_requests", "args": { "repository": "acme/web-app", "key": "TCK-143" } },
+    { "tool": "start_session", "args": { "repository": "acme/web-app", "key": "TCK-143", "place": "local" } },
+    { "tool": "create_ticket", "args": { "repository": "acme/web-app", "title": "A new ticket", "size": "S", "acceptance": [] } },
+    { "tool": "update_ticket", "args": { "repository": "acme/web-app", "key": "TCK-143", "status": "In progress", "assignee": "me" } },
+    { "tool": "set_needs_human", "args": { "repository": "acme/web-app", "key": "TCK-143", "kind": "no-clean-round", "note": "1 blocking finding still open after 5 rounds" } },
+    { "tool": "report_session", "args": { "repository": "acme/web-app", "session": "s_abc12345", "status": "working", "summary": "Building it" } },
+    { "tool": "record_runs", "args": { "repository": "acme/web-app", "session": "s_abc12345", "runs": [{ "agentId": "s_abc12345-TCK-143-principal-r1", "ticket": "TCK-143", "kind": "review", "skill": "principal", "round": 1, "model": "claude-opus-5-5", "durationMs": 95000 }] } },
+    { "tool": "report_review_agents", "args": { "repository": "acme/web-app", "agents": [{ "skill": "principal", "model": "claude-opus-5-5" }] } },
+    { "tool": "add_attachment", "args": { "repository": "acme/web-app", "ticket": "TCK-143", "name": "board.png", "type": "image/png", "content": "iVBORw0KGgo=" } },
+    { "tool": "link_pull_request", "args": { "repository": "acme/web-app", "key": "TCK-143", "branch": "tck-143-persist-checkout-step", "number": 12 } }
+  ],
+  "answers": [
+    { "tool": "get_mod_config", "answer": { "sizeBudgets": { "S": 100 }, "defaultReviewRounds": { "S": 3 }, "maxReviewRounds": 6, "minModVersion": "0.1.0", "notice": null, "briefLines": { "memories": "m", "memoryTools": "t", "deferredTools": "d", "done": "x", "branch": "b", "addToTicket": ["a"] } } },
+    { "tool": "get_repository_settings", "answer": { "instructions": "", "autoMerge": true, "reviewRounds": { "S": 3 } } },
+    { "tool": "list_tickets", "answer": { "tickets": [{ "key": "TCK-143", "title": "Persist checkout step", "epic": "One-page checkout", "size": "XS", "status": "Ready", "assignee": null }], "nextCursor": "50" } },
+    { "tool": "list_milestones", "answer": { "milestones": [{ "title": "Launch", "dueOn": null, "epics": [{ "title": "One-page checkout", "tickets": 3, "done": 1 }], "tickets": 3, "done": 1 }] } },
+    { "tool": "get_ticket", "answer": { "ticket": { "key": "TCK-143", "title": "Persist checkout step", "epic": null, "size": "XS", "status": "Ready", "acceptance": ["Step stored"], "assignee": null } } },
+    { "tool": "list_pull_requests", "answer": { "pullRequests": [{ "number": 12, "state": "open", "draft": false, "ci": "success", "behind": false, "mergeState": "mergeable", "ciInstructed": false }] } },
+    { "tool": "start_session", "answer": { "session": { "id": "s_new1234567" } } },
+    { "tool": "create_ticket", "answer": { "ticket": { "key": "TCK-200", "title": "A new ticket", "size": "S", "status": "Ready" } } },
+    { "tool": "update_ticket", "answer": { "ticket": { "key": "TCK-143", "status": "In progress", "assignee": "maddiecs84" }, "session": "s_taken12345" } },
+    { "tool": "add_attachment", "answer": { "attachment": { "id": "att1", "name": "board.png", "type": "image/png" } } },
+    { "tool": "report_session", "answer": { "session": { "id": "s_abc12345", "status": "working" }, "instructions": [] } },
+    { "tool": "record_runs", "answer": { "accepted": ["s_abc12345-TCK-143-principal-r1"], "rejected": [] } }
+  ]
+}
