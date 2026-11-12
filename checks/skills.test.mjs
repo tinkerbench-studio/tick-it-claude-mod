@@ -54,13 +54,11 @@ test('the introduces rule is written only in docs/ticket-breakdown.md; README an
     const skill = read(`skills/${name}/SKILL.md`)
     expect(skill).toContain(pointer)
     expect(skill).toContain('`docs/ticket-breakdown.md`')
-    // a skill only points: every line that names introduces is the pointer, with no restated rule
-    const lines = skill.split('\n').filter(line => line.includes('introduces'))
-    assert.ok(lines.length > 0, `${name} no longer mentions introduces`)
-    for (const line of lines) {
-      assert.ok(line.includes(pointer) && line.includes('docs/ticket-breakdown.md'), `${name}: an introduces line is not just the pointer: ${line}`)
-      assert.ok(!/infer|consumer|merely|stated|states/i.test(line), `${name} restates the rule: ${line}`)
-    }
+    // a skill only points: one exact pointer line, and no other line talks about introduces, consumed-by entries or what a later ticket calls
+    const pointerLine = '3a. **Record what a later ticket calls by `docs/ticket-breakdown.md`.** Follow its section "Recording what a later ticket calls" for `introduces`.'
+    const lines = skill.split('\n')
+    assert.ok(lines.includes(pointerLine), `${name} no longer has the exact pointer line`)
+    for (const line of lines.filter(line => line !== pointerLine)) assert.ok(!/introduces|consumed-by|later ticket (calls|call)|consumer/i.test(line), `${name} restates the rule outside the pointer: ${line}`)
   }
   for (const copied of ['Do not infer consumers from ticket text', 'merely sounds related', 'With no stated consumer, record nothing']) assert.ok(!readme.includes(copied), `README copies the rule: "${copied}"`)
 })
