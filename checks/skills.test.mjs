@@ -53,9 +53,14 @@ test('the introduces rule is written only in docs/ticket-breakdown.md; README an
   for (const name of ['draft-ticket', 'plan-epic']) {
     const skill = read(`skills/${name}/SKILL.md`)
     expect(skill).toContain(pointer)
-    expect(skill).toContain('`introduces`')
-    // the rule's own wording stays in the doc
-    for (const copied of ['Do not infer consumers from ticket text', 'merely sounds related', 'shares an area', 'With no stated consumer, record nothing']) assert.ok(!skill.includes(copied), `${name} copies the rule: "${copied}"`)
+    expect(skill).toContain('`docs/ticket-breakdown.md`')
+    // a skill only points: every line that names introduces is the pointer, with no restated rule
+    const lines = skill.split('\n').filter(line => line.includes('introduces'))
+    assert.ok(lines.length > 0, `${name} no longer mentions introduces`)
+    for (const line of lines) {
+      assert.ok(line.includes(pointer) && line.includes('docs/ticket-breakdown.md'), `${name}: an introduces line is not just the pointer: ${line}`)
+      assert.ok(!/infer|consumer|merely|stated|states/i.test(line), `${name} restates the rule: ${line}`)
+    }
   }
   for (const copied of ['Do not infer consumers from ticket text', 'merely sounds related', 'With no stated consumer, record nothing']) assert.ok(!readme.includes(copied), `README copies the rule: "${copied}"`)
 })
