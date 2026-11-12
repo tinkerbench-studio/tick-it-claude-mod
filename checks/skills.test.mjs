@@ -43,3 +43,19 @@ test('draft-ticket and plan-epic point to the breakdown rules and the UI-evidenc
     expect(skill).toContain('UI-evidence checklist')
   }
 })
+
+test('the introduces rule is written only in docs/ticket-breakdown.md; README and skills point to it', () => {
+  const pointer = 'Recording what a later ticket calls'
+  const readme = read('README.md')
+  expect(readme).toContain(pointer)
+  expect(readme).toContain('only for consumers the plan states')
+  expect(readme).toContain('docs/ticket-breakdown.md')
+  for (const name of ['draft-ticket', 'plan-epic']) {
+    const skill = read(`skills/${name}/SKILL.md`)
+    expect(skill).toContain(pointer)
+    expect(skill).toContain('`introduces`')
+    // the rule's own wording stays in the doc
+    for (const copied of ['Do not infer consumers from ticket text', 'merely sounds related', 'shares an area', 'With no stated consumer, record nothing']) assert.ok(!skill.includes(copied), `${name} copies the rule: "${copied}"`)
+  }
+  for (const copied of ['Do not infer consumers from ticket text', 'merely sounds related', 'With no stated consumer, record nothing']) assert.ok(!readme.includes(copied), `README copies the rule: "${copied}"`)
+})
