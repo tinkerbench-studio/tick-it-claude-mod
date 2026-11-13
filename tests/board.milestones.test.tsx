@@ -98,3 +98,15 @@ test('no hook sends an epic or milestone title to a Tick-it tool', async ($, on)
   expect(seen.ticketCalls.length).toBeGreaterThan(0)
   for (const title of ['One-page checkout', 'Address autocomplete', 'Saved payment methods', 'Checkout']) expect(sent).not.toContain(title)
 })
+
+test('the No milestone stop shows the tickets that have no epic', async ($, on) => {
+  const one = { title: 'Checkout', dueOn: null, epics: [{ id: 'e-checkout', title: 'One-page checkout', tickets: 2, done: 0 }], tickets: 2, done: 0 }
+  const seen = engine(on, { lines: 10 }, true, {}, { milestones: [one] })
+  seen.server.push({ key: 'TCK-300', title: 'No epic here', epic: null, size: 'XS', status: 'Ready', acceptance: [], assignee: null })
+  await start($)
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'board' })
+  const ui = await $.ui.mount({ plugin: 'tick-it', surface: 'terminal', ...PANE })
+  await ui.press({ key: 'milestone-next' })
+  expect(await ui.find({ type: 'Button', text: /TCK-300/ })).toBeDefined()
+  await ui.unmount()
+})

@@ -110,7 +110,7 @@ export const registerUi: Register = on => {
     const roadmap = boardStops(await read($, milestones), list)
     const milestone = pickMilestone(roadmap, await read($, shownMilestone))
     const epics = milestone === undefined ? undefined : new Set(milestone.epics.map(epic => epic.id))
-    const shown = epics === undefined ? list : list.filter(t => t.epicId !== undefined && epics.has(t.epicId))
+    const shown = epics === undefined ? list : list.filter(t => epics.has(t.epicId))
     const optionalCount = s === null ? 0 : stewarded.filter(r => r.round === s.round).reduce((n, r) => n + (r.optional ?? 0), 0)
 
     return (

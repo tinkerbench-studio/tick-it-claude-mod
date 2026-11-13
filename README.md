@@ -33,7 +33,7 @@ The marketplace (`tinkerbench-studio/marketplace`) pins this plugin to a git tag
 
 Installed copies update only after step 3, and only when `version` changed.
 
-**0.25.0 is the first release that sends ids.** The board matches a ticket to its milestone by epic id (`epicId` of `list_tickets` and `get_ticket`, `id` of each epic in `list_milestones`), so two epics with the same title under different owners stay apart, and the size guard's new-ticket choice names the epic by its id; no hook sends an epic or milestone title to a Tick-it tool. Tick-it can raise `MIN_MOD_VERSION` to 0.25.0.
+**0.25.0 is the first release that sends ids.** The board matches a ticket to its milestone by epic id (`epicId` of `list_tickets` and `get_ticket`, `id` of each epic in `list_milestones`), so two epics with the same title under different owners stay apart, and no hook sends an epic or milestone title to a Tick-it tool (a review run is recorded without its epic). The size guard's new-ticket choice still tells Claude to name the epic by title, because `create_ticket` takes `epic` by title until Tick-it accepts an epic id there. Tick-it can raise `MIN_MOD_VERSION` to 0.25.0.
 
 ## Ticket references in replies
 

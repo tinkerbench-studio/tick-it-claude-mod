@@ -22,8 +22,8 @@ test('an edit that would pass the budget is refused, a small one runs', async ($
   expect(JSON.stringify(big)).toContain('Backlog')
   expect(JSON.stringify(big)).toContain('Raise TCK-143 to S')
   expect(JSON.stringify(big)).toContain('Leave it')
-  expect(JSON.stringify(big)).toContain('in epic e-checkout')
-  expect(JSON.stringify(big)).not.toContain('One-page checkout')
+  // create_ticket still takes the epic by title, so the guard names it that way (the id would make a new epic).
+  expect(JSON.stringify(big)).toContain('in epic \\"One-page checkout\\"')
   expect(JSON.stringify(big)).toContain('blockedBy [\\"TCK-143\\"]')
 })
 
