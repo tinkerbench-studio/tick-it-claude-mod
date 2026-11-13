@@ -1,5 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
+import { MOD_VERSION } from '../hooks/state'
 import { RUN, engine, start } from './helpers'
 import type { Net } from './helpers'
 
@@ -26,7 +27,7 @@ test('taking a ticket asks Tick-it for get_mod_config and the brief uses what it
     command: 'tick-it',
     args: 'take TCK-143',
   })
-  expect(seen.ticketCalls.some(c => c.tool === 'get_mod_config' && c.args.key === 'TCK-143')).toBe(true)
+  expect(seen.ticketCalls.some(c => c.tool === 'get_mod_config' && c.args.key === 'TCK-143' && c.args.modVersion === MOD_VERSION)).toBe(true)
   const text = JSON.stringify(took.context)
   for (const line of ['SERVED memories line.', 'SERVED memory tools line.', 'SERVED done line.', 'SERVED branch line.', 'SERVED add-to-ticket line.']) expect(text).toContain(line)
   expect(text).not.toContain('Finish by moving the ticket to In review')
