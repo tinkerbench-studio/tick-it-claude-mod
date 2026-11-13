@@ -7,9 +7,9 @@
 export const UI_EVIDENCE_CHECKLIST: readonly string[] = [
   "UI evidence: the canvas board, the board's design/canvas/boards/<Board>.map.json (board-map entry) and the canvas snapshot are updated for what changed, and the drawing-board canvas-sync skill's check and compare steps (design-canvas:check, design-canvas:compare) pass",
   'UI evidence: every new or changed component state has a Storybook story',
-  'UI evidence: dark, light and mobile (390 px) pictures of what changed are taken, with before/after images (changes outlined) committed in docs/change-screenshots/<TCK-key>',
+  'UI evidence: dark, light and mobile (390 px) pictures of what changed are taken, with before/after images (changes outlined) uploaded to Tick-it with presign_screenshot_upload and confirm_screenshot, not committed',
   'UI evidence: Tick-it posts the ticket comment linking the images with the pull request link, so you do not',
-  'UI evidence: the pull request description lists each before/after image by its path as plain text (no image markup) and names every visible difference',
+  'UI evidence: the pull request description lists each before/after image by its object key as plain text (no image markup) and names every visible difference',
 ]
 
 /**

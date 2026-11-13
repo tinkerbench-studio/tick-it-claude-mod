@@ -40,13 +40,13 @@ test('a ticket Claude moved to In review where the hook did not see it is stewar
 })
 
 test('a UI change moved to In review where the hook did not see it is refused at the turn end, and Claude is told what is missing', async ($, on) => {
-  const seen = engine(on, { lines: 12, numstatZ: UI_FILES, gh: body('') }, true, { '.tick-it/skills/principal/SKILL.md': SKILLS['.tick-it/skills/principal/SKILL.md'] ?? '' })
+  const seen = engine(on, { lines: 12, numstatZ: UI_FILES }, true, { '.tick-it/skills/principal/SKILL.md': SKILLS['.tick-it/skills/principal/SKILL.md'] ?? '' })
   await start($)
   await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-147' })
   seen.server.find(t => t.key === 'TCK-147')!.status = 'In review'
   await $.turn.complete(finishTurn(undefined, 'Built it.'))
   expect(seen.spawned).toEqual([])
-  expect(seen.submitted.some(t => t.includes('changes the UI') && t.includes('has no picture on the branch'))).toBe(true)
+  expect(seen.submitted.some(t => t.includes('changes the UI') && t.includes('has no confirmed picture in Tick-it'))).toBe(true)
   // The same refusal at the next turn end is not sent again.
   const sent = seen.submitted.length
   await $.turn.complete(finishTurn(undefined, 'Still no pictures.'))

@@ -18,6 +18,6 @@ test('the UI-evidence checklist is added to the criteria of a ticket that touche
 
 test('the checklist names every deliverable and points to the canvas-sync skill', () => {
   const joined = UI_EVIDENCE_CHECKLIST.join('\n')
-  for (const word of ['board-map', 'snapshot', 'canvas-sync skill', 'Storybook story', 'dark, light and mobile (390 px)', 'docs/change-screenshots/<TCK-key>', 'ticket comment', 'pull request link', 'visible difference', 'by its path', 'no image markup']) expect(joined).toContain(word)
+  for (const word of ['board-map', 'snapshot', 'canvas-sync skill', 'Storybook story', 'dark, light and mobile (390 px)', 'uploaded to Tick-it', 'confirm_screenshot', 'ticket comment', 'pull request link', 'visible difference', 'by its object key', 'no image markup']) expect(joined).toContain(word)
   expect(joined).not.toContain('`')
 })

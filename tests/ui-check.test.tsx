@@ -1,103 +1,112 @@
 import { expect, test } from 'claude-code/testing'
 
-import { RUN, engine, start, STARTED, typed, reports, finishReview, UI_FILES, BOARD_FILES, IMG, body } from './helpers'
+import { RUN, engine, start, STARTED, typed, finishReview, UI_FILES, BOARD_FILES, PIC } from './helpers'
 
-test('a UI change with no before/after image is refused before review, naming the folder and how to make them', async ($, on) => {
-  const seen = engine(on, { lines: 5, numstatZ: UI_FILES, gh: body('') })
+const inReview = (seen: ReturnType<typeof engine>) => seen.ticketCalls.some(c => c.tool === 'update_ticket' && c.args.status === 'In review')
+const looked = (seen: ReturnType<typeof engine>) => seen.ticketCalls.filter(c => c.tool === 'list_screenshots')
+
+test('a UI change whose ticket has no confirmed picture is refused, naming the upload steps and not saying to commit', async ($, on) => {
+  const seen = engine(on, { lines: 5, numstatZ: UI_FILES, pictures: [] })
   await start($)
   await $.prompt.submit(typed(STARTED))
   const moved = await finishReview($ as never)
-  expect(moved.deny).toContain('docs/change-screenshots/TCK-151 has no picture on the branch')
-  expect(moved.deny).toContain('git worktree add')
+  expect(moved.deny).toContain('TCK-151 has no confirmed picture in Tick-it')
+  expect(moved.deny).toContain('presign_screenshot_upload')
+  expect(moved.deny).toContain('confirm_screenshot')
   expect(moved.deny).toContain('npm run ui:shots -- shots/before')
-  expect(moved.deny).toContain('npm run ui:compare')
   expect(moved.deny).toContain('Showing a UX change')
-  expect(seen.ticketCalls.some(c => c.tool === 'update_ticket' && c.args.status === 'In review')).toBe(false)
+  expect(moved.deny).toContain('Do not commit')
+  expect(moved.deny).not.toMatch(/commit them/i)
+  expect(moved.deny).not.toContain('docs/change-screenshots')
+  expect(looked(seen)[0]?.args).toMatchObject({ repository: 'acme/web-app', ticket: 'TCK-151' })
+  expect(inReview(seen)).toBe(false)
 })
 
-test('a canvas board change with no board-beside-story pictures is refused, naming how to take them', async ($, on) => {
-  engine(on, { lines: 5, numstatZ: BOARD_FILES, tree: [IMG], gh: body(IMG) })
+test('a UI change with a confirmed picture passes with no committed file and whatever the description says', async ($, on) => {
+  const seen = engine(on, { lines: 5, numstatZ: UI_FILES, pictures: [PIC], gh: () => ({ exitCode: 1, stdout: '', stderr: 'no pull requests found' }) })
+  await start($)
+  await $.prompt.submit(typed(STARTED))
+  expect((await finishReview($ as never)).deny).toBeUndefined()
+  expect(inReview(seen)).toBe(true)
+})
+
+test('the gate runs no git or gh command to look for pictures', async ($, on) => {
+  const seen = engine(on, { lines: 5, numstatZ: UI_FILES, pictures: [PIC] })
+  await start($)
+  await $.prompt.submit(typed(STARTED))
+  seen.processes.length = 0
+  await finishReview($ as never)
+  expect(seen.processes.filter(p => /ls-tree|--ignored|body|change-screenshots|design-canvas/.test(p))).toEqual([])
+  // The only gh call left is the pull request number /tick-it done records, never its description.
+  expect(seen.processes.filter(p => p.startsWith('gh ') && p.includes('body'))).toEqual([])
+})
+
+test('a canvas board change with no board-beside-story picture is refused, naming how to take and upload them', async ($, on) => {
+  const seen = engine(on, { lines: 5, numstatZ: BOARD_FILES, pictures: [PIC] })
   await start($)
   await $.prompt.submit(typed(STARTED))
   const moved = await finishReview($ as never)
-  expect(moved.deny).toContain('neither reports/design-canvas/shots nor docs/change-screenshots/TCK-151 has board-beside-story pictures')
+  expect(moved.deny).toContain('shows no picture named board-beside-story-*')
   expect(moved.deny).toContain('npm run design-canvas:shots')
-  expect(moved.deny).not.toContain('has no picture on the branch')
+  expect(moved.deny).toContain('confirm_screenshot')
+  expect(moved.deny).not.toContain('has no confirmed picture')
+  expect(inReview(seen)).toBe(false)
 })
 
-test('a UI change whose pull request description leaves out an image path is refused, naming the path', async ($, on) => {
-  engine(on, { lines: 5, numstatZ: UI_FILES, tree: [IMG, 'docs/change-screenshots/TCK-151/other-before-after.png'], gh: body(IMG) })
-  await start($)
-  await $.prompt.submit(typed(STARTED))
-  const moved = await finishReview($ as never)
-  expect(moved.deny).toContain('does not list this image by path: docs/change-screenshots/TCK-151/other-before-after.png')
-  expect(moved.deny).not.toContain(`path: ${IMG}`)
-})
-
-test('a UI change with no pull request yet lists every image as missing from its description', async ($, on) => {
-  engine(on, { lines: 5, numstatZ: UI_FILES, tree: [IMG], gh: argv => (argv[1] === 'pr' ? { exitCode: 1, stdout: '', stderr: 'no pull requests found for branch "tck-151-picker"' } : undefined) })
-  await start($)
-  await $.prompt.submit(typed(STARTED))
-  expect((await finishReview($ as never)).deny).toContain(`by path: ${IMG}`)
-})
-
-test('a canvas board change with committed board-beside-story pictures and no reports/ folder goes to review', async ($, on) => {
-  const beside = 'docs/change-screenshots/TCK-151/board-beside-story-Board.png'
-  const seen = engine(on, { lines: 5, numstatZ: BOARD_FILES, tree: [IMG, beside], gh: body(`${IMG}\n${beside}\n`) })
+test('a canvas board change passes when list_screenshots shows a board-beside-story picture', async ($, on) => {
+  const seen = engine(on, { lines: 5, numstatZ: BOARD_FILES, pictures: [PIC, { key: 'tickets/TCK-151/abc', name: 'board-beside-story-Board.png' }] })
   await start($)
   await $.prompt.submit(typed(STARTED))
   expect((await finishReview($ as never)).deny).toBeUndefined()
-  expect(seen.ticketCalls.some(c => c.tool === 'update_ticket' && c.args.status === 'In review')).toBe(true)
+  expect(inReview(seen)).toBe(true)
 })
 
-test('a canvas board change whose committed images are not board-beside-story pictures is still refused', async ($, on) => {
-  const other = 'docs/change-screenshots/TCK-151/picker-side-by-side.png'
-  engine(on, { lines: 5, numstatZ: BOARD_FILES, tree: [IMG, other], gh: body(`${IMG}
-${other}
-`) })
+test('a canvas board change whose pictures are not named board-beside-story is still refused', async ($, on) => {
+  engine(on, { lines: 5, numstatZ: BOARD_FILES, pictures: [PIC, { key: 'tickets/TCK-151/x', name: 'picker-side-by-side.png' }] })
   await start($)
   await $.prompt.submit(typed(STARTED))
-  expect((await finishReview($ as never)).deny).toContain('has board-beside-story pictures')
+  expect((await finishReview($ as never)).deny).toContain('board-beside-story-*')
 })
 
-test('a UI change with every picture, the board pictures and a description that lists them goes to review', async ($, on) => {
-  const seen = engine(on, { lines: 5, numstatZ: BOARD_FILES, tree: [IMG], shots: ['reports/design-canvas/shots/Board-side-by-side.png'], gh: body(`Changes\n${IMG}\n`) })
+test('a change that touches no UI path is never refused for pictures and Tick-it is not asked', async ($, on) => {
+  const seen = engine(on, { lines: 5, numstatZ: `1\t0\tapps/mcp/src/store.ts\0`, pictures: [] })
   await start($)
   await $.prompt.submit(typed(STARTED))
   expect((await finishReview($ as never)).deny).toBeUndefined()
-  expect(seen.ticketCalls.some(c => c.tool === 'update_ticket' && c.args.status === 'In review')).toBe(true)
+  expect(looked(seen)).toEqual([])
+  expect(inReview(seen)).toBe(true)
 })
 
-test('a change that touches no UI path is never refused for pictures', async ($, on) => {
-  const seen = engine(on, { lines: 5, numstatZ: `1\t0\tapps/mcp/src/store.ts\0`, gh: body('') })
+test('when list_screenshots is down the move goes through', async ($, on) => {
+  const seen = engine(on, { lines: 5, numstatZ: UI_FILES, pictures: 'unreachable' })
   await start($)
   await $.prompt.submit(typed(STARTED))
   expect((await finishReview($ as never)).deny).toBeUndefined()
-  expect(seen.ticketCalls.some(c => c.tool === 'update_ticket' && c.args.status === 'In review')).toBe(true)
+  expect(inReview(seen)).toBe(true)
 })
 
-test('gh that cannot answer leaves the description unchecked, and an after-only image counts as a picture', async ($, on) => {
-  const seen = engine(on, { lines: 5, numstatZ: UI_FILES, tree: ['docs/change-screenshots/TCK-151/story-after.png'], gh: argv => (argv[1] === 'pr' ? { exitCode: 1, stdout: '', stderr: 'To get started with GitHub CLI, please run: gh auth login' } : undefined) })
+test('when list_screenshots answers with no list the move goes through', async ($, on) => {
+  const seen = engine(on, { lines: 5, numstatZ: UI_FILES, pictures: 'odd' })
   await start($)
   await $.prompt.submit(typed(STARTED))
   expect((await finishReview($ as never)).deny).toBeUndefined()
-  expect(seen.ticketCalls.some(c => c.tool === 'update_ticket' && c.args.status === 'In review')).toBe(true)
+  expect(inReview(seen)).toBe(true)
 })
 
 test('/tick-it steward refuses a UI change with no pictures for the ticket being built', async ($, on) => {
-  const seen = engine(on, { lines: 5, numstatZ: UI_FILES, gh: body('') })
+  const seen = engine(on, { lines: 5, numstatZ: UI_FILES, pictures: [] })
   await start($)
   await $.prompt.submit(typed(STARTED))
   const stewarded = (await $.command.run({ ...RUN, command: 'tick-it', args: 'steward TCK-151' })) as { text: string }
-  expect(stewarded.text).toContain('has no picture on the branch')
-  expect(seen.ticketCalls.some(c => c.tool === 'update_ticket' && c.args.status === 'In review')).toBe(false)
+  expect(stewarded.text).toContain('has no confirmed picture in Tick-it')
+  expect(inReview(seen)).toBe(false)
 })
 
 test('/tick-it done refuses a UI change with no pictures too, and the ticket stays taken', async ($, on) => {
-  const seen = engine(on, { lines: 5, numstatZ: UI_FILES, gh: body('') })
+  const seen = engine(on, { lines: 5, numstatZ: UI_FILES, pictures: [] })
   await start($)
   await $.prompt.submit(typed(STARTED))
   const done = (await $.command.run({ ...RUN, command: 'tick-it', args: 'done' })) as { text: string }
-  expect(done.text).toContain('has no picture on the branch')
-  expect(seen.ticketCalls.some(c => c.tool === 'update_ticket' && c.args.status === 'In review')).toBe(false)
+  expect(done.text).toContain('has no confirmed picture in Tick-it')
+  expect(inReview(seen)).toBe(false)
 })
