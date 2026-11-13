@@ -21,7 +21,7 @@ When an edit is refused for passing the size budget, the refusal gives Claude th
 
 Tests: `claude plugin test .` runs the hook tests in `tests/`, and `node --test checks/*.test.mjs` checks the skills' wording. CI runs both.
 
-Shared settings: the size budgets, default review rounds and the brief's instruction lines come from Tick-it's `get_mod_config` tool when a ticket is taken (`hooks/tickit.ts`, `fetchModConfig`). The copies in `hooks/state.ts` and `hooks/board.ts` are only the fallback for when Tick-it cannot answer.
+Shared settings: the size budgets, default review rounds and the brief's instruction lines come from Tick-it's `get_mod_config` tool when a ticket is taken (`hooks/tickit.ts`, `fetchModConfig`). The copies in `hooks/state.ts` and `hooks/board.ts` are only the fallback for when Tick-it cannot answer. Two more brief lines come from `get_mod_config` too, with no local copy: `briefLines.beforeReview` (an array of lines, put in the brief before the line that says how to finish) and `briefLines.afterFix` (one line, added at the end of the fix prompt in `hooks/reviews.ts`). When Tick-it serves neither key, the brief and the fix prompt are the same as without them.
 
 ## Releases
 
