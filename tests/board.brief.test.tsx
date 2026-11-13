@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 
 import { brief } from '../hooks/register'
-import { RUN, COMPOSE, engine, start, reports, body } from './helpers'
+import { RUN, COMPOSE, engine, start, reports } from './helpers'
 import type { Net } from './helpers'
 
 test('taking a ticket Tick-it gave a description puts it in the brief, and a null one adds nothing', async ($, on) => {
