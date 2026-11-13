@@ -110,3 +110,16 @@ test('the No milestone stop shows the tickets that have no epic', async ($, on) 
   expect(await ui.find({ type: 'Button', text: /TCK-300/ })).toBeDefined()
   await ui.unmount()
 })
+
+test('a milestone epic with no id does not pull in the tickets that have no epic', async ($, on) => {
+  const one = { title: 'Checkout', dueOn: null, epics: [{ title: 'One-page checkout', tickets: 2, done: 0 }], tickets: 2, done: 0 }
+  const seen = engine(on, { lines: 10 }, true, {}, { milestones: [one] })
+  seen.server.push({ key: 'TCK-300', title: 'No epic here', epic: null, size: 'XS', status: 'Ready', acceptance: [], assignee: null })
+  await start($)
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'board' })
+  const ui = await $.ui.mount({ plugin: 'tick-it', surface: 'terminal', ...PANE })
+  // The first stop is the milestone, whose epic carries no id: no ticket can be matched to it.
+  expect(await ui.find({ type: 'Text', text: /Checkout · / })).toBeDefined()
+  expect(await ui.find({ type: 'Button', text: /TCK-300/ })).toBeUndefined()
+  await ui.unmount()
+})
