@@ -33,6 +33,8 @@ The marketplace (`tinkerbench-studio/marketplace`) pins this plugin to a git tag
 
 Installed copies update only after step 3, and only when `version` changed.
 
+**0.25.0 is the first release that sends ids.** The board matches a ticket to its milestone by epic id (`epicId` of `list_tickets` and `get_ticket`, `id` of each epic in `list_milestones`), so two epics with the same title under different owners stay apart, and the size guard's new-ticket choice names the epic by its id; no hook sends an epic or milestone title to a Tick-it tool. Tick-it can raise `MIN_MOD_VERSION` to 0.25.0.
+
 ## Ticket references in replies
 
 A ticket key Claude writes in a reply (`TCK-2`, or the repository's own prefix, in any case) is drawn as a bold link with the ticket's title, `Title (TCK-2)`. Pressing it opens the ticket pane. Only tickets on the board are linked, so `UTF-8` is left alone, and code, fences and links already written are not touched (`linkTickets` in `hooks/board.ts`, drawn by the `AssistantMessage` hook in `hooks/ui.tsx`).
