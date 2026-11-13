@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import { brief } from '../hooks/register'
-import { RUN, COMPOSE, SKILLS, engine, finishTurn, start, STARTED, typed, reports, UI_FILES, body } from './helpers'
+import { RUN, COMPOSE, SKILLS, engine, finishTurn, start, STARTED, typed, reports, UI_FILES } from './helpers'
 
 test('Claude taking a ticket itself is /tick-it take: the brief, then progress to its session, then the review agents', async ($, on) => {
   const seen = engine(on, { lines: 12 }, true, { '.tick-it/skills/principal/SKILL.md': SKILLS['.tick-it/skills/principal/SKILL.md'] ?? '' })

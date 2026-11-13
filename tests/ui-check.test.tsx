@@ -36,9 +36,9 @@ test('the gate runs no git or gh command to look for pictures', async ($, on) =>
   await $.prompt.submit(typed(STARTED))
   seen.processes.length = 0
   await finishReview($ as never)
-  expect(seen.processes.filter(p => /ls-tree|--ignored|body|change-screenshots|design-canvas/.test(p))).toEqual([])
+  expect(seen.processes.filter(p => /ls-tree|ls-files|--ignored|body|change-screenshots|design-canvas/.test(p) && p !== 'git ls-files --others --exclude-standard -z')).toEqual([])
   // The only gh call left is the pull request number /tick-it done records, never its description.
-  expect(seen.processes.filter(p => p.startsWith('gh ') && p.includes('body'))).toEqual([])
+  expect(seen.processes.filter(p => p.startsWith('gh ') && p !== 'gh pr view --json number')).toEqual([])
 })
 
 test('a canvas board change with no board-beside-story picture is refused, naming how to take and upload them', async ($, on) => {
@@ -54,7 +54,7 @@ test('a canvas board change with no board-beside-story picture is refused, namin
 })
 
 test('a canvas board change passes when list_screenshots shows a board-beside-story picture', async ($, on) => {
-  const seen = engine(on, { lines: 5, numstatZ: BOARD_FILES, pictures: [PIC, { key: 'tickets/TCK-151/abc', name: 'board-beside-story-Board.png' }] })
+  const seen = engine(on, { lines: 5, numstatZ: BOARD_FILES, pictures: [PIC, { key: 'acme/web-app/TCK-151/abc', name: 'board-beside-story-Board.png' }] })
   await start($)
   await $.prompt.submit(typed(STARTED))
   expect((await finishReview($ as never)).deny).toBeUndefined()
@@ -62,7 +62,7 @@ test('a canvas board change passes when list_screenshots shows a board-beside-st
 })
 
 test('a canvas board change whose pictures are not named board-beside-story is still refused', async ($, on) => {
-  engine(on, { lines: 5, numstatZ: BOARD_FILES, pictures: [PIC, { key: 'tickets/TCK-151/x', name: 'picker-side-by-side.png' }] })
+  engine(on, { lines: 5, numstatZ: BOARD_FILES, pictures: [PIC, { key: 'acme/web-app/TCK-151/x', name: 'picker-side-by-side.png' }] })
   await start($)
   await $.prompt.submit(typed(STARTED))
   expect((await finishReview($ as never)).deny).toContain('board-beside-story-*')

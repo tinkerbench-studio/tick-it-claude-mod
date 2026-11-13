@@ -341,9 +341,7 @@ export const UI_FILES = `1\t0\tapps/web/src/pages.tsx\0`
 
 export const BOARD_FILES = `${UI_FILES}1\t0\tdesign/canvas/boards/Board.map.json\0`
 
-export const PIC = { key: 'tickets/TCK-151/board-before-after.png', name: 'board-before-after.png' }
-
-export const body = (text: string) => (argv: string[]) => (argv[1] === 'pr' && argv.includes('body') ? { exitCode: 0, stdout: JSON.stringify({ body: text }), stderr: '' } : undefined)
+export const PIC = { key: 'acme/web-app/TCK-151/board-before-after.png', name: 'board-before-after.png' }
 
 export const PAGED = [161, 162, 163, 164, 165]
 

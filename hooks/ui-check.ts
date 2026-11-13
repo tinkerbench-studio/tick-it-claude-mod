@@ -17,18 +17,18 @@ export function uiEvidenceProblems(input: { ticket: string; changed: readonly st
   const problems: string[] = []
   if (input.pictures.length === 0)
     problems.push(
-      `${input.ticket} has no confirmed picture in Tick-it (list_screenshots). Take the before from the merge base (git fetch origin && git worktree add ../tick-it-base "$(git merge-base HEAD origin/main)", then npm run ui:shots -- shots/before ../tick-it-base/apps/web/src) and the after from the branch (npm run ui:shots -- shots/after), run npm run ui:compare -- shots/before shots/after, then upload each picture with presign_screenshot_upload and confirm_screenshot. Do not commit the pictures. ${how}.`,
+      `${input.ticket} has no confirmed picture in Tick-it (list_screenshots). Take the before from the merge base (git fetch origin && git worktree add ../tick-it-base "$(git merge-base HEAD origin/main)", then npm run ui:shots -- shots/before ../tick-it-base/apps/web/src) and the after from the branch (npm run ui:shots -- shots/after), run npm run ui:compare -- shots/before shots/after shots/compare, then upload each image in shots/compare with presign_screenshot_upload and confirm_screenshot. Do not commit the pictures. ${how}.`,
     )
   const boards = input.changed.filter(p => BOARD.test(p))
   if (boards.length > 0 && !input.pictures.some(p => BESIDE_STORY.test(p.name) || BESIDE_STORY.test(p.key)))
-    problems.push(`This branch changes a canvas board or board-map entry (${boards.slice(0, 3).join(', ')}) but list_screenshots shows no picture named board-beside-story-*. Run npm run build-storybook, then npm run design-canvas:shots, and upload the board-beside-story pictures with presign_screenshot_upload and confirm_screenshot. ${how}.`)
+    problems.push(`This branch changes a canvas board or board-map entry (${boards.slice(0, 3).join(', ')}) but list_screenshots shows no picture named board-beside-story-*. Run npm run build-storybook, then npm run design-canvas:shots, copy each reports/design-canvas/shots/<Board>[-light]-side-by-side.png to shots/compare/board-beside-story-<Board>[-light].png (the name the check looks for), and upload those with presign_screenshot_upload and confirm_screenshot. ${how}.`)
 
   return problems
 }
 
 /** The confirmed pictures from list_screenshots' answer, or null when the answer has no list in it. */
 export function picturesOf(value: Record<string, unknown>): Picture[] | null {
-  const list = value.screenshots ?? value.pictures
+  const list = value.screenshots
   if (!Array.isArray(list)) return null
   return list.flatMap(one => {
     if (typeof one !== 'object' || one === null) return []
