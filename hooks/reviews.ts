@@ -4,7 +4,7 @@ import type { PullRequestView, ReviewRun, ReviewUsage, Steward, Ticket, TicketSi
 import { SIZES, REVIEWS_KEY, SKILLS_DIR, OLD_SKILLS_DIR, KEEP_REVIEWS, MAX_FINDING_TEXT, PRICES } from './state'
 import { callTickit, fetchInstructions, repositoryHere, roundLimit } from './tickit'
 import { setStatus, showStatus, refreshPullRequest, servedConfig } from './board'
-import { report } from './work'
+import { report, untrackedFiles } from './work'
 import { queue, flush } from './outbox'
 
 // Declared in this file: the engine reads an atom only where it is written (a module cannot use one imported from state.ts).
@@ -209,15 +209,16 @@ export const globMatches = (glob: string, path: string): boolean => {
   return new RegExp(`^${rooted.includes('/') ? '' : '(?:.*/)?'}${body}$`).test(path)
 }
 
-/** The files the branch changed against its merge base with the remote's default branch, or null when they cannot be listed. */
+/** The files the branch changed against its merge base with the remote's default branch (the working tree, untracked files included), or null when they cannot be listed. */
 export async function changedSinceBase($: EngineInterface): Promise<string[] | null> {
   for (const base of ['origin/HEAD', 'origin/main', 'origin/master']) {
     const mb = await $.process.run(['git', 'merge-base', 'HEAD', base]).catch(() => undefined)
     const sha = mb?.exitCode === 0 ? mb.stdout.trim() : ''
     if (!/^[0-9a-f]{40}$/.test(sha)) continue
-    const diff = await $.process.run(['git', 'diff', '--name-only', '-z', sha, 'HEAD']).catch(() => undefined)
+    const diff = await $.process.run(['git', 'diff', '--name-only', '--no-renames', '-z', sha]).catch(() => undefined)
     if (diff === undefined || diff.exitCode !== 0) return null
-    return diff.stdout.split('\0').filter(f => f !== '')
+    // The working tree against the merge base, as the reviewers and the size budget see the change: uncommitted edits and untracked files count too.
+    return [...diff.stdout.split('\0'), ...(await untrackedFiles($).catch(() => []))].filter(f => f !== '')
   }
   return null
 }

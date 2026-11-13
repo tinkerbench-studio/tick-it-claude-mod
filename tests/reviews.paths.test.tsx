@@ -49,3 +49,10 @@ test('cannot list: every reviewer that matches the size runs and none is skipped
   expect(seen.spawned).toHaveLength(3)
   expect(skipped(seen)).toHaveLength(0)
 })
+
+test('uncommitted and untracked files count as changed', async ($, on) => {
+  const seen = engine(on, { lines: 10, changed: [], untracked: { 'docs/new.md': 'x' } }, true, { ...skill('docs', 'paths: docs/**'), ...skill('code', 'paths: hooks/*.ts') })
+  await done($)
+  expect(seen.spawned.map(s => s.description)).toEqual(['tick-it review: docs on TCK-143, round 1'])
+  expect(skipped(seen).map(r => r.skill)).toEqual(['code'])
+})
