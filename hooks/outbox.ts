@@ -45,7 +45,7 @@ export const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' :
 
 /**
  * Tells Tick-it which review agents the repository defines: each skill in .tick-it/skills with its
- * name, description, model and sizes. Tick-it replaces what it held, so a skill removed from the
+ * name, description, model, sizes and path globs. Tick-it replaces what it held, so a skill removed from the
  * repository is gone at the next report. Failing to reach it is not an error: the next session sends them again.
  */
 export async function reportAgents($: EngineInterface): Promise<void> {
@@ -56,6 +56,7 @@ export async function reportAgents($: EngineInterface): Promise<void> {
     description: skill.description.slice(0, 2000),
     ...(skill.model === undefined ? {} : { model: skill.model.slice(0, 100) }),
     sizes: skill.sizes ?? [],
+    paths: (skill.paths ?? []).slice(0, 20).map(glob => glob.slice(0, 200)),
   }))
   await sendTickit($, AGENTS_TOOL, { repository, agents: agents.slice(0, 50) })
 }
