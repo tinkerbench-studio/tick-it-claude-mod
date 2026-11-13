@@ -56,3 +56,10 @@ test('uncommitted and untracked files count as changed', async ($, on) => {
   expect(seen.spawned.map(s => s.description)).toEqual(['tick-it review: docs on TCK-143, round 1'])
   expect(skipped(seen).map(r => r.skill)).toEqual(['code'])
 })
+
+test('cannot list: an untracked listing that fails runs every reviewer of the size', async ($, on) => {
+  const seen = engine(on, { lines: 10, changed: ['apps/x.css'], failUntracked: true }, true, SKILLS)
+  await done($)
+  expect(seen.spawned).toHaveLength(3)
+  expect(skipped(seen)).toHaveLength(0)
+})

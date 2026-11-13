@@ -4,7 +4,7 @@ import type { PullRequestView, ReviewRun, ReviewUsage, Steward, Ticket, TicketSi
 import { SIZES, REVIEWS_KEY, SKILLS_DIR, OLD_SKILLS_DIR, KEEP_REVIEWS, MAX_FINDING_TEXT, PRICES } from './state'
 import { callTickit, fetchInstructions, repositoryHere, roundLimit } from './tickit'
 import { setStatus, showStatus, refreshPullRequest, servedConfig } from './board'
-import { report, untrackedFiles } from './work'
+import { report } from './work'
 import { queue, flush } from './outbox'
 
 // Declared in this file: the engine reads an atom only where it is written (a module cannot use one imported from state.ts).
@@ -218,7 +218,10 @@ export async function changedSinceBase($: EngineInterface): Promise<string[] | n
     const diff = await $.process.run(['git', 'diff', '--name-only', '--no-renames', '-z', sha]).catch(() => undefined)
     if (diff === undefined || diff.exitCode !== 0) return null
     // The working tree against the merge base, as the reviewers and the size budget see the change: uncommitted edits and untracked files count too.
-    return [...diff.stdout.split('\0'), ...(await untrackedFiles($).catch(() => []))].filter(f => f !== '')
+    const others = await $.process.run(['git', 'ls-files', '--others', '--exclude-standard', '-z']).catch(() => undefined)
+    // An untracked listing that failed is a listing that cannot be had in full.
+    if (others === undefined || others.exitCode !== 0) return null
+    return [...diff.stdout.split('\0'), ...others.stdout.split('\0')].filter(f => f !== '')
   }
   return null
 }

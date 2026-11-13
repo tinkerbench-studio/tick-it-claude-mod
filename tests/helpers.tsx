@@ -96,7 +96,7 @@ export type Net = {
 /** The engine beneath the mod: a store, a repo whose diff is `diff.lines` lines, and quiet UI calls. */
 export const engine = (
   on: On,
-  diff: { lines: number; pr?: number; origin?: string | null; noCommit?: boolean; numstatZ?: string; failFiles?: boolean; changed?: string[] | null; stored?: Record<string, unknown>; refuse?: (model: string | undefined) => string | undefined; untracked?: Record<string, string>; binary?: Record<string, string>; gh?: (argv: string[]) => { exitCode: number; stdout: string; stderr: string } | undefined; pictures?: { key: string; name: string }[] | 'unreachable' | 'odd' },
+  diff: { lines: number; pr?: number; origin?: string | null; noCommit?: boolean; numstatZ?: string; failFiles?: boolean; changed?: string[] | null; failUntracked?: boolean; stored?: Record<string, unknown>; refuse?: (model: string | undefined) => string | undefined; untracked?: Record<string, string>; binary?: Record<string, string>; gh?: (argv: string[]) => { exitCode: number; stdout: string; stderr: string } | undefined; pictures?: { key: string; name: string }[] | 'unreachable' | 'odd' },
   isPlaced = true,
   skills: Record<string, string> = {},
   net: Net = {},
@@ -257,6 +257,7 @@ export const engine = (
     if (cmd !== 'git' && cmd !== 'gh') throw new Error(`$.process.run(${cmd}) failed to start: ENOENT`)
     const ghAnswer = cmd === 'gh' ? diff.gh?.(e.argv) : undefined
     if (ghAnswer !== undefined) return { value: { ...ghAnswer, isStdoutTruncated: false, isStderrTruncated: false } }
+    if (cmd === 'git' && sub === 'ls-files' && diff.failUntracked === true) return { value: { exitCode: 1, stdout: '', stderr: 'fatal', isStdoutTruncated: false, isStderrTruncated: false } }
     if (cmd === 'git' && sub === 'ls-files') {
       return { value: { exitCode: 0, stdout: Object.keys(diff.untracked ?? {}).join('\0'), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     }
