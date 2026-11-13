@@ -216,17 +216,17 @@ export async function changedSinceBase($: EngineInterface): Promise<string[] | n
     const sha = mb?.exitCode === 0 ? mb.stdout.trim() : ''
     if (!/^[0-9a-f]{40}$/.test(sha)) continue
     const diff = await $.process.run(['git', 'diff', '--name-only', '--no-renames', '-z', sha]).catch(() => undefined)
-    if (diff === undefined || diff.exitCode !== 0) return null
+    if (diff === undefined || diff.exitCode !== 0 || diff.isStdoutTruncated) return null
     // The working tree against the merge base, as the reviewers and the size budget see the change: uncommitted edits and untracked files count too.
     const others = await $.process.run(['git', 'ls-files', '--others', '--exclude-standard', '-z']).catch(() => undefined)
-    // An untracked listing that failed is a listing that cannot be had in full.
-    if (others === undefined || others.exitCode !== 0) return null
+    // An untracked listing that failed or was cut short is a listing that cannot be had in full.
+    if (others === undefined || others.exitCode !== 0 || others.isStdoutTruncated) return null
     return [...diff.stdout.split('\0'), ...others.stdout.split('\0')].filter(f => f !== '')
   }
   return null
 }
 
-/** Starts one review round: every skill that applies to the ticket's size, each as a subagent. */
+/** Starts one review round: every skill that applies to the ticket's size and whose paths match a changed file, each as a subagent. */
 export async function startRound($: EngineInterface, t: Ticket, round: number, ticking?: boolean): Promise<string> {
   // The ticket may not have been taken in this session: the repository's settings are read afresh as its rounds begin, before the stop check below.
   if (round === 1) await fetchInstructions($).catch(() => undefined)
@@ -247,6 +247,7 @@ export async function startRound($: EngineInterface, t: Ticket, round: number, t
   if (skipped.length > 0) {
     // Recorded on the round as not applicable, with the reason; they hold nothing up.
     const session = await $.session.id()
+    const now = await $.clock.now()
     const runs: ReviewRun[] = skipped.map(({ folder, skill }) => ({
       agentId: `${session}-${t.id}-${folder}-r${round}`,
       ticket: t.id,
@@ -254,7 +255,7 @@ export async function startRound($: EngineInterface, t: Ticket, round: number, t
       round,
       skill: folder,
       model: skill.model ?? 'none',
-      startedAt: 0,
+      startedAt: now,
       status: 'done',
       durationMs: 0,
       notApplicable: `No changed file matches its paths (${(skill.paths ?? []).join(', ')}).`,

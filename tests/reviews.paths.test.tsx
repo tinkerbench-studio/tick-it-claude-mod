@@ -63,3 +63,17 @@ test('cannot list: an untracked listing that fails runs every reviewer of the si
   expect(seen.spawned).toHaveLength(3)
   expect(skipped(seen)).toHaveLength(0)
 })
+
+test('cannot list: a changed-file listing cut short runs every reviewer of the size', async ($, on) => {
+  const seen = engine(on, { lines: 10, changed: ['apps/x.css'], truncateNames: true }, true, SKILLS)
+  await done($)
+  expect(seen.spawned).toHaveLength(3)
+  expect(skipped(seen)).toHaveLength(0)
+})
+
+test('a skill with no paths runs even when no file changed, and the ones with paths are skipped', async ($, on) => {
+  const seen = engine(on, { lines: 10, changed: [] }, true, SKILLS)
+  await done($)
+  expect(seen.spawned.map(s => s.description)).toEqual(['tick-it review: all on TCK-143, round 1'])
+  expect(skipped(seen).map(r => r.skill).sort()).toEqual(['code', 'docs'])
+})
