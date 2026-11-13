@@ -24,7 +24,7 @@ const pullRequestError = atom({ plugin: 'tick-it', key: 'pullRequestError' } as 
 // and tokens come from its turn.complete; the cost is worked out from them.
 
 /** A review skill found in the repository. */
-export type ReviewSkill = { name: string; description: string; model?: string; sizes?: TicketSize[]; body: string }
+export type ReviewSkill = { name: string; description: string; model?: string; sizes?: TicketSize[]; paths?: string[]; body: string }
 
 /** What the usage costs at API list prices, or undefined for a model with no price here. */
 export const costOf = (model: string, u: ReviewUsage): number | undefined => {
@@ -35,7 +35,7 @@ export const costOf = (model: string, u: ReviewUsage): number | undefined => {
   return (u.input * input + u.output * output + u.cacheRead * cacheRead + u.cacheWrite * cacheWrite) / 1_000_000
 }
 
-/** Reads a SKILL.md: its front matter (name, description, model, sizes) and its body. */
+/** Reads a SKILL.md: its front matter (name, description, model, sizes, paths) and its body. */
 export const parseSkill = (folder: string, text: string): ReviewSkill => {
   const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/.exec(text)
   const fields = new Map<string, string>()
@@ -56,11 +56,18 @@ export const parseSkill = (folder: string, text: string): ReviewSkill => {
     .map(size => size.toUpperCase())
     .filter((size): size is TicketSize => (SIZES as string[]).includes(size))
 
+  // Globs split on commas or spaces; none (or an empty value) leaves paths out: the skill applies to every path.
+  const paths = fields
+    .get('paths')
+    ?.split(/[\s,]+/)
+    .filter(glob => glob !== '')
+
   return {
     name: fields.get('name') || folder,
     description: fields.get('description') ?? '',
     model: fields.get('model') || undefined,
     sizes: sizes !== undefined && sizes.length > 0 ? sizes : undefined,
+    paths: paths !== undefined && paths.length > 0 ? paths : undefined,
     body: (match?.[2] ?? text).trim(),
   }
 }
