@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import { DEFAULT_ROUNDS, reviewPrompt } from '../hooks/register'
-import { PANE, RUN, SKILLS, engine, finishTurn, start, roundThree, noExtraRound, PRINCIPAL, STARTED, typed, reports, body } from './helpers'
+import { PANE, RUN, SKILLS, engine, finishTurn, start, roundThree, noExtraRound, PRINCIPAL, STARTED, typed, reports } from './helpers'
 import type { Net } from './helpers'
 
 test('a fourth round starts when three rounds still have blocking findings, and stewarding stops if it does too', async ($, on) => {
