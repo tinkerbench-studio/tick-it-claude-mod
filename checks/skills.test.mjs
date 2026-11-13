@@ -58,3 +58,12 @@ test('skills pass epic and milestone ids, never titles, for an existing epic or 
     assert.ok(!/retroFinding: \{ epic:|`milestone` in place of `epic`|with that title|`list_attachments` with that title/.test(text), `${name} still passes a title`)
   }
 })
+
+test('draft-ticket, plan-epic and review-agents tell the person when the legacy merge-checks file is still there, without repeating the upgrade steps', () => {
+  for (const name of ['draft-ticket', 'plan-epic', 'review-agents']) {
+    const skill = read(`skills/${name}/SKILL.md`)
+    for (const words of ['`.tick-it/merge-checks.json` exists', 'no longer read', '`docs/config.md#upgrade` in tinkerbench-studio/tick-it']) expect(skill).toContain(words, `${name} no longer says "${words}"`)
+    assert.equal(skill.split('merge-checks.json').length - 1, 1, `${name} should name the legacy file once`)
+    assert.ok(!skill.includes('mergeChecks'), `${name} repeats the upgrade steps`)
+  }
+})
