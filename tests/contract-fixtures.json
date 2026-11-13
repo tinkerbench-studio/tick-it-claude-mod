@@ -15,7 +15,7 @@
     { "tool": "set_needs_human", "args": { "repository": "acme/web-app", "key": "TCK-143", "kind": "no-clean-round", "note": "1 blocking finding still open after 5 rounds" } },
     { "tool": "report_session", "args": { "repository": "acme/web-app", "session": "s_abc12345", "status": "working", "summary": "Building it" } },
     { "tool": "record_runs", "args": { "repository": "acme/web-app", "session": "s_abc12345", "runs": [{ "agentId": "s_abc12345-TCK-143-principal-r1", "ticket": "TCK-143", "kind": "review", "skill": "principal", "round": 1, "model": "claude-opus-5-5", "durationMs": 95000 }] } },
-    { "tool": "report_review_agents", "args": { "repository": "acme/web-app", "agents": [{ "skill": "principal", "model": "claude-opus-5-5" }] } },
+    { "tool": "report_review_agents", "args": { "repository": "acme/web-app", "agents": [{ "skill": "principal", "model": "claude-opus-5-5", "sizes": ["S"], "paths": ["docs/**"] }] } },
     { "tool": "add_attachment", "args": { "repository": "acme/web-app", "ticket": "TCK-143", "name": "board.png", "type": "image/png", "content": "iVBORw0KGgo=" } },
     { "tool": "link_pull_request", "args": { "repository": "acme/web-app", "key": "TCK-143", "branch": "tck-143-persist-checkout-step", "number": 12 } }
   ],

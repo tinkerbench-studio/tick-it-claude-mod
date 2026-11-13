@@ -21,7 +21,7 @@ When an edit is refused for passing the size budget, the refusal gives Claude th
 
 Tests: `claude plugin test .` runs the hook tests in `tests/`, and `node --test checks/*.test.mjs` checks the skills' wording. CI runs both.
 
-Shared settings: the size budgets, default review rounds and the brief's instruction lines come from Tick-it's `get_mod_config` tool when a ticket is taken (`hooks/tickit.ts`, `fetchModConfig`). The copies in `hooks/state.ts` and `hooks/board.ts` are only the fallback for when Tick-it cannot answer.
+Shared settings: the size budgets, default review rounds and the brief's instruction lines come from Tick-it's `get_mod_config` tool when a ticket is taken (`hooks/tickit.ts`, `fetchModConfig`). The copies in `hooks/state.ts` and `hooks/board.ts` are only the fallback for when Tick-it cannot answer. Two more brief lines come from `get_mod_config` too, with no local copy: `briefLines.beforeReview` (an array of lines, put in the brief before the line that says how to finish) and `briefLines.afterFix` (one line, added at the end of the fix prompt in `hooks/reviews.ts`). When Tick-it serves neither key, the brief and the fix prompt are the same as without them.
 
 ## Releases
 
@@ -33,7 +33,7 @@ The marketplace (`tinkerbench-studio/marketplace`) pins this plugin to a git tag
 
 Installed copies update only after step 3, and only when `version` changed.
 
-**0.25.0 is the first release that sends ids.** The board matches a ticket to its milestone by epic id (`epicId` of `list_tickets` and `get_ticket`, `id` of each epic in `list_milestones`), so two epics with the same title under different owners stay apart, and no hook sends an epic or milestone title to a Tick-it tool (a review run is recorded without its epic). The size guard's new-ticket choice still tells Claude to name the epic by title, because `create_ticket` takes `epic` by title until Tick-it accepts an epic id there. Tick-it can raise `MIN_MOD_VERSION` to 0.25.0.
+**0.26.0 is the first release that sends ids.** The board matches a ticket to its milestone by epic id (`epicId` of `list_tickets` and `get_ticket`, `id` of each epic in `list_milestones`), so two epics with the same title under different owners stay apart, and no hook sends an epic or milestone title to a Tick-it tool (a review run is recorded without its epic). The size guard's new-ticket choice still tells Claude to name the epic by title, because `create_ticket` takes `epic` by title until Tick-it accepts an epic id there. Tick-it can raise `MIN_MOD_VERSION` to 0.25.0.
 
 ## Ticket references in replies
 
@@ -102,7 +102,7 @@ While a ticket is stewarded, the board pane has three actions: `r review again n
 
 No review skills means no review: `/tick-it done` takes the ticket straight to Done (with a reason on the move, since no pull request has merged for it). `/tick-it:review-agents` has Claude set some up in `.tick-it/skills`, fitted to the repository, from five samples that come with the mod (`skills/review-agents/samples`): `acceptance` (every size, Haiku), `tests` (every size, Sonnet), `principal` (S and up, Opus), `security` (M and L, Sonnet) and `ux-evidence` (every size, Sonnet: a change to what a person sees needs before and after Storybook screenshots on its pull request and ticket).
 
-A review skill:
+A review skill (`paths` lists the globs of the files it applies to, separated by commas or spaces; a skill with no `paths`, or an empty one, applies to every path, and the mod reports each skill's globs to Tick-it with `report_review_agents`; Tick-it records them, the mod still runs every skill):
 
 ```markdown
 ---
@@ -110,6 +110,7 @@ name: principal
 description: Second principal engineer on every change
 model: claude-sonnet-5-5 # optional; the session's model otherwise
 sizes: S, M, L # optional; every size otherwise
+paths: apps/mcp/migrations/**, docs/** # optional; globs on one line, separated by commas or spaces; every path otherwise
 ---
 
 What to check, in your own words.
@@ -139,6 +140,22 @@ For each reviewer run, tick-it records the following from its `turn.complete`:
 The cost is what those tokens would cost at API list prices. On a Claude plan they count against the plan's usage instead. Prices are in `PRICES` in `hooks/state.ts`, and a model with no price there shows `—`.
 
 `/tick-it reviews [id]` shows each run, then totals by reviewer and overall. The history is kept in the mod's store across sessions (the last 500 runs).
+
+## Review spend budget and the stopping rule
+
+Besides the round limit, Tick-it can give a ticket a review spend budget: what review and fix may spend on it, in whole dollars, by ticket size (`reviewBudgets` in `get_repository_settings`, next to `reviewRounds`). A repository whose owner has set no figure uses the defaults, which are the 75th percentile of what finished tickets spent, rounded up:
+
+| Size   | XS  | S   | M   | L                        |
+| ------ | --- | --- | --- | ------------------------ |
+| Budget | $1  | $3  | $5  | none (rounds limit only) |
+
+The owner can change them with `set_repository_settings` (`reviewBudgets`); setting a size to `null` puts it back on its default. How they were worked out is in Tick-it's `docs/review-budgets.md`.
+
+**How spend is measured.** Spend is the `costUsd` of the ticket's review and fix runs added up, the runs this mod records with `record_runs` (see "Time and cost": the four token counts priced at API list prices). Build runs are not counted. A run with no price is left out of the sum and counted as unpriced, so the figure is a lower bound when any run is unpriced. Tick-it reads it back as the ticket's `reviewSpend` (`costUsd`, `budget`, `remaining`), which `get_ticket` returns; it is null for a caller who cannot see costs.
+
+**The stopping rule.** The review rounds stay a ceiling alongside the budget: the budget never raises the number of rounds, and a ticket with no budget is limited by rounds alone. A session runs another round only while blocking findings are open, spend is under the budget and the round count is under the ceiling (the size's `reviewRounds`, plus the one further round after the last, as described in "Stewarding"). Before a further round it reads `reviewSpend` and does not start a round whose cost, judged by the rounds so far, would clearly overshoot `remaining`; with `reviewSpend` null it goes by the rounds alone. A fix already made is still reviewed once first. When either the budget or the rounds run out with blocking findings still open, the session fixes nothing more, calls `set_needs_human` with kind `no-clean-round` and a note naming the budget or rounds and the open findings, and leaves the ticket In review for a person. `continue_reviews` lifts both the ceiling and the budget for that one ticket until a round is clean.
+
+The mod itself still applies only the round ceiling in `/tick-it steward`; the budget is applied by the session that Tick-it starts, which is told it in its start message.
 
 ## Reporting to Tick-it, from local and cloud sessions
 
