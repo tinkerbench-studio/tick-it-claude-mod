@@ -138,6 +138,22 @@ The cost is what those tokens would cost at API list prices. On a Claude plan th
 
 `/tick-it reviews [id]` shows each run, then totals by reviewer and overall. The history is kept in the mod's store across sessions (the last 500 runs).
 
+## Review spend budget and the stopping rule
+
+Besides the round limit, Tick-it can give a ticket a review spend budget: what review and fix may spend on it, in whole dollars, by ticket size (`reviewBudgets` in `get_repository_settings`, next to `reviewRounds`). A repository whose owner has set no figure uses the defaults, which are the 75th percentile of what finished tickets spent, rounded up:
+
+| Size   | XS  | S   | M   | L                        |
+| ------ | --- | --- | --- | ------------------------ |
+| Budget | $1  | $3  | $5  | none (rounds limit only) |
+
+The owner can change them with `set_repository_settings` (`reviewBudgets`); setting a size to `null` puts it back on its default. How they were worked out is in Tick-it's `docs/review-budgets.md`.
+
+**How spend is measured.** Spend is the `costUsd` of the ticket's review and fix runs added up, the runs this mod records with `record_runs` (see "Time and cost": the four token counts priced at API list prices). Build runs are not counted. A run with no price is left out of the sum and counted as unpriced, so the figure is a lower bound when any run is unpriced. Tick-it reads it back as the ticket's `reviewSpend` (`costUsd`, `budget`, `remaining`), which `get_ticket` returns; it is null for a caller who cannot see costs.
+
+**The stopping rule.** The review rounds stay a ceiling alongside the budget: the budget never raises the number of rounds, and a ticket with no budget is limited by rounds alone. A session runs another round only while blocking findings are open, spend is under the budget and the round count is under the ceiling (the size's `reviewRounds`, plus the one further round after the last, as described in "Stewarding"). Before a further round it reads `reviewSpend` and does not start a round whose cost, judged by the rounds so far, would clearly overshoot `remaining`; with `reviewSpend` null it goes by the rounds alone. A fix already made is still reviewed once first. When either the budget or the rounds run out with blocking findings still open, the session fixes nothing more, calls `set_needs_human` with kind `no-clean-round` and a note naming the budget or rounds and the open findings, and leaves the ticket In review for a person. `continue_reviews` lifts both the ceiling and the budget for that one ticket until a round is clean.
+
+The mod itself still applies only the round ceiling in `/tick-it steward`; the budget is applied by the session that Tick-it starts, which is told it in its start message.
+
 ## Reporting to Tick-it, from local and cloud sessions
 
 What `/tick-it done` does, how it differs from `report_session` with `done`, and how a session finishes the same way with `update_ticket` is written in [Finish a session](https://github.com/tinkerbench-studio/tick-it/blob/main/docs/cloud-sessions.md#finish-a-session-tick-it-done); the brief points to it.
