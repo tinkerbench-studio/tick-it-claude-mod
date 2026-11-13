@@ -3,7 +3,7 @@ import type { EngineInterface } from 'claude-code'
 import type { PullRequestView, ReviewRun, ReviewUsage, Steward, Ticket, TicketSize } from '../types'
 import { SIZES, REVIEWS_KEY, SKILLS_DIR, OLD_SKILLS_DIR, KEEP_REVIEWS, MAX_FINDING_TEXT, PRICES } from './state'
 import { callTickit, fetchInstructions, repositoryHere, roundLimit } from './tickit'
-import { setStatus, showStatus, refreshPullRequest } from './board'
+import { setStatus, showStatus, refreshPullRequest, servedConfig } from './board'
 import { report } from './work'
 
 // Declared in this file: the engine reads an atom only where it is written (a module cannot use one imported from state.ts).
@@ -406,8 +406,10 @@ export async function settleRound($: EngineInterface, s: Steward) {
   // The limit is hit with reviewers still blocking: one further round goes past it, and the timeline shows it as one.
   const pastLimit = s.round === limit
   await setSteward($, { ...s, phase: 'fixing', ticking: false, ...(pastLimit ? { maxRounds: s.round + 1, note: `Still blocking after ${s.round} rounds; round ${s.round + 1} goes past the limit.` } : {}) })
+  const served = await servedConfig($)
+  const afterFix = served !== null && served.ticket === t.id ? served.briefLines.afterFix : undefined
   await $.prompt.submit({
-    text: [`Round ${s.round} review of ${t.id} found ${blocking.length} blocking finding${blocking.length === 1 ? '' : 's'}. ` + 'Fix each one within the ticket, then stop. tick-it reviews again when you finish.' + (pastLimit ? ` The next review, round ${s.round + 1}, is the last: ${limit} rounds are the limit and it goes past it.` : ''), ...blocking.map(line => `- ${line}`)].join('\n'),
+    text: [`Round ${s.round} review of ${t.id} found ${blocking.length} blocking finding${blocking.length === 1 ? '' : 's'}. ` + 'Fix each one within the ticket, then stop. tick-it reviews again when you finish.' + (pastLimit ? ` The next review, round ${s.round + 1}, is the last: ${limit} rounds are the limit and it goes past it.` : ''), ...blocking.map(line => `- ${line}`), ...(afterFix === undefined ? [] : [afterFix])].join('\n'),
   })
 }
 
