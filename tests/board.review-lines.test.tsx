@@ -30,14 +30,20 @@ test('the brief carries each served beforeReview line before the line that says 
   expect(fix).toContain('Fix each one within the ticket, then stop.')
 })
 
-test('with neither key served the brief and the fix prompt add nothing', async ($, on) => {
+test('with neither key served the brief and the fix prompt are what they were: nothing is added', async ($, on) => {
   const { brief, fix } = await run($, on, { modConfig: { ...base, briefLines: lines } })
-  expect(brief).toContain('SERVED done line.')
-  expect(fix).toBe('Round 1 review of TCK-143 found 1 blocking finding. Fix each one within the ticket, then stop. tick-it reviews again when you finish.\n- ' + fix.split('\n- ')[1])
-  expect(fix.split('\n')).toHaveLength(2)
+  // The size line is followed at once by the line that asks for review, with no line between.
+  expect(brief).toMatch(/refusal\.\\nWhen it is built and its checks pass, move TCK-143 to In review/)
+  expect(brief).not.toContain('CHECK')
+  expect(fix).toBe('Round 1 review of TCK-143 found 1 blocking finding. Fix each one within the ticket, then stop. tick-it reviews again when you finish.\n- ' + '[principal] BLOCKING: wrong')
 })
 
-test('a malformed beforeReview or afterFix is ignored', async ($, on) => {
-  const { fix } = await run($, on, { modConfig: { ...base, briefLines: { ...lines, beforeReview: 'not an array', afterFix: ['no'] } } })
-  expect(fix.split('\n')).toHaveLength(2)
-})
+const NOTHING = 'Round 1 review of TCK-143 found 1 blocking finding. Fix each one within the ticket, then stop. tick-it reviews again when you finish.\n- [principal] BLOCKING: wrong'
+
+for (const [name, odd] of [['not an array and a list', { beforeReview: 'not an array', afterFix: ['no'] }], ['empty or blank', { beforeReview: ['', '  ', 4], afterFix: '   ' }]] as const) {
+  test(`a beforeReview and afterFix that are ${name} leave the brief and the fix prompt as they are`, async ($, on) => {
+    const { brief, fix } = await run($, on, { modConfig: { ...base, briefLines: { ...lines, ...odd } } })
+    expect(brief).toMatch(/refusal\.\\nWhen it is built and its checks pass, move TCK-143 to In review/)
+    expect(fix).toBe(NOTHING)
+  })
+}
