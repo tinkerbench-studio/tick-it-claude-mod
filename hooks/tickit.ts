@@ -3,6 +3,7 @@ import type { EngineInterface } from 'claude-code'
 import type { AttachmentRef, MemoryRef, Ticket, TicketSize } from '../types'
 
 import { brief, servedConfig, storeServed } from './board'
+import type { BriefLines } from './board'
 import { TICKIT_SERVER, TICKIT_CONNECTORS, DEFAULT_ROUNDS, MAX_ROUND_LIMIT, SIZES } from './state'
 
 // Declared in this file: the engine reads an atom only where it is written (a module cannot use one imported from state.ts).
@@ -120,7 +121,7 @@ export async function fetchModConfig($: EngineInterface, ticket: string): Promis
   const budgets = v.sizeBudgets
   const lines = v.briefLines
   if (budgets === undefined || lines === undefined || !SIZES.every(size => typeof budgets[size] === 'number') || !['memories', 'memoryTools', 'deferredTools', 'done', 'branch'].every(k => typeof lines[k] === 'string') || !Array.isArray(lines.addToTicket)) return
-  await storeServed($, { sizeBudgets: budgets as Record<TicketSize, number>, ticket, briefLines: lines as never })
+  await storeServed($, { sizeBudgets: budgets as Record<TicketSize, number>, ticket, briefLines: { ...(lines as never as BriefLines), beforeReview: Array.isArray(lines.beforeReview) ? lines.beforeReview.filter((l): l is string => typeof l === 'string' && l.trim() !== '') : [], afterFix: typeof lines.afterFix === 'string' && lines.afterFix.trim() !== '' ? lines.afterFix : undefined } })
   const defaults = v.defaultReviewRounds
   if (defaults !== undefined && SIZES.every(size => typeof defaults[size] === 'number')) await update($, rounds, kept => (kept.repository === '' ? { repository: '', limits: defaults as Record<TicketSize, number> } : kept))
 }
