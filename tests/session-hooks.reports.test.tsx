@@ -58,9 +58,27 @@ test("a session start tells Tick-it the repository's review agents", async ($, o
   expect(sent[0]?.args).toEqual({
     repository: 'acme/web-app',
     agents: [
-      { skill: 'migrations', description: '', sizes: ['M', 'L'] },
-      { skill: 'principal', description: 'Second principal engineer', model: 'claude-opus-5-5', sizes: [] },
-      { skill: 'security', description: 'Security review', model: 'claude-sonnet-5-5', sizes: [] },
+      { skill: 'migrations', description: '', sizes: ['M', 'L'], paths: [] },
+      { skill: 'principal', description: 'Second principal engineer', model: 'claude-opus-5-5', sizes: [], paths: [] },
+      { skill: 'security', description: 'Security review', model: 'claude-sonnet-5-5', sizes: [], paths: [] },
+    ],
+  })
+})
+
+test('review skills report their path globs: listed, absent and empty', async ($, on) => {
+  const seen = engine(on, { lines: 10 }, true, {
+    '.tick-it/skills/docs/SKILL.md': '---\nname: docs\nsizes: S\npaths: docs/**, README.md apps/mcp/src/tools*.ts\n---\nDocs match the code.',
+    '.tick-it/skills/none/SKILL.md': '---\nname: none\n---\nNo paths.',
+    '.tick-it/skills/blank/SKILL.md': '---\nname: blank\npaths:\n---\nEmpty paths.',
+  })
+  await start($)
+  const sent = seen.ticketCalls.filter(c => c.tool === 'report_review_agents')
+  expect(sent[0]?.args).toEqual({
+    repository: 'acme/web-app',
+    agents: [
+      { skill: 'blank', description: '', sizes: [], paths: [] },
+      { skill: 'docs', description: '', sizes: ['S'], paths: ['docs/**', 'README.md', 'apps/mcp/src/tools*.ts'] },
+      { skill: 'none', description: '', sizes: [], paths: [] },
     ],
   })
 })

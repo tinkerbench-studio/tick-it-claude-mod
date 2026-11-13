@@ -96,7 +96,7 @@ export type Net = {
 /** The engine beneath the mod: a store, a repo whose diff is `diff.lines` lines, and quiet UI calls. */
 export const engine = (
   on: On,
-  diff: { lines: number; pr?: number; origin?: string | null; noCommit?: boolean; numstatZ?: string; failFiles?: boolean; stored?: Record<string, unknown>; refuse?: (model: string | undefined) => string | undefined; untracked?: Record<string, string>; binary?: Record<string, string>; tree?: string[]; shots?: string[]; gh?: (argv: string[]) => { exitCode: number; stdout: string; stderr: string } | undefined },
+  diff: { lines: number; pr?: number; origin?: string | null; noCommit?: boolean; numstatZ?: string; failFiles?: boolean; stored?: Record<string, unknown>; refuse?: (model: string | undefined) => string | undefined; untracked?: Record<string, string>; binary?: Record<string, string>; gh?: (argv: string[]) => { exitCode: number; stdout: string; stderr: string } | undefined; pictures?: { key: string; name: string }[] | 'unreachable' | 'odd' },
   isPlaced = true,
   skills: Record<string, string> = {},
   net: Net = {},
@@ -132,6 +132,10 @@ export const engine = (
         const to = from + net.pageSize
         // The last page leaves nextCursor out; the pages before it name the next.
         return answer({ tickets: seen.server.slice(from, to), ...(net.loop === true ? { nextCursor: '2' } : to < seen.server.length ? { nextCursor: String(to) } : {}) })
+      }
+      if (e.tool === 'list_screenshots') {
+        if (diff.pictures === 'unreachable') return refuse('Tick-it is down')
+        return diff.pictures === 'odd' ? answer({ note: 'no list' }) : answer({ screenshots: diff.pictures ?? [] })
       }
       if (e.tool === 'list_milestones') return answer({ milestones: net.milestones ?? [], withoutMilestone: [] })
       if (e.tool === 'get_ticket') {
@@ -253,8 +257,6 @@ export const engine = (
     if (cmd !== 'git' && cmd !== 'gh') throw new Error(`$.process.run(${cmd}) failed to start: ENOENT`)
     const ghAnswer = cmd === 'gh' ? diff.gh?.(e.argv) : undefined
     if (ghAnswer !== undefined) return { value: { ...ghAnswer, isStdoutTruncated: false, isStderrTruncated: false } }
-    if (cmd === 'git' && sub === 'ls-tree') return { value: { exitCode: 0, stdout: (diff.tree ?? []).join('\n'), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
-    if (cmd === 'git' && sub === 'ls-files' && e.argv.includes('--ignored')) return { value: { exitCode: 0, stdout: (diff.shots ?? []).join('\n'), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     if (cmd === 'git' && sub === 'ls-files') {
       return { value: { exitCode: 0, stdout: Object.keys(diff.untracked ?? {}).join('\0'), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     }
@@ -339,9 +341,7 @@ export const UI_FILES = `1\t0\tapps/web/src/pages.tsx\0`
 
 export const BOARD_FILES = `${UI_FILES}1\t0\tdesign/canvas/boards/Board.map.json\0`
 
-export const IMG = 'docs/change-screenshots/TCK-151/board-before-after.png'
-
-export const body = (text: string) => (argv: string[]) => (argv[1] === 'pr' && argv.includes('body') ? { exitCode: 0, stdout: JSON.stringify({ body: text }), stderr: '' } : undefined)
+export const PIC = { key: 'acme/web-app/TCK-151/board-before-after.png', name: 'board-before-after.png' }
 
 export const PAGED = [161, 162, 163, 164, 165]
 
