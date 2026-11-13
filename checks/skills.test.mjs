@@ -63,7 +63,7 @@ test('plan-epic and draft-ticket read only a repository epic’s repository unle
 
 test('plan-epic, revise-plan and draft-ticket name each ticket’s repository', () => {
   const planEpic = read('skills/plan-epic/SKILL.md')
-  for (const words of ['every ticket with its `labels` and its `repository`', '`create_ticket` (each with its `repository`)', "pass only this repository's tickets"]) expect(planEpic).toContain(words, `plan-epic no longer says "${words}"`)
+  for (const words of ['`plan_epic` takes one `repository` per call', '`create_ticket` (each with its `repository`)', "pass only this repository's tickets"]) expect(planEpic).toContain(words, `plan-epic no longer says "${words}"`)
   expect(read('skills/revise-plan/SKILL.md')).toContain("Name each new ticket's `repository` in `create_ticket`")
   expect(read('skills/draft-ticket/SKILL.md')).toContain('each with its `repository`')
 })
