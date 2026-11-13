@@ -3,7 +3,7 @@ import type { EngineInterface } from 'claude-code'
 import type { AttachmentRef, MemoryRef, Ticket, TicketSize } from '../types'
 
 import { brief, servedConfig, storeServed } from './board'
-import { TICKIT_SERVER, TICKIT_CONNECTORS, DEFAULT_ROUNDS, MAX_ROUND_LIMIT, SIZES } from './state'
+import { MOD_VERSION, TICKIT_SERVER, TICKIT_CONNECTORS, DEFAULT_ROUNDS, MAX_ROUND_LIMIT, SIZES } from './state'
 
 // Declared in this file: the engine reads an atom only where it is written (a module cannot use one imported from state.ts).
 const tickets = atom({ plugin: 'tick-it', key: 'tickets' } as const, [])
@@ -114,7 +114,7 @@ export async function fetchInstructions($: EngineInterface): Promise<void> {
 
 /** Asks Tick-it for what the mod shares with it (get_mod_config): size budgets, review round defaults and the brief lines naming this ticket. Kept as they were when it cannot say. */
 export async function fetchModConfig($: EngineInterface, ticket: string): Promise<void> {
-  const got = await callTickit($, 'get_mod_config', { key: ticket }).catch(() => ({ ok: false as const, why: 'unreachable' }))
+  const got = await callTickit($, 'get_mod_config', { key: ticket, modVersion: MOD_VERSION }).catch(() => ({ ok: false as const, why: 'unreachable' }))
   if (!got.ok) return
   const v = got.value as { sizeBudgets?: Record<string, unknown>; defaultReviewRounds?: Record<string, unknown>; briefLines?: Record<string, unknown> }
   const budgets = v.sizeBudgets
