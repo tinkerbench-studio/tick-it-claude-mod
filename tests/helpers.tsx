@@ -96,7 +96,7 @@ export type Net = {
 /** The engine beneath the mod: a store, a repo whose diff is `diff.lines` lines, and quiet UI calls. */
 export const engine = (
   on: On,
-  diff: { lines: number; pr?: number; origin?: string | null; noCommit?: boolean; numstatZ?: string; failFiles?: boolean; stored?: Record<string, unknown>; refuse?: (model: string | undefined) => string | undefined; untracked?: Record<string, string>; binary?: Record<string, string>; gh?: (argv: string[]) => { exitCode: number; stdout: string; stderr: string } | undefined; pictures?: { key: string; name: string }[] | 'unreachable' | 'odd' },
+  diff: { lines: number; pr?: number; origin?: string | null; noCommit?: boolean; numstatZ?: string; failFiles?: boolean; changed?: string[] | null; stored?: Record<string, unknown>; refuse?: (model: string | undefined) => string | undefined; untracked?: Record<string, string>; binary?: Record<string, string>; gh?: (argv: string[]) => { exitCode: number; stdout: string; stderr: string } | undefined; pictures?: { key: string; name: string }[] | 'unreachable' | 'odd' },
   isPlaced = true,
   skills: Record<string, string> = {},
   net: Net = {},
@@ -260,6 +260,9 @@ export const engine = (
     if (cmd === 'git' && sub === 'ls-files') {
       return { value: { exitCode: 0, stdout: Object.keys(diff.untracked ?? {}).join('\0'), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     }
+    // The merge base and the files changed since it: `changed` null stands for a repository where they cannot be listed.
+    if (cmd === 'git' && sub === 'merge-base') return { value: { exitCode: diff.changed === undefined || diff.changed === null ? 1 : 0, stdout: `${'cd34'.repeat(10)}\n`, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    if (cmd === 'git' && sub === 'diff' && e.argv.includes('--name-only')) return { value: { exitCode: 0, stdout: (diff.changed ?? []).map(f => `${f}\0`).join(''), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     if (cmd === 'git' && sub === 'diff' && e.argv.includes('-z') && diff.failFiles === true) throw new Error('git diff -z failed')
     const stdout =
       cmd === 'git' && sub === 'diff'
