@@ -3,7 +3,7 @@ import { expect, test } from 'claude-code/testing'
 import { count, reviewPrompt } from '../hooks/register'
 import { earlierBlockers, openVerdictLines, readVerdicts } from '../hooks/reviews'
 import { sendable } from '../hooks/outbox'
-import { RUN, SKILLS, engine, finishTurn, start, body } from './helpers'
+import { RUN, SKILLS, engine, finishTurn, start } from './helpers'
 
 test('a later round hands each reviewer its still-open earlier blockers and reads its verdicts', async () => {
   const run = (round: number, extra: Record<string, unknown>) => ({ agentId: `a${round}`, ticket: 'TCK-1', epic: 'E', round, skill: 'principal', model: 'm', startedAt: round, status: 'done', ...extra }) as never
