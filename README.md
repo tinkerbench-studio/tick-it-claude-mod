@@ -21,7 +21,7 @@ When an edit is refused for passing the size budget, the refusal gives Claude th
 
 Tests: `claude plugin test .` runs the hook tests in `tests/`, and `node --test checks/*.test.mjs` checks the skills' wording. CI runs both.
 
-Shared settings: the size budgets, default review rounds and the brief's instruction lines come from Tick-it's `get_mod_config` tool when a ticket is taken (`hooks/tickit.ts`, `fetchModConfig`). The copies in `hooks/state.ts` and `hooks/board.ts` are only the fallback for when Tick-it cannot answer.
+Shared settings: the size budgets, default review rounds and the brief's instruction lines come from Tick-it's `get_mod_config` tool when a ticket is taken (`hooks/tickit.ts`, `fetchModConfig`). The copies in `hooks/state.ts` and `hooks/board.ts` are only the fallback for when Tick-it cannot answer. Two more brief lines come from `get_mod_config` too, with no local copy: `briefLines.beforeReview` (an array of lines, put in the brief before the line that says how to finish) and `briefLines.afterFix` (one line, added at the end of the fix prompt in `hooks/reviews.ts`). When Tick-it serves neither key, the brief and the fix prompt are the same as without them.
 
 ## Releases
 
@@ -100,7 +100,7 @@ While a ticket is stewarded, the board pane has three actions: `r review again n
 
 No review skills means no review: `/tick-it done` takes the ticket straight to Done (with a reason on the move, since no pull request has merged for it). `/tick-it:review-agents` has Claude set some up in `.tick-it/skills`, fitted to the repository, from five samples that come with the mod (`skills/review-agents/samples`): `acceptance` (every size, Haiku), `tests` (every size, Sonnet), `principal` (S and up, Opus), `security` (M and L, Sonnet) and `ux-evidence` (every size, Sonnet: a change to what a person sees needs before and after Storybook screenshots on its pull request and ticket).
 
-A review skill:
+A review skill (`paths` lists the globs of the files it applies to, separated by commas or spaces; a skill with no `paths`, or an empty one, applies to every path, and the mod reports each skill's globs to Tick-it with `report_review_agents`; Tick-it records them, the mod still runs every skill):
 
 ```markdown
 ---
@@ -108,6 +108,7 @@ name: principal
 description: Second principal engineer on every change
 model: claude-sonnet-5-5 # optional; the session's model otherwise
 sizes: S, M, L # optional; every size otherwise
+paths: apps/mcp/migrations/**, docs/** # optional; globs on one line, separated by commas or spaces; every path otherwise
 ---
 
 What to check, in your own words.
