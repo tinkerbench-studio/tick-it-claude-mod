@@ -59,6 +59,46 @@ test('skills pass epic and milestone ids, never titles, for an existing epic or 
   }
 })
 
+test('plan-epic reads every repository the epic covers by docs/other-repositories.md and names the unreachable ones first', () => {
+  const skill = read('skills/plan-epic/SKILL.md')
+  for (const words of ['`get_epic`', '`list_repositories`', "organisation's repositories", 'docs/other-repositories.md', 'do not repeat its steps', 'cannot be got is named to the person before any plan is shown', 'stop and ask before step 7', 'the suggested move of the epic up to the organisation', 'nothing is guessed about its code']) expect(skill).toContain(words, `plan-epic no longer says "${words}"`)
+})
+
+test('draft-ticket names a repository it cannot get before the draft and guesses nothing', () => {
+  const skill = read('skills/draft-ticket/SKILL.md')
+  for (const words of ['docs/other-repositories.md', 'cannot be got is named to the person before the draft is shown', 'nothing is guessed about its code', 'follow it, do not repeat its steps']) expect(skill).toContain(words, `draft-ticket no longer says "${words}"`)
+})
+
+test('plan-epic and draft-ticket read only a repository epic’s repository unless the change reaches another, and propose without creating', () => {
+  for (const name of ['plan-epic', 'draft-ticket']) {
+    const skill = read(`skills/${name}/SKILL.md`)
+    for (const words of ['repository, unless the', 'reaches another', 'moving the epic up to the organisation', 'without creating them']) expect(skill).toContain(words, `${name} no longer says "${words}"`)
+  }
+})
+
+test('plan-epic, revise-plan and draft-ticket name each ticket’s repository', () => {
+  const planEpic = read('skills/plan-epic/SKILL.md')
+  for (const words of ['`plan_epic` takes one `repository` per call', '`create_ticket` (each with its `repository`)', "pass only this repository's tickets"]) expect(planEpic).toContain(words, `plan-epic no longer says "${words}"`)
+  expect(read('skills/revise-plan/SKILL.md')).toContain("Name each new ticket's `repository` in `create_ticket`")
+  expect(read('skills/revise-plan/SKILL.md')).toContain('get one you do not have by `docs/other-repositories.md`')
+  expect(read('skills/draft-ticket/SKILL.md')).toContain('each with its `repository`')
+})
+
+test('plan-epic and draft-ticket keep another repository’s tickets out of the creating calls and show them apart', () => {
+  const planEpic = read('skills/plan-epic/SKILL.md')
+  for (const words of ['make no ticket for a repository whose code you did not read', 'one call per repository under the same title', 'a ticket cannot wait with `after` on a ticket of another call', 'the proposed tickets of another repository']) expect(planEpic).toContain(words, `plan-epic no longer says "${words}"`)
+  const draft = read('skills/draft-ticket/SKILL.md')
+  for (const words of ['the proposed tickets of another repository with the move of the epic, shown apart', 'nor, for a repository epic, one in another repository before the epic has been moved up to the organisation']) expect(draft).toContain(words, `draft-ticket no longer says "${words}"`)
+  for (const words of ['Once one call has succeeded, keep the title', 'stop and report which repositories have tickets and which do not', 'and do not retitle']) expect(planEpic).toContain(words, `plan-epic no longer says "${words}"`)
+  const readme = read('README.md')
+  for (const words of ['one call per repository', 'each ticket is created with its repository', 'a new ticket from a split names its repository', 'a repository it cannot get is named before the draft is shown']) expect(readme).toContain(words, `README no longer says "${words}"`)
+})
+
+test('the README’s skill section describes reading other repositories', () => {
+  const readme = read('README.md')
+  for (const words of ['every repository the epic covers', 'docs/other-repositories.md', 'names one repository']) expect(readme).toContain(words, `README no longer says "${words}"`)
+})
+
 test('draft-ticket, plan-epic and review-agents tell the person when the legacy merge-checks file is still there, without repeating the upgrade steps', () => {
   for (const name of ['draft-ticket', 'plan-epic', 'review-agents']) {
     const skill = read(`skills/${name}/SKILL.md`)

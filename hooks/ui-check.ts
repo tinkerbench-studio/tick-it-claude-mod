@@ -1,67 +1,60 @@
 import type { EngineInterface } from 'claude-code'
 import { touchesUi } from './ui-evidence'
+import { callTickit, repositoryHere } from './tickit'
 
-/** The pictures `ui:compare` writes and a session commits, per ticket. */
-export const SHOTS_DIR = 'docs/change-screenshots'
-/** Where `design-canvas:shots` writes the board-beside-story pictures (not committed: reports/ is ignored). */
-export const BOARD_SHOTS_DIR = 'reports/design-canvas/shots'
-const IMAGE = /\.(png|jpe?g|webp|gif)$/i
 /** A changed canvas board (copy or map entry), which has a story to draw beside it. */
 const BOARD = /(^|\/)design\/canvas\/boards\/[^/]+\.(map\.json|dc\.html)$/
-/** A committed copy of a board-beside-story picture, by the name docs/design-system.md gives it. */
-const BESIDE_STORY = /\/board-beside-story-[^/]+\.png$/
+/** A board-beside-story picture, by the name docs/design-system.md gives it. */
+const BESIDE_STORY = /(^|\/)board-beside-story-[^/]+$/
 
-/** What is missing for a UI change to be reviewed: one line each, with how to produce it. Empty when the evidence is there or the change touches no UI. */
-export function uiEvidenceProblems(input: { ticket: string; changed: readonly string[]; committed: readonly string[]; boardShots: readonly string[]; /** The pull request description; '' for a branch with no pull request yet; null when it could not be read (the description is then not checked). */ description: string | null }): string[] {
+/** A confirmed picture of a ticket, as Tick-it's list_screenshots names it. */
+export type Picture = { key: string; name: string }
+
+/** What is missing for a UI change to be reviewed: one line each, with how to produce it. Empty when the pictures are there or the change touches no UI. The pictures are the ticket's confirmed ones in Tick-it; the repository and the pull request description are never read. */
+export function uiEvidenceProblems(input: { ticket: string; changed: readonly string[]; pictures: readonly Picture[] }): string[] {
   if (!touchesUi(input.changed.join('\n'))) return []
-  const folder = `${SHOTS_DIR}/${input.ticket}`
   const how = 'See "Showing a UX change" in docs/design-system.md'
   const problems: string[] = []
-  const images = input.committed.filter(p => p.startsWith(`${folder}/`) && IMAGE.test(p))
-  if (images.length === 0)
+  if (input.pictures.length === 0)
     problems.push(
-      `${folder} has no picture on the branch (before/after images from ui:compare; a story the change adds may carry its after alone). Take the before from the merge base (git fetch origin && git worktree add ../tick-it-base "$(git merge-base HEAD origin/main)", then npm run ui:shots -- shots/before ../tick-it-base/apps/web/src) and the after from the branch (npm run ui:shots -- shots/after), run npm run ui:compare -- shots/before shots/after ${folder}, then commit them there. ${how}.`,
+      `${input.ticket} has no confirmed picture in Tick-it (list_screenshots). Take the before from the merge base (git fetch origin && git worktree add ../tick-it-base "$(git merge-base HEAD origin/main)", then npm run ui:shots -- shots/before ../tick-it-base/apps/web/src) and the after from the branch (npm run ui:shots -- shots/after), run npm run ui:compare -- shots/before shots/after shots/compare, then upload each image in shots/compare with presign_screenshot_upload and confirm_screenshot. Do not commit the pictures. ${how}.`,
     )
   const boards = input.changed.filter(p => BOARD.test(p))
-  // The pictures may sit in the ignored reports folder or be committed beside the before/after images as board-beside-story-<Board>[-light].png.
-  const besideStory = input.boardShots.some(p => p.endsWith('-side-by-side.png')) || images.some(p => BESIDE_STORY.test(p))
-  if (boards.length > 0 && !besideStory) problems.push(`This branch changes a canvas board or board-map entry (${boards.slice(0, 3).join(', ')}) but neither ${BOARD_SHOTS_DIR} nor ${folder} has board-beside-story pictures. Run npm run build-storybook, then npm run design-canvas:shots. ${how}.`)
-  const missing = images.filter(p => !(input.description ?? '').includes(p))
-  if (input.description !== null && images.length > 0 && missing.length > 0) problems.push(`The pull request description does not list ${missing.length === 1 ? 'this image' : 'these images'} by path: ${missing.join(', ')}. Open the pull request if there is none, then list each one per line as plain text (no image markup) and name every visible difference. ${how}.`)
+  if (boards.length > 0 && !input.pictures.some(p => BESIDE_STORY.test(p.name) || BESIDE_STORY.test(p.key)))
+    problems.push(`This branch changes a canvas board or board-map entry (${boards.slice(0, 3).join(', ')}) but list_screenshots shows no picture named board-beside-story-*. Run npm run build-storybook, then npm run design-canvas:shots, copy each reports/design-canvas/shots/<Board>[-light]-side-by-side.png to shots/compare/board-beside-story-<Board>[-light].png (the name the check looks for), and upload those with presign_screenshot_upload and confirm_screenshot. ${how}.`)
 
   return problems
 }
 
-/** Runs a command and returns its output lines, or null when it cannot run or fails. */
-async function lines($: EngineInterface, argv: string[]): Promise<string[] | null> {
-  try {
-    const ran = await $.process.run(argv)
-    return ran.exitCode === 0 ? ran.stdout.split('\n').filter(l => l !== '') : null
-  } catch {
-    return null
-  }
+/** The confirmed pictures from list_screenshots' answer, or null when the answer has no list in it. */
+export function picturesOf(value: Record<string, unknown>): Picture[] | null {
+  const list = value.screenshots
+  if (!Array.isArray(list)) return null
+  return list.flatMap(one => {
+    if (typeof one !== 'object' || one === null) return []
+    const { key, name } = one as { key?: unknown; name?: unknown }
+    return [{ key: typeof key === 'string' ? key : '', name: typeof name === 'string' ? name : '' }]
+  })
 }
 
 /**
- * The refusal text for a ticket going to review with a UI change and missing evidence, or undefined.
- * Never throws and lets a change through when git cannot answer: a check that cannot run must not stop a ticket.
- * The pull request description is read with gh; with no pull request yet, every listed image is missing from it.
+ * The refusal text for a ticket going to review with a UI change and missing pictures, or undefined.
+ * Pictures live in Tick-it, so it asks Tick-it (list_screenshots) and runs no git or gh command to look for them.
+ * Never throws and lets a change through when Tick-it cannot answer: a check that cannot run must not stop a ticket.
  */
 export async function uiEvidenceRefusal($: EngineInterface, ticket: string, changed: readonly string[]): Promise<string | undefined> {
   if (!touchesUi(changed.join('\n'))) return undefined
-  const committed = await lines($, ['git', 'ls-tree', '-r', '--name-only', 'HEAD', '--', `${SHOTS_DIR}/${ticket}`])
-  const boardShots = await lines($, ['git', 'ls-files', '--cached', '--others', '--ignored', '--exclude-standard', '--', BOARD_SHOTS_DIR])
-  // Git that cannot answer lets the move through; so does gh that cannot (not installed, not signed in): only its description is then left unchecked.
-  if (committed === null || boardShots === null) return undefined
-  let description: string | null = null
+  let pictures: Picture[] | null = null
   try {
-    const ran = await $.process.run(['gh', 'pr', 'view', '--json', 'body'])
-    if (ran.exitCode === 0) description = (JSON.parse(ran.stdout) as { body?: unknown }).body?.toString() ?? ''
-    else if (/no pull requests? found/i.test(ran.stderr)) description = ''
+    const repository = await repositoryHere($)
+    if (repository === undefined) return undefined
+    const got = await callTickit($, 'list_screenshots', { repository, ticket })
+    if (got.ok) pictures = picturesOf(got.value)
   } catch {
-    // gh did not start, or printed no JSON: the description is not checked.
+    // Tick-it did not answer: nothing is refused.
   }
-  const problems = uiEvidenceProblems({ ticket, changed, committed, boardShots, description })
+  if (pictures === null) return undefined
+  const problems = uiEvidenceProblems({ ticket, changed, pictures })
   if (problems.length === 0) return undefined
 
   return `${ticket} changes the UI, so it is not ready for review. Fix ${problems.length === 1 ? 'this' : 'these'}, then move it to In review again:\n${problems.map(p => `- ${p}`).join('\n')}`
