@@ -46,7 +46,7 @@ test('draft-ticket and plan-epic point to the breakdown rules and the UI-evidenc
 
 test('plan-epic reads every repository the epic covers by docs/other-repositories.md and names the unreachable ones first', () => {
   const skill = read('skills/plan-epic/SKILL.md')
-  for (const words of ['`get_epic`', "organisation's repositories", 'docs/other-repositories.md', 'do not repeat its steps', 'cannot be got is named to the person before any plan is shown', 'nothing is guessed about its code']) expect(skill).toContain(words, `plan-epic no longer says "${words}"`)
+  for (const words of ['`get_epic`', '`list_repositories`', "organisation's repositories", 'docs/other-repositories.md', 'do not repeat its steps', 'cannot be got is named to the person before any plan is shown', 'stop and ask before step 7', 'the suggested move of the epic up to the organisation', 'nothing is guessed about its code']) expect(skill).toContain(words, `plan-epic no longer says "${words}"`)
 })
 
 test('draft-ticket names a repository it cannot get before the draft and guesses nothing', () => {
@@ -57,14 +57,15 @@ test('draft-ticket names a repository it cannot get before the draft and guesses
 test('plan-epic and draft-ticket read only a repository epic’s repository unless the change reaches another, and propose without creating', () => {
   for (const name of ['plan-epic', 'draft-ticket']) {
     const skill = read(`skills/${name}/SKILL.md`)
-    for (const words of ['only this', 'unless the', 'moving the epic up to the organisation', 'without creating them']) expect(skill).toContain(words, `${name} no longer says "${words}"`)
+    for (const words of ['repository, unless the', 'reaches another',  'moving the epic up to the organisation', 'without creating them']) expect(skill).toContain(words, `${name} no longer says "${words}"`)
   }
 })
 
 test('plan-epic, revise-plan and draft-ticket name each ticket’s repository', () => {
-  expect(read('skills/plan-epic/SKILL.md')).toContain('its `repository`')
-  for (const name of ['revise-plan', 'draft-ticket']) expect(read(`skills/${name}/SKILL.md`)).toContain('`repository`')
-  expect(read('skills/revise-plan/SKILL.md')).toContain('`create_ticket`')
+  const planEpic = read('skills/plan-epic/SKILL.md')
+  for (const words of ['every ticket with its `labels` and its `repository`', '`create_ticket` (each with its `repository`)', "pass only this repository's tickets"]) expect(planEpic).toContain(words, `plan-epic no longer says "${words}"`)
+  expect(read('skills/revise-plan/SKILL.md')).toContain("Name each new ticket's `repository` in `create_ticket`")
+  expect(read('skills/draft-ticket/SKILL.md')).toContain('each with its `repository`')
 })
 
 test('the README’s skill section describes reading other repositories', () => {
