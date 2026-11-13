@@ -43,3 +43,22 @@ test('draft-ticket and plan-epic point to the breakdown rules and the UI-evidenc
     expect(skill).toContain('UI-evidence checklist')
   }
 })
+
+test('the introduces rule is written only in docs/ticket-breakdown.md; README and skills point to it', () => {
+  const pointer = 'Recording what a later ticket calls'
+  const readme = read('README.md')
+  expect(readme).toContain(pointer)
+  expect(readme).toContain('only for consumers the plan states')
+  expect(readme).toContain('docs/ticket-breakdown.md')
+  for (const name of ['draft-ticket', 'plan-epic']) {
+    const skill = read(`skills/${name}/SKILL.md`)
+    expect(skill).toContain(pointer)
+    expect(skill).toContain('`docs/ticket-breakdown.md`')
+    // a skill only points: one exact pointer line, and no other line talks about introduces, consumed-by entries or what a later ticket calls
+    const pointerLine = '3a. **Record what a later ticket calls by `docs/ticket-breakdown.md`.** Follow its section "Recording what a later ticket calls" for `introduces`.'
+    const lines = skill.split('\n')
+    assert.ok(lines.includes(pointerLine), `${name} no longer has the exact pointer line`)
+    for (const line of lines.filter(line => line !== pointerLine)) assert.ok(!/introduces|consumed-by|later ticket (calls|call)|consumer/i.test(line), `${name} restates the rule outside the pointer: ${line}`)
+  }
+  for (const copied of ['Do not infer consumers from ticket text', 'merely sounds related', 'With no stated consumer, record nothing']) assert.ok(!readme.includes(copied), `README copies the rule: "${copied}"`)
+})
