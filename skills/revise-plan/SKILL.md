@@ -12,7 +12,7 @@ Work through the comments on the plan of the epic named in the arguments (ask fo
 2. **Answer each question** you can answer from the code, with `add_comment` and `byClaude: true`, on the same ticket the question is on. If the answer changes the plan, change it as in step 3.
 3. **Make each suggested change you agree with**, keeping the plan's rules: every ticket sized, split and checked by `docs/ticket-breakdown.md`, in build order.
    - Retitle, resize or rewrite checks with `update_ticket`.
-   - Split a ticket: shrink the original with `update_ticket`, add the rest with `create_ticket` in the same epic with status Backlog.
+   - Split a ticket: shrink the original with `update_ticket`, add the rest with `create_ticket` in the same epic with status Backlog. Name each new ticket's `repository` in `create_ticket`: the one whose code it changes, which may be another repository the epic covers (`get_epic` lists them; get one you do not have by `docs/other-repositories.md`).
    - Never move a ticket out of the Backlog, and never delete one: say in a reply what should go, for a person to decide.
 4. **Reply to every suggestion** with `add_comment` (`byClaude: true`): what you changed, or why you did not. Then `resolve_comment` the ones you changed. Leave a suggestion you disagree with open for its author.
 5. Reply with what changed and what is still open. The plan can be agreed on the epic's page in the Tick-it web app once no suggestion is open.
