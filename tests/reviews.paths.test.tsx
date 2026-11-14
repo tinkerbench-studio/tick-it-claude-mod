@@ -77,3 +77,34 @@ test('a skill with no paths runs even when no file changed, and the ones with pa
   expect(seen.spawned.map(s => s.description)).toEqual(['tick-it review: all on TCK-143, round 1'])
   expect(skipped(seen).map(r => r.skill).sort()).toEqual(['code', 'docs'])
 })
+
+test('the base falls back to origin/main, then origin/master, when the one before has no merge base', async ($, on) => {
+  const two = { ...skill('docs', 'paths: docs/**'), ...skill('code', 'paths: hooks/*.ts') }
+  const seen = engine(on, { lines: 10, changed: ['docs/a.md'], bases: ['origin/master'] }, true, two)
+  await done($)
+  const bases = seen.processes.filter(p => p.startsWith('git merge-base HEAD ')).map(p => p.split(' ').at(-1))
+  expect(bases).toEqual(['origin/HEAD', 'origin/main', 'origin/master'])
+  expect(seen.spawned.map(s => s.description)).toEqual(['tick-it review: docs on TCK-143, round 1'])
+  expect(skipped(seen).map(r => r.skill)).toEqual(['code'])
+})
+
+test('cannot list: git diff --name-only exiting non-zero runs every reviewer of the size', async ($, on) => {
+  const seen = engine(on, { lines: 10, changed: ['apps/x.css'], failNames: 'exit' }, true, SKILLS)
+  await done($)
+  expect(seen.spawned).toHaveLength(3)
+  expect(skipped(seen)).toHaveLength(0)
+})
+
+test('cannot list: git diff --name-only throwing runs every reviewer of the size', async ($, on) => {
+  const seen = engine(on, { lines: 10, changed: ['apps/x.css'], failNames: 'throw' }, true, SKILLS)
+  await done($)
+  expect(seen.spawned).toHaveLength(3)
+  expect(skipped(seen)).toHaveLength(0)
+})
+
+test('untracked files are listed with root-relative paths when the session folder is below the root', async ($, on) => {
+  const seen = engine(on, { lines: 10, changed: [], subdir: 'docs/', untracked: { 'docs/new.md': 'x' } }, true, { ...skill('docs', 'paths: docs/**'), ...skill('code', 'paths: hooks/*.ts') })
+  await done($)
+  expect(seen.processes.some(p => p.startsWith('git ls-files') && p.includes('--full-name'))).toBe(true)
+  expect(seen.spawned.map(s => s.description)).toEqual(['tick-it review: docs on TCK-143, round 1'])
+})

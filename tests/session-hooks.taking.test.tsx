@@ -64,3 +64,30 @@ test('Claude moving another ticket, or its own somewhere else, is left alone', a
   await $.turn.complete(finishTurn(undefined, 'Built it.'))
   expect(seen.spawned).toEqual([])
 })
+
+const takeBrief = async ($: Parameters<typeof start>[0] & { tool: { call: (e: never) => Promise<unknown> }; prompt: { compose: (e: never) => Promise<{ sections: { id: string; text: string }[] }> } }) => {
+  await $.tool.call({ tool: 'mcp__plugin_tick-it_tickit__update_ticket', tool_use_id: 'tu-1', repository: 'acme/web-app', key: 'TCK-147', status: 'In progress', assignee: 'me' } as never)
+  return (await $.prompt.compose(COMPOSE as never)).sections.find(s => s.id === 'tick-it:brief')?.text ?? ''
+}
+
+test("the brief a taken ticket gets uses the repository's design.uiPaths, fetched from Tick-it, for the UI-evidence checklist", async ($, on) => {
+  const config = [{ branch: 'main', design: { uiPaths: ['src/ui/**'] } }]
+  const mine = engine(on, { lines: 12 }, true, {}, { config })
+  mine.server.find(t => t.key === 'TCK-147')!.acceptance = ['Edit src/ui/x.tsx']
+  await start($)
+  expect((await takeBrief($ as never)).match(/^- UI evidence: /gm)).toHaveLength(5)
+})
+
+test("a ticket naming a built-in UI path gets no checklist when the repository's design.uiPaths does not list it, and gets it when none are set", async ($, on) => {
+  const set = engine(on, { lines: 12 }, true, {}, { config: [{ branch: 'main', design: { uiPaths: ['src/ui/**'] } }] })
+  set.server.find(t => t.key === 'TCK-147')!.acceptance = ['Edit apps/web/src/pages.tsx']
+  await start($)
+  expect(await takeBrief($ as never)).not.toContain('UI evidence')
+})
+
+test('with no design.uiPaths set, the brief of a ticket naming a built-in UI path carries the checklist', async ($, on) => {
+  const seen = engine(on, { lines: 12 })
+  seen.server.find(t => t.key === 'TCK-147')!.acceptance = ['Edit apps/web/src/pages.tsx']
+  await start($)
+  expect((await takeBrief($ as never)).match(/^- UI evidence: /gm)).toHaveLength(5)
+})

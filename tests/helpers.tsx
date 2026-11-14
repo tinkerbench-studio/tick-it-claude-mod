@@ -72,6 +72,8 @@ export type Net = {
   reviewRounds?: Record<string, number>
   /** What get_mod_config answers; 'unreachable' makes the call fail, and absent leaves it unanswered (the mod keeps its own copies). */
   modConfig?: Record<string, unknown> | 'unreachable'
+  /** The config of get_repository_settings (one entry per base branch with its design section); absent when not answered. */
+  config?: unknown[]
   /** The repository's autoMerge setting, as get_repository_settings answers it. */
   autoMerge?: boolean
   /** What report_session answers as the session's instructions, such as resolving a merge conflict. */
@@ -96,7 +98,7 @@ export type Net = {
 /** The engine beneath the mod: a store, a repo whose diff is `diff.lines` lines, and quiet UI calls. */
 export const engine = (
   on: On,
-  diff: { lines: number; pr?: number; origin?: string | null; noCommit?: boolean; numstatZ?: string; failFiles?: boolean; changed?: string[] | null; failUntracked?: boolean; truncateNames?: boolean; stored?: Record<string, unknown>; refuse?: (model: string | undefined) => string | undefined; untracked?: Record<string, string>; binary?: Record<string, string>; gh?: (argv: string[]) => { exitCode: number; stdout: string; stderr: string } | undefined; pictures?: { key: string; name: string }[] | 'unreachable' | 'odd' },
+  diff: { lines: number; pr?: number; origin?: string | null; noCommit?: boolean; numstatZ?: string; failFiles?: boolean; changed?: string[] | null; failUntracked?: boolean; truncateNames?: boolean; bases?: string[]; failNames?: 'exit' | 'throw'; subdir?: string; stored?: Record<string, unknown>; refuse?: (model: string | undefined) => string | undefined; untracked?: Record<string, string>; binary?: Record<string, string>; gh?: (argv: string[]) => { exitCode: number; stdout: string; stderr: string } | undefined; pictures?: { key: string; name: string }[] | 'unreachable' | 'odd' },
   isPlaced = true,
   skills: Record<string, string> = {},
   net: Net = {},
@@ -147,7 +149,7 @@ export const engine = (
         if (net.pullRequests === 'unreachable') return refuse('Tick-it is down')
         return answer({ pullRequests: net.pullRequests ?? [] })
       }
-      if (e.tool === 'get_repository_settings') return net.instructions === undefined ? answer({ instructions: '', canEdit: true, autoMerge: net.autoMerge, reviewRounds: net.reviewRounds }) : refuseOr(net.instructions)
+      if (e.tool === 'get_repository_settings') return net.instructions === undefined ? answer({ instructions: '', canEdit: true, autoMerge: net.autoMerge, reviewRounds: net.reviewRounds, config: net.config }) : refuseOr(net.instructions)
       if (e.tool === 'report_review_agents') return answer({ agents: a.agents })
       if (e.tool === 'report_session') return answer({ session: { id: a.session, status: a.status }, instructions: net.reportInstructions?.splice(0) ?? [] })
       if (e.tool === 'link_pull_request') {
@@ -259,10 +261,14 @@ export const engine = (
     if (ghAnswer !== undefined) return { value: { ...ghAnswer, isStdoutTruncated: false, isStderrTruncated: false } }
     if (cmd === 'git' && sub === 'ls-files' && diff.failUntracked === true) return { value: { exitCode: 1, stdout: '', stderr: 'fatal', isStdoutTruncated: false, isStderrTruncated: false } }
     if (cmd === 'git' && sub === 'ls-files') {
-      return { value: { exitCode: 0, stdout: Object.keys(diff.untracked ?? {}).join('\0'), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+      // Without --full-name, git prints paths relative to the session folder (`subdir`, below the root) and leaves out files outside it.
+      const names = Object.keys(diff.untracked ?? {}).filter(f => diff.subdir === undefined || e.argv.includes('--full-name') || f.startsWith(diff.subdir)).map(f => (diff.subdir === undefined || e.argv.includes('--full-name') ? f : f.slice(diff.subdir.length)))
+      return { value: { exitCode: 0, stdout: names.join('\0'), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     }
     // The merge base and the files changed since it: `changed` null stands for a repository where they cannot be listed.
-    if (cmd === 'git' && sub === 'merge-base') return { value: { exitCode: diff.changed === undefined || diff.changed === null ? 1 : 0, stdout: `${'cd34'.repeat(10)}\n`, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    if (cmd === 'git' && sub === 'merge-base') return { value: { exitCode: diff.changed === undefined || diff.changed === null || (diff.bases !== undefined && !diff.bases.includes(e.argv[3] ?? '')) ? 1 : 0, stdout: `${'cd34'.repeat(10)}\n`, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    if (cmd === 'git' && sub === 'diff' && e.argv.includes('--name-only') && diff.failNames === 'exit') return { value: { exitCode: 128, stdout: '', stderr: 'fatal', isStdoutTruncated: false, isStderrTruncated: false } }
+    if (cmd === 'git' && sub === 'diff' && e.argv.includes('--name-only') && diff.failNames === 'throw') throw new Error('git diff --name-only failed')
     if (cmd === 'git' && sub === 'diff' && e.argv.includes('--name-only')) return { value: { exitCode: 0, stdout: (diff.changed ?? []).map(f => `${f}\0`).join(''), stderr: '', isStdoutTruncated: diff.truncateNames === true, isStderrTruncated: false } }
     if (cmd === 'git' && sub === 'diff' && e.argv.includes('-z') && diff.failFiles === true) throw new Error('git diff -z failed')
     const stdout =
