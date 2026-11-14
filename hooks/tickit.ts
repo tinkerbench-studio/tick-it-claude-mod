@@ -15,6 +15,8 @@ const instructions = atom({ plugin: 'tick-it', key: 'instructions' } as const, '
 const uiPathsHeld = atom({ plugin: 'tick-it', key: 'uiPaths' } as const, { repository: '', paths: null } as { repository: string; paths: string[] | null })
 /** The review rounds by ticket size, fetched with the instructions and kept as they were when Tick-it cannot say. */
 const rounds = atom({ plugin: 'tick-it', key: 'rounds' } as const, { repository: '', limits: DEFAULT_ROUNDS } as { repository: string; limits: Record<TicketSize, number> })
+/** The round limit and review budget get_mod_config gave for one ticket (null when it gave none, or something that is not a whole number of 1 or more), kept as they were when Tick-it cannot say. */
+const modLimits = atom({ plugin: 'tick-it', key: 'modLimits' } as const, { repository: '', ticket: '', reviewRounds: null, reviewBudget: null } as { repository: string; ticket: string; reviewRounds: number | null; reviewBudget: number | null })
 /** The files attached to the ticket just taken (and its epic) and the memories recalled for it, fetched with get_ticket when it is taken and read locally after. */
 const attachments = atom({ plugin: 'tick-it', key: 'attachments' } as const, { ticket: '', files: [], memories: [] } as { ticket: string; files: AttachmentRef[]; memories: MemoryRef[] })
 /** The session Tick-it started this one as: set by its first message, reported to as the work goes on. */
@@ -147,11 +149,16 @@ export async function fetchInstructions($: EngineInterface): Promise<void> {
 
 /** Asks Tick-it for what the mod shares with it (get_mod_config): size budgets, review round defaults and the brief lines naming this ticket, kept as they were when it cannot say, and a notice for the person when this mod is too old, shown as a toast. */
 export async function fetchModConfig($: EngineInterface, ticket: string): Promise<void> {
-  const got = await callTickit($, 'get_mod_config', { key: ticket, modVersion: MOD_VERSION }).catch(() => ({ ok: false as const, why: 'unreachable' }))
+  // With the repository, Tick-it answers reviewRounds and reviewBudget for this ticket's size; a folder with no GitHub origin has none to give.
+  const repository = await repositoryHere($)
+  const got = await callTickit($, 'get_mod_config', { ...(repository === undefined ? {} : { repository }), key: ticket, modVersion: MOD_VERSION }).catch(() => ({ ok: false as const, why: 'unreachable' }))
   if (!got.ok) return
-  const v = got.value as { sizeBudgets?: Record<string, unknown>; defaultReviewRounds?: Record<string, unknown>; briefLines?: Record<string, unknown>; notice?: unknown }
+  const v = got.value as { sizeBudgets?: Record<string, unknown>; defaultReviewRounds?: Record<string, unknown>; briefLines?: Record<string, unknown>; notice?: unknown; reviewRounds?: unknown; reviewBudget?: unknown }
   // The server's word for a mod older than its minModVersion (null otherwise): shown before the rest is checked, since an old mod may not be able to read the rest.
   if (typeof v.notice === 'string' && v.notice.trim() !== '') $.ui.toast(`tick-it: ${v.notice.trim()}`)
+  // Kept before the rest is checked: the ticket's limits stand even when the brief lines are unusable.
+  const whole = (n: unknown): number | null => (typeof n === 'number' && Number.isInteger(n) && n >= 1 ? n : null)
+  await update($, modLimits, () => ({ repository: repository ?? '', ticket, reviewRounds: whole(v.reviewRounds), reviewBudget: whole(v.reviewBudget) }))
   const budgets = v.sizeBudgets
   const lines = v.briefLines
   if (budgets === undefined || lines === undefined || !SIZES.every(size => typeof budgets[size] === 'number') || !['memories', 'memoryTools', 'deferredTools', 'done', 'branch'].every(k => typeof lines[k] === 'string') || !Array.isArray(lines.addToTicket)) return
@@ -161,15 +168,35 @@ export async function fetchModConfig($: EngineInterface, ticket: string): Promis
 }
 
 /** The review rounds a ticket of this size gets before the one past the limit, as of the last fetch. */
-export async function roundLimit($: EngineInterface, size: TicketSize): Promise<number> {
+export async function roundLimit($: EngineInterface, size: TicketSize, ticket?: string): Promise<number> {
+  // The rounds get_mod_config gave for this very ticket win; without a usable one the repository's settings and the defaults give the limit.
+  const given = await heldLimits($, ticket)
+  if (given?.reviewRounds != null) return Math.min(given.reviewRounds, MAX_ROUND_LIMIT)
   const held = await read($, rounds)
   return (held.repository === (await repositoryHere($)) || held.repository === '' ? held.limits : DEFAULT_ROUNDS)[size]
+}
+
+/** What get_mod_config last gave for this ticket in this repository; undefined for any other ticket. */
+async function heldLimits($: EngineInterface, ticket: string | undefined) {
+  if (ticket === undefined) return undefined
+  const held = await read($, modLimits)
+  return held.ticket === ticket && held.repository === ((await repositoryHere($)) ?? '') ? held : undefined
+}
+
+/** The review budget in whole dollars get_mod_config gave for this ticket's size, or null when the size has none (or Tick-it could not say). */
+export async function reviewBudgetOf($: EngineInterface, ticket: string): Promise<number | null> {
+  return (await heldLimits($, ticket))?.reviewBudget ?? null
+}
+
+/** Whether get_mod_config has been read for this ticket, so a round that begins for a ticket not taken here can read it. */
+export async function hasModLimits($: EngineInterface, ticket: string): Promise<boolean> {
+  return (await heldLimits($, ticket)) !== undefined
 }
 
 /** A ticket's brief with the repository's instructions, as of the last fetch. */
 export async function briefOf($: EngineInterface, t: Ticket): Promise<string> {
   const held = await read($, attachments)
-  return brief(t, await read($, tickets), await read($, instructions), held.ticket === t.id ? held.files : [], held.ticket === t.id ? held.memories : [], await servedConfig($), await heldUiPaths($))
+  return brief(t, await read($, tickets), await read($, instructions), held.ticket === t.id ? held.files : [], held.ticket === t.id ? held.memories : [], await servedConfig($), await heldUiPaths($), await reviewBudgetOf($, t.id), await roundLimit($, t.size, t.id))
 }
 
 /** Fetches the ticket's attachments (get_ticket) into the mod's state; none when Tick-it cannot say. */
