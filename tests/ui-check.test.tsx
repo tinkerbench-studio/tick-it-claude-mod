@@ -110,3 +110,21 @@ test('/tick-it done refuses a UI change with no pictures too, and the ticket sta
   expect(done.text).toContain('has no confirmed picture in Tick-it')
   expect(inReview(seen)).toBe(false)
 })
+
+test("the gate uses the repository's design.uiPaths when set: a path of theirs is checked, a built-in one no longer is", async ($, on) => {
+  const config = [{ branch: 'main', design: { uiPaths: ['src/ui/**'] } }]
+  const mine = engine(on, { lines: 5, numstatZ: `1\t0\tsrc/ui/menu.tsx\0`, pictures: [] }, true, {}, { config })
+  await start($)
+  await $.prompt.submit(typed(STARTED))
+  expect((await finishReview($ as never)).deny).toContain('TCK-151 has no confirmed picture in Tick-it')
+  expect(inReview(mine)).toBe(false)
+})
+
+test("the gate lets a built-in UI path through when the repository's design.uiPaths does not list it", async ($, on) => {
+  const seen = engine(on, { lines: 5, numstatZ: UI_FILES, pictures: [] }, true, {}, { config: [{ branch: 'main', design: { uiPaths: ['src/ui/**'] } }] })
+  await start($)
+  await $.prompt.submit(typed(STARTED))
+  expect((await finishReview($ as never)).deny).toBeUndefined()
+  expect(looked(seen)).toEqual([])
+  expect(inReview(seen)).toBe(true)
+})

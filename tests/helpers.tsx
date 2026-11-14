@@ -74,6 +74,8 @@ export type Net = {
   reviewRounds?: Record<string, number>
   /** What get_mod_config answers; 'unreachable' makes the call fail, and absent leaves it unanswered (the mod keeps its own copies). */
   modConfig?: Record<string, unknown> | 'unreachable'
+  /** The config of get_repository_settings (one entry per base branch with its design section); absent when not answered. */
+  config?: unknown[]
   /** The repository's autoMerge setting, as get_repository_settings answers it. */
   autoMerge?: boolean
   /** What report_session answers as the session's instructions, such as resolving a merge conflict. */
@@ -149,7 +151,7 @@ export const engine = (
         if (net.pullRequests === 'unreachable') return refuse('Tick-it is down')
         return answer({ pullRequests: net.pullRequests ?? [] })
       }
-      if (e.tool === 'get_repository_settings') return net.instructions === undefined ? answer({ instructions: '', canEdit: true, autoMerge: net.autoMerge, reviewRounds: net.reviewRounds }) : refuseOr(net.instructions)
+      if (e.tool === 'get_repository_settings') return net.instructions === undefined ? answer({ instructions: '', canEdit: true, autoMerge: net.autoMerge, reviewRounds: net.reviewRounds, config: net.config }) : refuseOr(net.instructions)
       if (e.tool === 'report_review_agents') return answer({ agents: a.agents })
       if (e.tool === 'report_session') return answer({ session: { id: a.session, status: a.status }, instructions: net.reportInstructions?.splice(0) ?? [] })
       if (e.tool === 'link_pull_request') {
