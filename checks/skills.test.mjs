@@ -92,3 +92,11 @@ test('draft-ticket, plan-epic and review-agents tell the person when the legacy 
     assert.ok(!skill.includes('mergeChecks'), `${name} repeats the upgrade steps`)
   }
 })
+
+test('draft-ticket and import-github make a new epic first with create_epic and pass epicId, never an epic title or owner', () => {
+  const draft = read('skills/draft-ticket/SKILL.md')
+  for (const words of ['`create_epic`', '`epicId`', 'the owner goes there', 'never a new epic title or an owner', '`create_ticket` never makes an epic and takes no `owner`']) expect(draft).toContain(words, `draft-ticket no longer says "${words}"`)
+  const imp = read('skills/import-github/SKILL.md')
+  for (const words of ['`create_epic`', '`epicId`', '`import_tickets` never makes one']) expect(imp).toContain(words, `import-github no longer says "${words}"`)
+  for (const skill of [draft, imp]) assert.ok(!/create_ticket[^.]*(makes|creates) the epic/.test(skill) && !skill.includes('epic named in'), 'a skill tells a tool to make the epic')
+})
