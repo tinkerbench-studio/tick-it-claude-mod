@@ -113,11 +113,13 @@ export async function fetchInstructions($: EngineInterface): Promise<void> {
   }
 }
 
-/** Asks Tick-it for what the mod shares with it (get_mod_config): size budgets, review round defaults and the brief lines naming this ticket. Kept as they were when it cannot say. */
+/** Asks Tick-it for what the mod shares with it (get_mod_config): size budgets, review round defaults and the brief lines naming this ticket, kept as they were when it cannot say, and a notice for the person when this mod is too old, shown as a toast. */
 export async function fetchModConfig($: EngineInterface, ticket: string): Promise<void> {
   const got = await callTickit($, 'get_mod_config', { key: ticket, modVersion: MOD_VERSION }).catch(() => ({ ok: false as const, why: 'unreachable' }))
   if (!got.ok) return
-  const v = got.value as { sizeBudgets?: Record<string, unknown>; defaultReviewRounds?: Record<string, unknown>; briefLines?: Record<string, unknown> }
+  const v = got.value as { sizeBudgets?: Record<string, unknown>; defaultReviewRounds?: Record<string, unknown>; briefLines?: Record<string, unknown>; notice?: unknown }
+  // The server's word for a mod older than its minModVersion (null otherwise): shown before the rest is checked, since an old mod may not be able to read the rest.
+  if (typeof v.notice === 'string' && v.notice.trim() !== '') $.ui.toast(`tick-it: ${v.notice.trim()}`)
   const budgets = v.sizeBudgets
   const lines = v.briefLines
   if (budgets === undefined || lines === undefined || !SIZES.every(size => typeof budgets[size] === 'number') || !['memories', 'memoryTools', 'deferredTools', 'done', 'branch'].every(k => typeof lines[k] === 'string') || !Array.isArray(lines.addToTicket)) return

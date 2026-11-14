@@ -33,3 +33,9 @@ test("the version sent with get_mod_config is the plugin's version, and the fixt
   const call = fixtures.calls.find(c => c.tool === 'get_mod_config')
   assert.equal(call.args.modVersion, plugin.version)
 })
+
+test('the get_mod_config answer records notice, which the mod reads and shows', () => {
+  const answer = fixtures.answers.find(a => a.tool === 'get_mod_config').answer
+  assert.ok('notice' in answer, 'notice is missing from the get_mod_config answer')
+  assert.match(source, /v\.notice/)
+})
