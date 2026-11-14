@@ -6,7 +6,7 @@
 // upload pictures with presign_screenshot_upload and confirm_screenshot (scripts/upload-screenshots.mjs).
 // Whether pictures are uploaded is read from Tick-it (list_screenshots) by the mod's gate at /tick-it done, not here, and
 // that gate keeps its own built-in UI paths and does not read the config (a follow-up ticket).
-// Exit 0 when it passes, 1 when evidence is incomplete, 2 on a wrong call.
+// Exit 0 when it passes, 1 when pictures are committed, 2 on a wrong call.
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -80,10 +80,10 @@ function main(argv) {
     return 2
   }
   if (problems.length === 0) {
-    console.log(changed.some(p => isUiPath(p, uiPaths)) ? `${key}: UI evidence is complete` : `${key}: no UI path changed, nothing to check`)
+    console.log(changed.some(p => isUiPath(p, uiPaths)) ? `${key}: no pictures committed` : `${key}: no UI path changed, nothing to check`)
     return 0
   }
-  console.error(`${key}: UI evidence is incomplete:`)
+  console.error(`${key}: pictures are committed:`)
   for (const p of problems) console.error(`- ${p}`)
   return 1
 }

@@ -23,7 +23,8 @@ export function plan(dir) {
 export async function put(dir, presigned, send = fetch) {
   const confirm = []
   const failed = []
-  for (const { name, url, headers } of presigned) {
+  for (const entry of presigned) {
+    const { name, url, headers } = entry ?? {}
     if (typeof name !== 'string' || name !== basename(name) || !typeOf(name) || typeof url !== 'string') {
       failed.push({ name: String(name), reason: 'not a picture file name with a url' })
       continue
