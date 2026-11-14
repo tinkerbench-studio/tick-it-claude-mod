@@ -32,7 +32,7 @@ export const registerTools: Register = on => {
         deny:
           `tick-it: refused. This change takes the diff to about ${now + estimate} lines, ` +
           `over ${t.id}'s ${t.size} budget of ${budget}. Offer the person these choices and wait for their answer: ` +
-          `1. Raise a new ticket for the extra work: propose its size and acceptance, then create_ticket${t.epic === 'Unsorted' ? '' : ` in epic "${t.epic}"`} with status Backlog and blockedBy ["${t.id}"]. ` +
+          `1. Raise a new ticket for the extra work: propose its size and acceptance, then create_ticket${t.epicId === undefined ? '' : ` in epic "${t.epic}"`} with status Backlog and blockedBy ["${t.id}"]. ` +
           (nextSize(t.size) === undefined ? `2. Split ${t.id}: it is already the largest size, so keep what fits and raise a ticket for each remaining part, as in 1. ` : `2. Raise ${t.id} to ${nextSize(t.size)}: update_ticket with its size; the guard then measures against the new budget. `) +
           '3. Leave it: finish the ticket as scoped.',
       }

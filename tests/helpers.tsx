@@ -3,15 +3,15 @@ import type { On } from 'claude-code'
 
 import { brief } from '../hooks/register'
 
-export type Remote = { key: string; title: string; epic: string | null; size: 'XS' | 'S' | 'M' | 'L'; status: string; acceptance: string[]; assignee: string | null }
+export type Remote = { key: string; title: string; epic: string | null; epicId?: string; size: 'XS' | 'S' | 'M' | 'L'; status: string; acceptance: string[]; assignee: string | null }
 
 /** The tickets the fake Tick-it starts with. */
 export const SAMPLE = (): Remote[] => [
-  { key: 'TCK-143', title: 'Persist checkout step in session', epic: 'One-page checkout', size: 'XS', status: 'Ready', acceptance: ['Step stored in session on each transition', 'GET /checkout resumes at stored step', 'Expired session falls back to step 1'], assignee: null },
-  { key: 'TCK-144', title: 'Checkout summary component', epic: 'One-page checkout', size: 'S', status: 'In progress', acceptance: ['Shows items, tax and total', 'Updates when quantity changes'], assignee: 'someone' },
-  { key: 'TCK-147', title: 'Add address validation service client', epic: 'Address autocomplete', size: 'XS', status: 'Ready', acceptance: ['Client wraps the validation API', 'Timeouts fall back to unvalidated'], assignee: null },
-  { key: 'TCK-149', title: 'Migrate orders.shipping_address to JSONB', epic: 'Address autocomplete', size: 'M', status: 'Ready', acceptance: ['Migration and backfill', 'Old column readable until removed'], assignee: null },
-  { key: 'TCK-151', title: 'Saved cards: list + delete endpoint', epic: 'Saved payment methods', size: 'S', status: 'Ready', acceptance: ['List saved cards for the signed-in user', 'Delete one by id'], assignee: null },
+  { key: 'TCK-143', title: 'Persist checkout step in session', epic: 'One-page checkout', epicId: 'e-checkout', size: 'XS', status: 'Ready', acceptance: ['Step stored in session on each transition', 'GET /checkout resumes at stored step', 'Expired session falls back to step 1'], assignee: null },
+  { key: 'TCK-144', title: 'Checkout summary component', epic: 'One-page checkout', epicId: 'e-checkout', size: 'S', status: 'In progress', acceptance: ['Shows items, tax and total', 'Updates when quantity changes'], assignee: 'someone' },
+  { key: 'TCK-147', title: 'Add address validation service client', epic: 'Address autocomplete', epicId: 'e-address', size: 'XS', status: 'Ready', acceptance: ['Client wraps the validation API', 'Timeouts fall back to unvalidated'], assignee: null },
+  { key: 'TCK-149', title: 'Migrate orders.shipping_address to JSONB', epic: 'Address autocomplete', epicId: 'e-address', size: 'M', status: 'Ready', acceptance: ['Migration and backfill', 'Old column readable until removed'], assignee: null },
+  { key: 'TCK-151', title: 'Saved cards: list + delete endpoint', epic: 'Saved payment methods', epicId: 'e-cards', size: 'S', status: 'Ready', acceptance: ['List saved cards for the signed-in user', 'Delete one by id'], assignee: null },
 ]
 
 export const BAND = {
@@ -83,7 +83,7 @@ export type Net = {
   /** What list_pull_requests answers; 'unreachable' makes it fail. */
   pullRequests?: 'unreachable' | { number: number; state: string; draft: boolean; ci: string | null; behind?: boolean | null; mergeState?: string; mergeQueue?: unknown; ciInstructed?: boolean }[]
   /** What list_milestones answers; no milestones when absent. */
-  milestones?: { title: string; dueOn: string | null; epics: { title: string; tickets: number; done: number }[]; tickets: number; done: number }[]
+  milestones?: { title: string; dueOn: string | null; epics: { id?: string; title: string; tickets: number; done: number }[]; tickets: number; done: number }[]
   /** list_tickets answers this many tickets a page with a nextCursor (the page's offset); `failAt` refuses the page with that cursor. */
   pageSize?: number
   failAt?: string

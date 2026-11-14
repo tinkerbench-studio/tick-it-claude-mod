@@ -70,7 +70,7 @@ test('the band stays empty with no ticket taken', async ($, on) => {
 test('the band is the key, title, status, diff and Board, and the key opens the ticket pane', async ($, on) => {
   const net: Net = {
     pullRequests: [{ number: 12, state: 'open', draft: false, ci: 'success', mergeQueue: { position: 1 } }],
-    milestones: [{ title: 'Checkout launch before the holiday freeze', dueOn: null, epics: [{ title: 'One-page checkout', tickets: 2, done: 0 }], tickets: 2, done: 0 }],
+    milestones: [{ title: 'Checkout launch before the holiday freeze', dueOn: null, epics: [{ id: 'e-checkout', title: 'One-page checkout', tickets: 2, done: 0 }], tickets: 2, done: 0 }],
   }
   const seen = engine(on, { lines: 12 }, true, {}, net)
   Object.assign(seen.server[0]!, { labels: ['checkout', 'api'], description: 'Keep the **step** across reloads.', url: 'https://app.tick-it.dev/r/acme/web-app/t/TCK-143' })
