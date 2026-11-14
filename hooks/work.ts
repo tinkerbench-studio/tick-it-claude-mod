@@ -1,6 +1,5 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, ToolCallInput, ToolCallResult } from 'claude-code'
-import { log } from './log'
 import type { PendingLink, StartedSession, Ticket, TicketStatus } from '../types'
 import { STARTED_KEY, REPORT_EVERY_MS, REPORT_TOOL, SKILLS_DIR, EMPTY_TREE, UNLINKED_KEY, FILE_TYPES, MAX_ATTACH_BYTES, MAX_FILES, MAX_PATH, MAX_FILE_LINES } from './state'
 import { sendTickit, callTickit, repositoryHere } from './tickit'
@@ -8,6 +7,7 @@ import type { Called } from './tickit'
 import { findCurrent, refreshBoard, changeTicket, showStatus } from './board'
 import { findSkills } from './reviews'
 import { uiEvidenceRefusal } from './ui-check'
+import { log } from './log'
 
 // Declared in this file: the engine reads an atom only where it is written (a module cannot use one imported from state.ts).
 const tickets = atom({ plugin: 'tick-it', key: 'tickets' } as const, [])

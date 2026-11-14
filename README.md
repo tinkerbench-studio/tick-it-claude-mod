@@ -25,13 +25,13 @@ Shared settings: the size budgets, default review rounds and the brief's instruc
 
 ## Logging
 
-The mod logs the decisions it makes, so a cause can be read afterwards: whether a start line matched, which ticket it took, why a review round started or did not, why a tool call was denied, and each report and outbox send to Tick-it.
+The mod logs the decisions it makes, so a cause can be read afterwards: whether a start line matched, which ticket it took, why a review round started or did not, why a tool call was denied, and each report to Tick-it and each send of review runs from the outbox.
 
 - **Setting:** the environment variable `TICK_IT_LOG`, one of `error`, `warn`, `info` or `debug` (not case-sensitive). A level logs itself and the levels before it. Unset, or any other value, it is `warn`: only errors and warnings are logged, so the log stays quiet.
   - `error`: runs Tick-it rejected.
   - `warn`: a ticket that could not be taken, a report or send that did not get through, a round no reviewer could start.
-  - `info`: each report to Tick-it and each outbox send.
-  - `debug`: the decisions above (`start-line`, `ticket-taken`, `start-not-taken`, `round-started`, `round-not-started`, `round-settled`, `tool-denied`).
+  - `info`: each report to Tick-it and each send of review runs.
+  - `debug`: the decisions above (`start-line`, `ticket-taken`, `start-not-taken`, `round-started` (with `why`: `done-command`, `steward-command`, `moved-by-claude` or `after-fix`), `round-not-started`, `round-settled`, `tool-denied`).
 - **Where:** `tick-it-mod.log` in `TMPDIR` (`/tmp` when it is not set), or the file named by `TICK_IT_LOG_FILE`. The file keeps its newest 1000 lines; the mod rewrites it whole, as the engine writes whole files.
 - **What a line holds:** `<time> <level> <event> key=value ...`, only ids, states and reasons (`ticket=TCK-151 why=no-skills`). A value that is not a short token (a title, comment, path or file's text) is replaced with `<omitted>`, and nothing from the environment is logged, not even the level's value. Writing a line never stops the mod: a log that cannot be written is skipped.
 

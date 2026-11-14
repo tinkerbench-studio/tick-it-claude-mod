@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
-import { DEFAULT_LEVEL, LEVELS, cleanField, levelOf } from '../hooks/log'
+import { DEFAULT_LEVEL, LEVELS, cleanField, levelOf, lineOf } from '../hooks/log'
 import { RUN, SKILLS, engine, finishTurn, start, STARTED, typed } from './helpers'
 import type { Net } from './helpers'
 
@@ -75,12 +75,16 @@ test('at debug: a start line matched or not, which ticket it took, why a round s
   expect(log.lines().join('\n')).toContain('start-line matched=true')
   expect(log.lines().join('\n')).toContain('ticket-taken ticket=TCK-151 session=s_abc12345')
   await $.command.run({ ...RUN, command: 'tick-it', args: 'done' })
-  expect(log.lines().join('\n')).toMatch(/round-started ticket=TCK-151 round=1 skills=principal,security/)
+  expect(log.lines().join('\n')).toMatch(/round-started ticket=TCK-151 round=1 why=done-command skills=principal,security/)
   await $.turn.complete(finishTurn('agent-1', 'BLOCKING: a.ts:1 wrong\nVERDICT: changes'))
   await $.turn.complete(finishTurn('agent-2', 'VERDICT: clean'))
   expect(log.lines().join('\n')).toContain('round-settled ticket=TCK-151 round=1 outcome=fix blocking=1')
-  await $.tool.check({ tool: 'mcp__plugin_tick-it_tickit__record_runs', input: { runs: [] } })
-  expect(log.lines().at(-1)).toContain('tool-denied tool=mcp__plugin_tick-it_tickit__record_runs why=runs-are-the-mods')
+  await $.turn.complete(finishTurn(undefined, 'Fixed.'))
+  expect(log.lines().join('\n')).toMatch(/round-started ticket=TCK-151 round=2 why=after-fix/)
+  for (const [tool, why] of [['record_runs', 'runs-are-the-mods'], ['report_review_agents', 'agents-are-the-mods'], ['report_session', 'reports-are-the-mods']] as const) {
+    await $.tool.check({ tool: `mcp__plugin_tick-it_tickit__${tool}`, input: { runs: [] } })
+    expect(log.lines().at(-1)).toContain(`tool-denied tool=mcp__plugin_tick-it_tickit__${tool} why=${why}`)
+  }
 })
 
 test('at debug: a round that did not start says why', async ($, on) => {
@@ -100,6 +104,7 @@ test('a log line carries no token, ticket text, comment, file content or environ
   expect(cleanField('x'.repeat(101))).toBe('<omitted>')
   expect(cleanField('TCK-151')).toBe('TCK-151')
   expect(cleanField(2)).toBe(2)
+  expect(lineOf(0, 'info', 'x', { ticket: 'TCK-1', title: 'Saved card picker', token: 'a b' })).toBe('1970-01-01T00:00:00.000Z info x ticket=TCK-1 title=<omitted> token=<omitted>')
 
   // The whole of a stewarded ticket at debug, with a secret in the environment, the ticket's text and a reviewer's finding.
   const net: Net = { instructions: 'Never print SECRET-INSTRUCTION' }

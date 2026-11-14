@@ -195,8 +195,11 @@ export async function setSteward($: EngineInterface, next: Steward | null) {
   }
 }
 
+/** What began a round, as the log says it: the done command, the steward command, Claude's own move to In review, or the fix turn ending. */
+export type RoundTrigger = 'done-command' | 'steward-command' | 'moved-by-claude' | 'after-fix'
+
 /** Starts one review round: every skill that applies to the ticket's size, each as a subagent. */
-export async function startRound($: EngineInterface, t: Ticket, round: number, ticking?: boolean): Promise<string> {
+export async function startRound($: EngineInterface, t: Ticket, round: number, ticking?: boolean, trigger: RoundTrigger = 'done-command'): Promise<string> {
   // The ticket may not have been taken in this session: the repository's settings are read afresh as its rounds begin, before the stop check below.
   if (round === 1) await fetchInstructions($).catch(() => undefined)
   const before = (await read($, steward))?.phase
@@ -267,7 +270,7 @@ export async function startRound($: EngineInterface, t: Ticket, round: number, t
     return `${why} (${t.id})`
   }
 
-  await log($, 'debug', 'round-started', { ticket: t.id, round, skills: started.map(r => r.skill).join(',') })
+  await log($, 'debug', 'round-started', { ticket: t.id, round, why: trigger, skills: started.map(r => r.skill).join(',') })
   return `Round ${round}: ${started.map(r => r.skill).join(', ')} reviewing ${t.id} in this session.`
 }
 
