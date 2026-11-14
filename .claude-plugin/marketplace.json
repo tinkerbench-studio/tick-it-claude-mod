@@ -6,6 +6,13 @@
       "name": "tick-it",
       "source": "./",
       "description": "Tick-it tickets in the session, from the Tick-it MCP server: a board, the ticket's brief for Claude, a size budget on edits, and review agents that steward it to Done."
+    },
+    {
+      "name": "vibesec",
+      "source": { "source": "github", "repo": "BehiSecc/VibeSec-Skill", "sha": "0590993b35ad51961f65a4d01cf1196dfead05bb" },
+      "description": "VibeSec-Skill: secure coding practices for web applications, and security scans and audits. A reference to the skill's own repository, pinned to one commit.",
+      "homepage": "https://github.com/BehiSecc/VibeSec-Skill",
+      "license": "Apache-2.0"
     }
   ]
 }
