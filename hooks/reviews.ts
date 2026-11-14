@@ -196,18 +196,28 @@ export async function setSteward($: EngineInterface, next: Steward | null) {
   }
 }
 
-/** A path glob as a regular expression: `**` crosses folders, `*` and `?` stay in one; a glob with no slash matches the file name in any folder. */
+const BACKSLASH = String.fromCharCode(92)
+const PLAIN = 'abcdefghijklmnopqrstuvwxyz0123456789_-/'
+
+/** A path glob as a regular expression, read as Tick-it reads it (globPattern in its areas.ts): a glob matches at any depth unless it starts with a slash, which reads it from the top of the repository; a double star and slash crosses folders, a double star with no slash after it matches anything, and a single star or a question mark stays in one folder. */
 export const globMatches = (glob: string, path: string): boolean => {
-  const rooted = glob.replace(/^\.?\//, '')
-  const body = rooted
-    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-    .replace(/\*\*$/, '\x01')
-    .replace(/\*\*\/?/g, '\0')
-    .replace(/\*/g, '[^/]*')
-    .replace(/\?/g, '[^/]')
-    .replace(/\0/g, '(?:.*/)?')
-    .replace(/\x01/g, '.*')
-  return new RegExp(`^${rooted.includes('/') ? '' : '(?:.*/)?'}${body}$`).test(path)
+  const anchored = glob.startsWith('/')
+  const body = anchored ? glob.slice(1) : glob
+  let source = ''
+  for (let i = 0; i < body.length; i++) {
+    const c = body.charAt(i)
+    if (c === '*') {
+      if (body[i + 1] === '*') {
+        i++
+        if (body[i + 1] === '/') {
+          i++
+          source += '(?:.*/)?'
+        } else source += '.*'
+      } else source += '[^/]*'
+    } else if (c === '?') source += '[^/]'
+    else source += PLAIN.includes(c.toLowerCase()) ? c : BACKSLASH + c
+  }
+  return new RegExp('^' + (anchored ? '' : '(?:.*/)?') + source + '$').test(path)
 }
 
 /** The files the branch changed against its merge base with the remote's default branch (the working tree, untracked files included), or null when they cannot be listed. */
@@ -218,9 +228,9 @@ export async function changedSinceBase($: EngineInterface): Promise<string[] | n
     if (!/^[0-9a-f]{40}$/.test(sha)) continue
     const diff = await $.process.run(['git', 'diff', '--name-only', '--no-renames', '-z', sha]).catch(() => undefined)
     if (diff === undefined || diff.exitCode !== 0 || diff.isStdoutTruncated) return null
-    // --full-name gives root-relative paths, as git diff does, so a session folder below the root matches the same globs.
+    // --full-name gives root-relative paths, as git diff does, and the :/ pathspec lists the whole repository, not only the session folder, so a folder below the root matches the same globs.
     // The working tree against the merge base, as the reviewers and the size budget see the change: uncommitted edits and untracked files count too.
-    const others = await $.process.run(['git', 'ls-files', '--others', '--exclude-standard', '--full-name', '-z']).catch(() => undefined)
+    const others = await $.process.run(['git', 'ls-files', '--others', '--exclude-standard', '--full-name', '-z', '--', ':/']).catch(() => undefined)
     // An untracked listing that failed or was cut short is a listing that cannot be had in full.
     if (others === undefined || others.exitCode !== 0 || others.isStdoutTruncated) return null
     return [...diff.stdout.split('\0'), ...others.stdout.split('\0')].filter(f => f !== '')
@@ -268,7 +278,7 @@ export async function startRound($: EngineInterface, t: Ticket, round: number, t
       startedAt: now,
       status: 'done',
       durationMs: 0,
-      notApplicable: `No changed file matches its paths (${(skill.paths ?? []).join(', ')}).`,
+      notApplicable: `No changed file matches its paths (${(skill.paths ?? []).join(', ')}).`.slice(0, 300),
     }))
     await queue($, runs)
     await flush($).catch(() => undefined)

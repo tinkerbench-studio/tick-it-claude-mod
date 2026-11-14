@@ -263,8 +263,10 @@ export const engine = (
     if (ghAnswer !== undefined) return { value: { ...ghAnswer, isStdoutTruncated: false, isStderrTruncated: false } }
     if (cmd === 'git' && sub === 'ls-files' && diff.failUntracked === true) return { value: { exitCode: 1, stdout: '', stderr: 'fatal', isStdoutTruncated: false, isStderrTruncated: false } }
     if (cmd === 'git' && sub === 'ls-files') {
-      // Without --full-name, git prints paths relative to the session folder (`subdir`, below the root) and leaves out files outside it.
-      const names = Object.keys(diff.untracked ?? {}).filter(f => diff.subdir === undefined || e.argv.includes('--full-name') || f.startsWith(diff.subdir)).map(f => (diff.subdir === undefined || e.argv.includes('--full-name') ? f : f.slice(diff.subdir.length)))
+      // As git does: the session folder (`subdir`, below the root) only, unless the `:/` pathspec names the whole repository; --full-name changes only how paths print.
+      const whole = e.argv.includes(':/')
+      const full = e.argv.includes('--full-name')
+      const names = Object.keys(diff.untracked ?? {}).filter(f => diff.subdir === undefined || whole || f.startsWith(diff.subdir)).map(f => (diff.subdir === undefined || full ? f : f.slice(diff.subdir.length)))
       return { value: { exitCode: 0, stdout: names.join('\0'), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     }
     // The merge base and the files changed since it: `changed` null stands for a repository where they cannot be listed.

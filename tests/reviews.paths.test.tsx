@@ -20,6 +20,17 @@ test('globs: ** crosses folders, * stays in one, a glob with no slash matches th
   expect(globMatches('docs/**', 'src/docs.md')).toBe(false)
 })
 
+test('globs read as Tick-it reads them: any depth unless the glob starts with /, ** without a / after it matches anything', () => {
+  expect(globMatches('src/**', 'apps/web/src/a.ts')).toBe(true)
+  expect(globMatches('/src/**', 'apps/web/src/a.ts')).toBe(false)
+  expect(globMatches('/src/**', 'src/a.ts')).toBe(true)
+  expect(globMatches('a/**/b', 'a/b')).toBe(true)
+  expect(globMatches('a/**/b', 'a/x/y/b')).toBe(true)
+  expect(globMatches('a**b', 'a/x/b')).toBe(true)
+  expect(globMatches('f?.ts', 'x/f1.ts')).toBe(true)
+  expect(globMatches('f?.ts', 'x/f/.ts')).toBe(false)
+})
+
 test('match: a reviewer runs when a changed file matches its paths, one that matches none is skipped with the reason', async ($, on) => {
   const seen = engine(on, { lines: 10, changed: ['hooks/a.ts'] }, true, SKILLS)
   await done($)
@@ -107,4 +118,11 @@ test('untracked files are listed with root-relative paths when the session folde
   await done($)
   expect(seen.processes.some(p => p.startsWith('git ls-files') && p.includes('--full-name'))).toBe(true)
   expect(seen.spawned.map(s => s.description)).toEqual(['tick-it review: docs on TCK-143, round 1'])
+})
+
+test('an untracked file at the root is listed when the session folder is below it, and a reviewer for it runs', async ($, on) => {
+  const seen = engine(on, { lines: 10, changed: [], subdir: 'docs/', untracked: { 'docs/new.md': 'x', 'README.md': 'y' } }, true, { ...skill('top', 'paths: /README.md'), ...skill('code', 'paths: hooks/*.ts') })
+  await done($)
+  expect(seen.processes.some(p => p.startsWith('git ls-files') && p.includes(':/'))).toBe(true)
+  expect(seen.spawned.map(s => s.description)).toEqual(['tick-it review: top on TCK-143, round 1'])
 })
