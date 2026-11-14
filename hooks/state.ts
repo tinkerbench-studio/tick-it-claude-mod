@@ -31,6 +31,8 @@ export const REVIEWS_KEY = 'reviews'
 export const SKILLS_DIR = '.tick-it/skills'
 /** Where review skills lived before 0.22.0: still read when .tick-it/skills is not there. */
 export const OLD_SKILLS_DIR = '.tickit/skills'
+/** Where the plugin keeps the base review skills, under its own root: a repository's skill names one with `base` and adds its rules to it. */
+export const BASES_DIR = 'skills/review-agents/bases'
 /** Git's tree with nothing in it, to diff against in a repository with no commit. */
 export const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
 /** The most rounds Tick-it allows a size (set_repository_settings: reviewRounds, 1 to 10). */
@@ -105,7 +107,7 @@ export const MAX_FINDINGS = 200
 // ---- Tick-it, the server -----------------------------------------------------
 
 /** This mod's version, sent with get_mod_config (the server requires it). Kept equal to `version` in .claude-plugin/plugin.json: checks/contract-fixtures.test.mjs fails when they differ. */
-export const MOD_VERSION = '0.25.5'
+export const MOD_VERSION = '0.26.0'
 
 /** The server's key in this mod's manifest (.claude-plugin/plugin.json). */
 export const TICKIT_SERVER = 'tickit'
