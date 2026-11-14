@@ -124,7 +124,7 @@ export const registerUi: Register = on => {
         )}
         {problem !== null && <Text color={COLOR.warn}>{`Could not read the board: ${problem}.`}</Text>}
         <Text color={COLOR.dim}>Press a ticket to take it.</Text>
-        {nextToTake(list) !== undefined && <Text key="next-to-take" color={COLOR.dim}>{`Next to take: ${nextToTake(list)?.id}`}</Text>}
+        {nextToTake(list) !== undefined && <Text key="next-to-take" color={COLOR.dim} wrap="truncate-end">{`Next to take: ${nextToTake(list)?.id}`}</Text>}
         {s !== null && (
           <Box key="steward" flexDirection="column">
             <Text bold>

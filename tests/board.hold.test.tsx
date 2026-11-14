@@ -63,3 +63,16 @@ test('the ticket pane shows the hold of a held ticket at a narrow width, and non
   expect(await none.find({ type: 'Text', text: /Waiting until/ })).toBeUndefined()
   await none.unmount()
 })
+
+test('the board pane shows the hold and the next ticket on a narrow terminal', async ($, on) => {
+  const seen = engine(on, { lines: 0 })
+  Object.assign(seen.server.find(t => t.key === 'TCK-143')!, { notBefore: FUTURE })
+  await start($)
+  const narrow = { ...PANE, props: { ...PANE.props, bodyColumns: 30 } } as typeof PANE
+  const board = await $.ui.mount({ plugin: 'tick-it', surface: 'terminal', ...narrow })
+  const held = await board.find({ type: 'Text', text: 'Waiting until 1 Dec 2999' })
+  expect(held).toBeDefined()
+  const next = await board.find({ type: 'Text', text: 'Next to take: TCK-147' })
+  expect(next).toBeDefined()
+  await board.unmount()
+})
