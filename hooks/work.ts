@@ -1,5 +1,6 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, ToolCallInput, ToolCallResult } from 'claude-code'
+import { log } from './log'
 import type { PendingLink, StartedSession, Ticket, TicketStatus } from '../types'
 import { STARTED_KEY, REPORT_EVERY_MS, REPORT_TOOL, SKILLS_DIR, EMPTY_TREE, UNLINKED_KEY, FILE_TYPES, MAX_ATTACH_BYTES, MAX_FILES, MAX_PATH, MAX_FILE_LINES } from './state'
 import { sendTickit, callTickit, repositoryHere } from './tickit'
@@ -177,6 +178,7 @@ export async function report($: EngineInterface, status: StartedSession['status'
     changedLines: await read($, diffLines),
     ...(summary === undefined ? {} : { summary: summary.slice(0, 500) }),
   }).catch(() => ({ ok: false as const, why: 'unreachable' }))
+  await log($, sent.ok ? 'info' : 'warn', 'report', { ticket: s.ticket, status, sent: sent.ok })
   const next = { ...s, status, reportedAt: sent.ok ? now : s.reportedAt }
   await update($, startedSession, () => next)
   await $.store.set(STARTED_KEY, next)
