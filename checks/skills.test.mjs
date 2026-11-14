@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { test } from 'node:test'
 
 const read = path => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8')
@@ -91,4 +91,56 @@ test('draft-ticket, plan-epic and review-agents tell the person when the legacy 
     assert.equal(skill.split('merge-checks.json').length - 1, 1, `${name} should name the legacy file once`)
     assert.ok(!skill.includes('mergeChecks'), `${name} repeats the upgrade steps`)
   }
+})
+
+const ROLES = ['acceptance', 'principal', 'security', 'tests', 'ux-evidence']
+const frontMatter = text => /^---\n([\s\S]*?)\n---\n/.exec(text)?.[1] ?? ''
+
+test('the plugin ships a base review skill for each role, with nothing left to fill in and nothing of one repository', () => {
+  for (const role of ROLES) {
+    const base = read(`skills/review-agents/bases/${role}/SKILL.md`)
+    assert.match(frontMatter(base), new RegExp(`^name: ${role}$`, 'm'), `${role} base has no name`)
+    assert.match(frontMatter(base), /^description: \S/m, `${role} base has no description`)
+    assert.match(frontMatter(base), /^model: claude-/m, `${role} base has no model`)
+    assert.ok(!/^base:/m.test(frontMatter(base)), `${role} base names a base of its own`)
+    assert.ok(base.includes('BLOCKING:'), `${role} base has no blocking rule`)
+    // A bracketed placeholder is a rule for a repository to fill in: that belongs in the sample. ![](…) is the one bracket a base may hold.
+    assert.deepEqual(base.replaceAll('![](…)', '').match(/\[[^\]]*\]/g) ?? [], [], `${role} base has a placeholder`)
+    // What only one repository has: its folders, its commands, its tools.
+    for (const own of ['hooks/', 'apps/', 'tests/', 'checks/', 'README.md', 'npm ', 'pytest', 'Storybook', 'origin/main', '/tick-it', 'tinkerbench', 'nookivia']) assert.ok(!base.includes(own), `${role} base names "${own}", which is particular to a repository`)
+  }
+})
+
+test('each sample names its base, keeps only the repository’s own rules and leaves the rest of the front matter to the base', () => {
+  for (const role of ROLES) {
+    const sample = read(`skills/review-agents/samples/${role}/SKILL.md`)
+    assert.equal(frontMatter(sample), `name: ${role}\nbase: ${role}`, `${role} sample's front matter`)
+    assert.ok(existsSync(new URL(`../skills/review-agents/bases/${role}/SKILL.md`, import.meta.url)), `${role} sample names a base that is not shipped`)
+    assert.ok(/\[[^\]]+\]/.test(sample), `${role} sample has nothing to fit to the repository`)
+    const base = read(`skills/review-agents/bases/${role}/SKILL.md`)
+    for (const line of sample.split('\n').filter(line => line.startsWith('- BLOCKING:'))) assert.ok(!base.includes(line), `${role} sample repeats its base: ${line}`)
+  }
+})
+
+test('review-agents and the README explain how a repository’s skill adds its rules to a base', () => {
+  const skill = read('skills/review-agents/SKILL.md')
+  for (const words of ['`bases/<name>/SKILL.md` beside this file', 'names with `base` in its front matter', 'Read the base first', "Keep the front matter's `name` and `base`", 'come from the base']) expect(skill).toContain(words, `review-agents no longer says "${words}"`)
+  const readme = read('README.md')
+  for (const words of ['### Base review skills', '`skills/review-agents/bases/<name>/SKILL.md`', 'base: principal', 'the base first and the repository\'s rules after it', 'The `description`, `model` and `sizes` a skill leaves out are its base\'s', 'reviews by its own rules alone', 'A session without the mod']) expect(readme).toContain(words, `README no longer says "${words}"`)
+  for (const role of ROLES) expect(readme).toContain(`\`${role}\``)
+  expect(read('hooks/state.ts')).toContain("BASES_DIR = 'skills/review-agents/bases'")
+})
+
+test('the tickit marketplace references VibeSec-Skill at its own repository, pinned to a commit, and the README records it', () => {
+  const marketplace = JSON.parse(read('.claude-plugin/marketplace.json'))
+  assert.equal(marketplace.name, 'tickit')
+  const entry = marketplace.plugins.find(plugin => plugin.name === 'vibesec')
+  assert.ok(entry, 'the marketplace has no vibesec entry')
+  assert.equal(entry.source.source, 'github')
+  assert.equal(entry.source.repo, 'BehiSecc/VibeSec-Skill')
+  assert.match(entry.source.sha, /^[0-9a-f]{40}$/, 'the reference is not pinned to a full commit')
+  assert.equal(entry.source.ref, undefined, 'a ref beside the sha is one more thing to keep in step')
+  assert.equal(entry.license, 'Apache-2.0')
+  const readme = read('README.md')
+  for (const words of ['### VibeSec-Skill', '`vibesec`', 'BehiSecc/VibeSec-Skill', '/plugin marketplace add tinkerbench-studio/tick-it-claude-mod', '/plugin install vibesec@tickit', 'no copy of it is kept here', 'set `sha` of the `vibesec` entry']) expect(readme).toContain(words, `README no longer says "${words}"`)
 })

@@ -31,6 +31,8 @@ export const REVIEWS_KEY = 'reviews'
 export const SKILLS_DIR = '.tick-it/skills'
 /** Where review skills lived before 0.22.0: still read when .tick-it/skills is not there. */
 export const OLD_SKILLS_DIR = '.tickit/skills'
+/** Where the plugin keeps the base review skills, under its own root: a repository's skill names one with `base` and adds its rules to it. */
+export const BASES_DIR = 'skills/review-agents/bases'
 /** Git's tree with nothing in it, to diff against in a repository with no commit. */
 export const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
 /** The most rounds Tick-it allows a size (set_repository_settings: reviewRounds, 1 to 10). */
