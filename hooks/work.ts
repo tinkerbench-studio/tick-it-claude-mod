@@ -7,6 +7,7 @@ import type { Called } from './tickit'
 import { findCurrent, refreshBoard, changeTicket, showStatus } from './board'
 import { findSkills } from './reviews'
 import { uiEvidenceRefusal } from './ui-check'
+import { log } from './log'
 
 // Declared in this file: the engine reads an atom only where it is written (a module cannot use one imported from state.ts).
 const tickets = atom({ plugin: 'tick-it', key: 'tickets' } as const, [])
@@ -177,6 +178,7 @@ export async function report($: EngineInterface, status: StartedSession['status'
     changedLines: await read($, diffLines),
     ...(summary === undefined ? {} : { summary: summary.slice(0, 500) }),
   }).catch(() => ({ ok: false as const, why: 'unreachable' }))
+  await log($, sent.ok ? 'info' : 'warn', 'report', { ticket: s.ticket, status, sent: sent.ok })
   const next = { ...s, status, reportedAt: sent.ok ? now : s.reportedAt }
   await update($, startedSession, () => next)
   await $.store.set(STARTED_KEY, next)

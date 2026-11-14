@@ -5,6 +5,7 @@ import { SIZES, REVIEWS_KEY, SKILLS_DIR, OLD_SKILLS_DIR, KEEP_REVIEWS, MAX_FINDI
 import { callTickit, fetchInstructions, repositoryHere, roundLimit } from './tickit'
 import { setStatus, showStatus, refreshPullRequest, servedConfig } from './board'
 import { report } from './work'
+import { log } from './log'
 
 // Declared in this file: the engine reads an atom only where it is written (a module cannot use one imported from state.ts).
 const tickets = atom({ plugin: 'tick-it', key: 'tickets' } as const, [])
@@ -194,8 +195,11 @@ export async function setSteward($: EngineInterface, next: Steward | null) {
   }
 }
 
+/** What began a round, as the log says it: the done command, the steward command, Claude's own move to In review, or the fix turn ending. */
+export type RoundTrigger = 'done-command' | 'steward-command' | 'moved-by-claude' | 'after-fix'
+
 /** Starts one review round: every skill that applies to the ticket's size, each as a subagent. */
-export async function startRound($: EngineInterface, t: Ticket, round: number, ticking?: boolean): Promise<string> {
+export async function startRound($: EngineInterface, t: Ticket, round: number, ticking?: boolean, trigger: RoundTrigger = 'done-command'): Promise<string> {
   // The ticket may not have been taken in this session: the repository's settings are read afresh as its rounds begin, before the stop check below.
   if (round === 1) await fetchInstructions($).catch(() => undefined)
   const before = (await read($, steward))?.phase
@@ -204,11 +208,13 @@ export async function startRound($: EngineInterface, t: Ticket, round: number, t
   if (before !== 'stopped' && (await read($, steward))?.phase === 'stopped') {
     // No turn is running either, so r has to carry the next round in with a prompt of its own.
     await update($, steward, v => (v === null ? v : { ...v, fixing: false }))
+    await log($, 'debug', 'round-not-started', { ticket: t.id, round, why: 'stopped' })
     return `Stopped; round ${round} of ${t.id} did not start.`
   }
   const limit = await roundLimit($, t.size)
   const skills = all.filter(({ skill }) => skill.sizes === undefined || skill.sizes.includes(t.size))
   if (skills.length === 0) {
+    await log($, 'debug', 'round-not-started', { ticket: t.id, round, why: all.length === 0 ? 'no-skills' : 'no-skill-for-size' })
     const none = all.length === 0 ? `No review skills in ${SKILLS_DIR}.` : `None of the review skills in ${SKILLS_DIR} (${all.map(f => f.folder).join(', ')}) review a ticket of size ${t.size}.`
     await setSteward($, { ticket: t.id, round, phase: 'done', maxRounds: limit, note: none })
     const why = await setStatus($, t.id, 'Done', 'Done without review: no review skill applies to this ticket.')
@@ -258,11 +264,13 @@ export async function startRound($: EngineInterface, t: Ticket, round: number, t
   }
   await saveReviews($, list => [...list, ...started])
   if (started.length === 0) {
+    await log($, 'warn', 'round-not-started', { ticket: t.id, round, why: 'spawn-refused' })
     const why = `No reviewer could be started: ${refused.join('; ')}`.slice(0, 450)
     await setSteward($, { ticket: t.id, round, phase: 'stopped', maxRounds: limit, note: why })
     return `${why} (${t.id})`
   }
 
+  await log($, 'debug', 'round-started', { ticket: t.id, round, why: trigger, skills: started.map(r => r.skill).join(',') })
   return `Round ${round}: ${started.map(r => r.skill).join(', ')} reviewing ${t.id} in this session.`
 }
 
@@ -368,6 +376,7 @@ export async function settleRound($: EngineInterface, s: Steward) {
       }
       const repository = await repositoryHere($)
       if (!(await stillReviewing())) return
+      await log($, 'debug', 'round-settled', { ticket: t.id, round: s.round, outcome: 'clean-with-unticked-checks' })
       const note = (unticked === null ? 'The acceptance checks could not be read after a clean round, so they are not known to be ticked.' : `${unticked.length} acceptance check${many ? 's are' : ' is'} not ticked after a clean round: ${unticked[0]}`).slice(0, 200)
       // Done as far as the session goes (a stop would hold the pull request back for good): a person ticking the check completes the review.
       await setSteward($, { ...s, phase: 'done', note: `Clean after ${s.round} round${s.round === 1 ? '' : 's'}, but ${unticked === null ? 'the acceptance checks could not be read' : `${unticked.length} acceptance check${many ? 's are' : ' is'} not ticked`}.` })
@@ -375,6 +384,7 @@ export async function settleRound($: EngineInterface, s: Steward) {
       $.ui.toast(`tick-it: round ${s.round} reviews of ${t.id} were clean, but ${unticked === null ? 'its acceptance checks could not be read' : `${unticked.length} acceptance check${many ? 's are' : ' is'} not ticked`}, so it is not reviewed. Over to you.`)
       return
     }
+    await log($, 'debug', 'round-settled', { ticket: t.id, round: s.round, outcome: 'clean' })
     const why = await setStatus($, t.id, 'Done', 'Review rounds were clean.')
     // Stopped while Tick-it was answering: the ticket stays In review, as the stop said.
     if (!(await stillReviewing())) {
@@ -402,6 +412,7 @@ export async function settleRound($: EngineInterface, s: Steward) {
   const limit = await roundLimit($, t.size)
   if (s.round > limit) {
     if (!(await stillReviewing())) return
+    await log($, 'debug', 'round-settled', { ticket: t.id, round: s.round, outcome: 'stopped-past-limit', blocking: blocking.length })
     await setSteward($, { ...s, phase: 'stopped', note: `${blocking.length} blocking after ${s.round} rounds.` })
     // Tell Tick-it a person is needed. Best effort, like a report: the toast below says the same.
     const repository = await repositoryHere($)
@@ -412,6 +423,7 @@ export async function settleRound($: EngineInterface, s: Steward) {
   if (!(await stillReviewing())) return
   // The limit is hit with reviewers still blocking: one further round goes past it, and the timeline shows it as one.
   const pastLimit = s.round === limit
+  await log($, 'debug', 'round-settled', { ticket: t.id, round: s.round, outcome: pastLimit ? 'fix-then-last-round' : 'fix', blocking: blocking.length })
   await setSteward($, { ...s, phase: 'fixing', ticking: false, ...(pastLimit ? { maxRounds: s.round + 1, note: `Still blocking after ${s.round} rounds; round ${s.round + 1} goes past the limit.` } : {}) })
   const served = await servedConfig($)
   const afterFix = served !== null && served.ticket === t.id ? served.briefLines.afterFix : undefined
