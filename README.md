@@ -21,7 +21,7 @@ When an edit is refused for passing the size budget, the refusal gives Claude th
 
 Tests: `claude plugin test .` runs the hook tests in `tests/`, and `node --test checks/*.test.mjs` checks the skills' wording. CI runs both.
 
-Shared settings: the size budgets, default review rounds and the brief's instruction lines come from Tick-it's `get_mod_config` tool when a ticket is taken (`hooks/tickit.ts`, `fetchModConfig`). The copies in `hooks/state.ts` and `hooks/board.ts` are only the fallback for when Tick-it cannot answer. Two more brief lines come from `get_mod_config` too, with no local copy: `briefLines.beforeReview` (an array of lines, put in the brief before the line that says how to finish) and `briefLines.afterFix` (one line, added at the end of the fix prompt in `hooks/reviews.ts`). When Tick-it serves neither key, the brief and the fix prompt are the same as without them. The call also sends `modVersion` (`MOD_VERSION` in `hooks/state.ts`), which the server requires; `checks/contract-fixtures.test.mjs` fails when it differs from `version` in `.claude-plugin/plugin.json`.
+Shared settings: the size budgets, default review rounds and the brief's instruction lines come from Tick-it's `get_mod_config` tool when a ticket is taken (`hooks/tickit.ts`, `fetchModConfig`). The copies in `hooks/state.ts` and `hooks/board.ts` are only the fallback for when Tick-it cannot answer. Two more brief lines come from `get_mod_config` too, with no local copy: `briefLines.beforeReview` (an array of lines, put in the brief before the line that says how to finish) and `briefLines.afterFix` (one line, added at the end of the fix prompt in `hooks/reviews.ts`). When Tick-it serves neither key, the brief and the fix prompt are the same as without them. The call also sends `modVersion` (`MOD_VERSION` in `hooks/state.ts`), which the server requires; `checks/contract-fixtures.test.mjs` fails when it differs from `version` in `.claude-plugin/plugin.json`. When the mod is older than the server's `minModVersion`, the answer carries a `notice`, and the mod shows that text to you as a toast each time a ticket is taken; a null notice shows nothing.
 
 ## Releases
 
@@ -62,6 +62,29 @@ The brief ends with the repository's instructions for every brief (its owner or 
 Asking Claude in plain words works too ("start on TCK-1"): Claude taking a ticket with `update_ticket` (refused while someone else's live session holds it) is `/tick-it take`, so the brief, the size budget and progress reports follow. Tick-it keeps a session for it even though it did not start one, and the mod reports to that. Claude is kept off `report_session`, as off `record_runs`. The exception is a breakdown session (`start_breakdown_session`), a temporary suggestion-analysis session (`start_suggestion_analysis`) or a post-deploy check session: its first message starts "Tick-it session s\_…: break down TCK-n" (or "analyse suggestions of TCK-n", or "check TCK-n after deploy"), the mod takes no ticket for it, and that one session may call `report_session` for itself. Without the mod, Tick-it still moves the session along with its ticket's status, with no latest word or changed lines.
 
 When a ticket's pull request turns conflicting, Tick-it tells the ticket's live session to merge the base branch in, resolve, run the checks and push. A live session, cloud or local, is told in the reply to a `report_session` (its first report, when it takes the ticket, included), and the mod hands it to Claude as a prompt when the turn ends. A note a person sends a ticket back with (`answer_need`) reaches its session the same way, once: in the reply to the next `report_session` of the live session, cloud or local (or the next session's first, when none is live). A routine only starts a new session, so it is never used to reach a running one; it starts one only for a conflict on a pull request whose session has finished. A session started after the conflict takes the instruction up the same way; one that ended before it got it leaves the pull request flagged and its instruction to the next session. A pull request from a fork, or with a branch name that is not a plain name, is not sent to a session (the text goes into a prompt) and shows as skipped. With no live session, the pull request shows "needs a session" in the web app. Each instruction is on the ticket's timeline.
+
+## Screenshots and the UI evidence check, for any repository
+
+Two scripts ship with the plugin, so a repository does not copy them. Pictures go to Tick-it through `presign_screenshot_upload` and `confirm_screenshot`, never into git. In a repository that is not tick-it, with the plugin installed (its path is `${CLAUDE_PLUGIN_ROOT}`; with `claude --plugin-dir .` it is the clone):
+
+```sh
+# 1. Upload the pictures in ./shots for ticket ABC-12: `/tick-it:upload-screenshots ABC-12 ./shots` has Claude do all four steps.
+node "${CLAUDE_PLUGIN_ROOT}/scripts/upload-screenshots.mjs" plan ./shots                   # { name, type } of each picture
+#    Claude calls presign_screenshot_upload for each and saves url + headers + name in presigned.json
+node "${CLAUDE_PLUGIN_ROOT}/scripts/upload-screenshots.mjs" put ./shots presigned.json      # PUTs them, prints what to confirm
+#    Claude calls confirm_screenshot for each name printed
+
+# 2. Before review, check a UI change does not commit pictures (the branch side only; whether pictures were uploaded is read from Tick-it by `/tick-it done`):
+node "${CLAUDE_PLUGIN_ROOT}/scripts/ui-evidence-check.mjs" ABC-12 --base origin/main --pictures-under docs/screenshots
+```
+
+The check reads the repository's UI path globs from `design.uiPaths` in `.tick-it/config.json` (the file Tick-it's GitHub App reads; `--config <file>` names another); with none, no path is a UI path and nothing is checked:
+
+```json
+{ "design": { "uiPaths": ["src/ui/**", "**/*.css"] } }
+```
+
+A change touching a `uiPaths` glob fails when it adds or changes a picture file (PNG, JPEG, GIF, WebP) under `--pictures-under` (default `docs/change-screenshots/`). Globs: `**` crosses folders, `*` and `?` stay within one. The mod's own `/tick-it done` gate still uses its built-in UI paths and does not read `design.uiPaths`; the skill is `skills/upload-screenshots/SKILL.md`. The tick-it repository moving onto these copies, and the gate reading the globs, are follow-up tickets.
 
 ## Planning an epic
 

@@ -68,6 +68,7 @@ export const USAGE = [
   "/tick-it:retro <epic>               have Claude write the epic's retrospective",
   '/tick-it:import-github              have Claude import the open GitHub issues as tickets, once',
   '/tick-it:review-agents              have Claude set up review agents in .tick-it/skills from the samples',
+  '/tick-it:upload-screenshots <id> <dir>  have Claude upload a ticket picture folder to Tick-it, not git',
 ].join('\n')
 
 // ---- Reporting to Tick-it ------------------------------------------------------
@@ -105,7 +106,7 @@ export const MAX_FINDINGS = 200
 // ---- Tick-it, the server -----------------------------------------------------
 
 /** This mod's version, sent with get_mod_config (the server requires it). Kept equal to `version` in .claude-plugin/plugin.json: checks/contract-fixtures.test.mjs fails when they differ. */
-export const MOD_VERSION = '0.25.5'
+export const MOD_VERSION = '0.26.0'
 
 /** The server's key in this mod's manifest (.claude-plugin/plugin.json). */
 export const TICKIT_SERVER = 'tickit'

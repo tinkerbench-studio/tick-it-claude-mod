@@ -67,3 +67,23 @@ test('when Tick-it cannot answer get_mod_config, or answers badly, the mod keeps
   })
   expect(JSON.stringify(again.context)).toContain('Finish by moving the ticket to In review with update_ticket')
 })
+
+test('taking a ticket shows the notice get_mod_config answers, and nothing when it is null', async ($, on) => {
+  const notice = 'This tick-it mod (0.1.0) is older than Tick-it serves in full (0.25.0). Update it.'
+  const net: Net = { modConfig: { ...served, minModVersion: '0.25.0', notice } }
+  const seen = engine(on, { lines: 10 }, true, {}, net)
+  await start($)
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-143' })
+  expect(seen.toasts).toEqual([JSON.stringify({ text: `tick-it: ${notice}` })])
+  net.modConfig = { ...served, minModVersion: '0.1.0', notice: null }
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-143' })
+  expect(seen.toasts).toEqual([JSON.stringify({ text: `tick-it: ${notice}` })])
+})
+
+test('a notice is shown even when the rest of the get_mod_config answer cannot be read', async ($, on) => {
+  const net: Net = { modConfig: { notice: 'Update the tick-it mod.' } }
+  const seen = engine(on, { lines: 10 }, true, {}, net)
+  await start($)
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-143' })
+  expect(seen.toasts).toEqual([JSON.stringify({ text: 'tick-it: Update the tick-it mod.' })])
+})
