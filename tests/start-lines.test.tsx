@@ -1,6 +1,11 @@
 import { expect, test } from 'claude-code/testing'
 
 import { BREAKDOWN_LINE, START_LINE } from '../hooks/state'
+import { RUN, SKILLS, engine, start, typed, reports } from './helpers'
+
+const LINE = 'Tick-it session s_abc12345: work on TCK-151 in acme/web-app.'
+/** The first message of a scheduled session: the line arrives indented inside a routine-fire-payload block. */
+const WRAPPED = `[SCHEDULED TASK - AUTOMATED FIRING OF A CONFIGURED PROMPT]\n<routine-fire-payload>\nThe following was supplied by the caller of this routine's API fire endpoint.\n\n    ${LINE}\n    Recognise a session's start line\n\n    The tick-it mod takes the ticket.\n</routine-fire-payload>`
 
 test('a start line is found whatever the ticket prefix, and no other shape of key', () => {
   expect(START_LINE.exec('Tick-it session s_abc12345: work on TCK-151 in acme/web-app.')?.[2]).toBe('TCK-151')
@@ -14,4 +19,35 @@ test('a breakdown or analysis line is found whatever the ticket prefix', () => {
   expect(BREAKDOWN_LINE.exec('Tick-it session s_abc12345: analyse suggestions of NEW-7 in acme/web-app.')?.[2]).toBe('NEW-7')
   expect(BREAKDOWN_LINE.exec('Tick-it session s_abc12345: check NEW-7 after deploy in acme/web-app.')?.[2]).toBe('NEW-7')
   expect(BREAKDOWN_LINE.test('Tick-it session s_abc12345: break down NE-7 in acme/web-app.')).toBe(false)
+})
+
+test('a start line indented by spaces or tabs, as a routine-fire-payload delivers it, is found', () => {
+  expect(START_LINE.exec(WRAPPED)?.[2]).toBe('TCK-151')
+  expect(START_LINE.exec(`\t${LINE}`)?.[3]).toBe('acme/web-app')
+  expect(BREAKDOWN_LINE.exec('    Tick-it session s_abc12345: break down NEW-7 in acme/web-app.')?.[2]).toBe('NEW-7')
+})
+
+test('a flush start line is still found, and a sentence that mentions it mid-line is not', () => {
+  expect(START_LINE.exec(`${LINE}\nMore.`)?.[2]).toBe('TCK-151')
+  expect(START_LINE.test(`The first line reads: ${LINE}`)).toBe(false)
+  expect(START_LINE.test(`> ${LINE}`)).toBe(false)
+  expect(BREAKDOWN_LINE.test('See: Tick-it session s_abc12345: break down NEW-7 in acme/web-app.')).toBe(false)
+})
+
+test('a session started with the indented line is recorded as started and reports', async ($, on) => {
+  const seen = engine(on, { lines: 0 })
+  await start($)
+  const entered = await $.prompt.submit(typed(WRAPPED))
+  expect('context' in entered ? entered.context?.some(c => c.includes('TCK-151')) : false).toBe(true)
+  expect(seen.server.find(t => t.key === 'TCK-151')).toMatchObject({ status: 'In progress' })
+  expect(reports(seen)).toEqual([{ repository: 'acme/web-app', session: 's_abc12345', status: 'working', claudeSessionId: 'session-1', summary: 'Took TCK-151.' }])
+})
+
+test('moving the ticket of an indented-line session to review starts its review agents and reports reviewing', async ($, on) => {
+  const seen = engine(on, { lines: 40 }, true, { '.tick-it/skills/principal/SKILL.md': SKILLS['.tick-it/skills/principal/SKILL.md'] ?? '' })
+  await start($)
+  await $.prompt.submit(typed(WRAPPED))
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'done' })
+  expect(seen.server.find(t => t.key === 'TCK-151')).toMatchObject({ status: 'In review' })
+  expect(reports(seen).map(r => r.status)).toContain('reviewing')
 })
