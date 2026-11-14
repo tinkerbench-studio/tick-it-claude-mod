@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 import type { PullRequestView, ReviewRun, ReviewUsage, Steward, Ticket, TicketSize } from '../types'
 import { SIZES, REVIEWS_KEY, SKILLS_DIR, OLD_SKILLS_DIR, KEEP_REVIEWS, MAX_FINDING_TEXT, PRICES } from './state'
-import { callTickit, fetchInstructions, repositoryHere, roundLimit } from './tickit'
+import { callTickit, fetchInstructions, fetchModConfig, hasModLimits, repositoryHere, reviewBudgetOf, roundLimit } from './tickit'
 import { setStatus, showStatus, refreshPullRequest, servedConfig } from './board'
 import { report } from './work'
 import { log } from './log'
@@ -201,7 +201,11 @@ export type RoundTrigger = 'done-command' | 'steward-command' | 'moved-by-claude
 /** Starts one review round: every skill that applies to the ticket's size, each as a subagent. */
 export async function startRound($: EngineInterface, t: Ticket, round: number, ticking?: boolean, trigger: RoundTrigger = 'done-command'): Promise<string> {
   // The ticket may not have been taken in this session: the repository's settings are read afresh as its rounds begin, before the stop check below.
-  if (round === 1) await fetchInstructions($).catch(() => undefined)
+  if (round === 1) {
+    await fetchInstructions($).catch(() => undefined)
+    // Its own rounds and budget, from get_mod_config, when taking the ticket here did not already read them.
+    if (!(await hasModLimits($, t.id))) await fetchModConfig($, t.id).catch(() => undefined)
+  }
   const before = (await read($, steward))?.phase
   const all = await findSkills($)
   // The stop button pressed while the skills were read: that round does not start.
@@ -211,7 +215,7 @@ export async function startRound($: EngineInterface, t: Ticket, round: number, t
     await log($, 'debug', 'round-not-started', { ticket: t.id, round, why: 'stopped' })
     return `Stopped; round ${round} of ${t.id} did not start.`
   }
-  const limit = await roundLimit($, t.size)
+  const limit = await roundLimit($, t.size, t.id)
   const skills = all.filter(({ skill }) => skill.sizes === undefined || skill.sizes.includes(t.size))
   if (skills.length === 0) {
     await log($, 'debug', 'round-not-started', { ticket: t.id, round, why: all.length === 0 ? 'no-skills' : 'no-skill-for-size' })
@@ -343,6 +347,26 @@ async function autoMergeOn($: EngineInterface, repository: string): Promise<bool
   return got?.ok === true && got.value.autoMerge === true
 }
 
+/**
+ * Whether the review budget stops the next round: the ticket's reviewSpend (get_ticket: costUsd, budget, remaining) says the budget is reached, or the
+ * average cost of the rounds so far is more than what remains. Undefined, so the round limit alone decides, when the ticket has no budget (get_mod_config),
+ * when Tick-it cannot be read, or when reviewSpend is null (costs cannot be seen) or names no budget.
+ */
+export async function budgetStop($: EngineInterface, ticket: string, rounds: number): Promise<{ budget: number; costUsd: number; reached: boolean } | undefined> {
+  if ((await reviewBudgetOf($, ticket)) === null) return undefined
+  const repository = await repositoryHere($)
+  if (repository === undefined) return undefined
+  const got = await callTickit($, 'get_ticket', { repository, key: ticket }).catch(() => undefined)
+  const spend = got?.ok === true ? (got.value.ticket as { reviewSpend?: { costUsd?: unknown; budget?: unknown; remaining?: unknown } | null } | undefined)?.reviewSpend : undefined
+  if (spend === null || spend === undefined) return undefined
+  const { costUsd, budget, remaining } = spend
+  if (typeof costUsd !== 'number' || typeof budget !== 'number' || typeof remaining !== 'number') return undefined
+  // Spend must be under the budget; and a round costing the average of those so far must fit in what remains.
+  if (remaining <= 0) return { budget, costUsd, reached: true }
+  if (rounds >= 1 && costUsd / rounds > remaining) return { budget, costUsd, reached: false }
+  return undefined
+}
+
 /** Once every reviewer of the round has answered: done, a fix round, one more round past the limit, or stop. */
 export async function settleRound($: EngineInterface, s: Steward) {
   const runs = (await read($, reviews)).filter(r => r.ticket === s.ticket && r.round === s.round)
@@ -409,7 +433,7 @@ export async function settleRound($: EngineInterface, s: Steward) {
     $.ui.toast(why === undefined ? `tick-it: ${t.id} is Done. Round ${s.round} reviews were clean (${spent}).` : waitsForMerge ? `tick-it: round ${s.round} reviews of ${t.id} were clean (${spent}). ${why}` : `tick-it: round ${s.round} reviews of ${t.id} were clean (${spent}), but Tick-it did not take it to Done: ${why}. /tick-it steward ${t.id} to try again.`)
     return
   }
-  const limit = await roundLimit($, t.size)
+  const limit = await roundLimit($, t.size, t.id)
   if (s.round > limit) {
     if (!(await stillReviewing())) return
     await log($, 'debug', 'round-settled', { ticket: t.id, round: s.round, outcome: 'stopped-past-limit', blocking: blocking.length })
@@ -421,6 +445,18 @@ export async function settleRound($: EngineInterface, s: Steward) {
     return
   }
   if (!(await stillReviewing())) return
+  // Another round (the review of a fix) starts only while spend is under the budget and the next round is not expected to overshoot what is left. A fix asked for here is always reviewed, so the check is made before asking for one.
+  const over = await budgetStop($, t.id, s.round)
+  if (over !== undefined) {
+    if (!(await stillReviewing())) return
+    await log($, 'debug', 'round-settled', { ticket: t.id, round: s.round, outcome: 'stopped-at-budget', blocking: blocking.length })
+    const note = `Review budget $${over.budget} ${over.reached ? 'reached' : `would be overshot by round ${s.round + 1}`} (${usd.format(over.costUsd)} spent over ${s.round} round${s.round === 1 ? '' : 's'}), ${blocking.length} blocking finding${blocking.length === 1 ? '' : 's'} still open, no clean round.`
+    await setSteward($, { ...s, phase: 'stopped', note })
+    const repository = await repositoryHere($)
+    if (repository !== undefined) await callTickit($, 'set_needs_human', { repository, key: t.id, kind: 'no-clean-round', note: note.slice(0, 200) }).catch(() => undefined)
+    $.ui.toast(`tick-it: ${t.id} still has ${blocking.length} blocking findings and the $${over.budget} review budget is ${over.reached ? 'used up' : 'too low for another round'}. Over to you.`)
+    return
+  }
   // The limit is hit with reviewers still blocking: one further round goes past it, and the timeline shows it as one.
   const pastLimit = s.round === limit
   await log($, 'debug', 'round-settled', { ticket: t.id, round: s.round, outcome: pastLimit ? 'fix-then-last-round' : 'fix', blocking: blocking.length })

@@ -239,3 +239,35 @@ test('the brief tells Claude to ask Tick-it for the branch name and reuse an exi
   const text = brief({ id: 'TCK-2', title: 'Two', epic: 'E', size: 'XS' as const, status: 'Ready' as const, acceptance: ['a'] })
   for (const word of ['get_branch_name', 'do not open a new pull request', 'git ls-remote --heads origin', 'Do not invent a branch name']) expect(text.includes(word), `the brief (mod/hooks/board.ts) no longer says "${word}"; branchLine in apps/mcp/src/sessions.ts uses it, so change both together`).toBe(true)
 })
+
+// The five phrases tick-it's apps/mcp/test/sessions.test.ts ('says the budget words with a budget set', its withBudget loop) asserts of the start message.
+const BUDGET_WORDS = ["The review budget for this ticket's size is $5", 'ceiling of 4 rounds', 'run another round while blocking findings are open, spend is under budget and rounds are under the ceiling', "read the ticket's reviewSpend with get_ticket", 'would clearly overshoot the remaining budget']
+
+test('with a budget of $5 and 4 rounds the brief says the five budget phrases', () => {
+  const t = { id: 'TCK-2', title: 'Two', epic: 'E', size: 'XS' as const, status: 'Ready' as const, acceptance: ['a'] }
+  const text = brief(t, [], '', [], [], null, null, 5, 4)
+  for (const word of BUDGET_WORDS) expect(text.includes(word), word).toBe(true)
+  expect(text).toContain('If reviewSpend is null (you cannot see costs), go by the round ceiling alone')
+})
+
+test('with no budget the brief has neither "reviewSpend" nor "review budget"', () => {
+  const t = { id: 'TCK-2', title: 'Two', epic: 'E', size: 'XS' as const, status: 'Ready' as const, acceptance: ['a'] }
+  for (const text of [brief(t), brief(t, [], '', [], [], null, null, null, 4)]) {
+    expect(text).not.toContain('reviewSpend')
+    expect(text).not.toContain('review budget')
+  }
+})
+
+test("taking a ticket whose get_mod_config gives a budget and rounds briefs Claude with them, and one with no budget says nothing of it", async ($, on) => {
+  const config = { sizeBudgets: { XS: 11, S: 22, M: 33, L: 44 }, defaultReviewRounds: { XS: 2, S: 3, M: 5, L: 6 }, maxReviewRounds: 10, briefLines: { memories: 'm', memoryTools: 't', deferredTools: 'd', done: 'x', branch: 'b', addToTicket: ['a'] } }
+  const net: Net = { modConfig: { ...config, reviewRounds: 4, reviewBudget: 5 } }
+  engine(on, { lines: 12 }, true, {}, net)
+  await start($)
+  const taken = await $.command.run({ ...RUN, command: 'tick-it', args: 'take tck-143' })
+  for (const word of BUDGET_WORDS) expect(JSON.stringify(taken.context), word).toContain(JSON.stringify(word).slice(1, -1))
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'done' }).catch(() => undefined)
+  net.modConfig = { ...config, reviewRounds: 4, reviewBudget: null }
+  const other = await $.command.run({ ...RUN, command: 'tick-it', args: 'take tck-147' })
+  expect(JSON.stringify(other.context)).not.toContain('reviewSpend')
+  expect(JSON.stringify(other.context)).not.toContain('review budget')
+})
