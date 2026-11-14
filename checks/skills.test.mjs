@@ -93,6 +93,14 @@ test('draft-ticket, plan-epic and review-agents tell the person when the legacy 
   }
 })
 
+test('draft-ticket and import-github make a new epic first with create_epic and pass epicId, never an epic title or owner', () => {
+  const draft = read('skills/draft-ticket/SKILL.md')
+  for (const words of ['`create_epic`', '`epicId`', 'the owner goes there', 'never a new epic title or an owner', '`create_ticket` never makes an epic and takes no `owner`', 'Create it only after they agree.** For a new epic, make it first with `create_epic`']) expect(draft).toContain(words, `draft-ticket no longer says "${words}"`)
+  const imp = read('skills/import-github/SKILL.md')
+  for (const words of ['`create_epic`', '`epicId`', 'First make each new epic with `create_epic`', '`import_tickets` never makes an epic and takes no `owner`', 'never an epic title']) expect(imp).toContain(words, `import-github no longer says "${words}"`)
+  for (const skill of [draft, imp]) assert.ok(!/create_ticket[^.]*(makes|creates) (the|an?|a new) epic/.test(skill.replace(/never makes an epic/g, '')), 'a skill tells a tool to make the epic')
+})
+
 const ROLES = ['acceptance', 'principal', 'security', 'tests', 'ux-evidence']
 const frontMatter = text => /^---\n([\s\S]*?)\n---\n/.exec(text)?.[1] ?? ''
 
