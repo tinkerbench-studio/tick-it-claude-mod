@@ -25,3 +25,11 @@ test('every recorded answer is for a recorded call', () => {
   const called = new Set(fixtures.calls.map(c => c.tool))
   for (const a of fixtures.answers) assert.ok(called.has(a.tool), `${a.tool} has an answer but no call`)
 })
+
+test("the version sent with get_mod_config is the plugin's version, and the fixture records it", () => {
+  const plugin = JSON.parse(readFileSync(new URL('../.claude-plugin/plugin.json', import.meta.url), 'utf8'))
+  const state = readFileSync(new URL('../hooks/state.ts', import.meta.url), 'utf8')
+  assert.equal(/MOD_VERSION = '([^']+)'/.exec(state)?.[1], plugin.version)
+  const call = fixtures.calls.find(c => c.tool === 'get_mod_config')
+  assert.equal(call.args.modVersion, plugin.version)
+})
