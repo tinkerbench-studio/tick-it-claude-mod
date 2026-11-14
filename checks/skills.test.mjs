@@ -99,6 +99,7 @@ test('draft-ticket and import-github make a new epic first with create_epic and 
   const imp = read('skills/import-github/SKILL.md')
   for (const words of ['`create_epic`', '`epicId`', 'First make each new epic with `create_epic`', '`import_tickets` never makes an epic and takes no `owner`', 'never an epic title']) expect(imp).toContain(words, `import-github no longer says "${words}"`)
   for (const skill of [draft, imp]) assert.ok(!/create_ticket[^.]*(makes|creates) (the|an?|a new) epic/.test(skill.replace(/never makes an epic/g, '')), 'a skill tells a tool to make the epic')
+})
 
 const ROLES = ['acceptance', 'principal', 'security', 'tests', 'ux-evidence']
 const frontMatter = text => /^---\n([\s\S]*?)\n---\n/.exec(text)?.[1] ?? ''
