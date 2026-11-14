@@ -54,7 +54,7 @@ test('the ticket pane shows the hold of a held ticket at a narrow width, and non
   await board.unmount()
   const props = { title: 'TCK-143', isFocused: true, bodyColumns: 30, placement: 'dock', scroll: { offset: 0, bodyRows: 30 }, view: {} }
   const pane = await $.ui.mount({ plugin: 'tick-it', surface: 'terminal', component: 'Pane', requestId: 'tick-it-ticket', props } as const)
-  expect(await pane.find({ type: 'Text', text: 'Waiting until 1 Dec 2999' })).toBeDefined()
+  expect((await pane.find({ type: 'Text', text: 'Waiting until 1 Dec 2999' }))?.props?.wrap).toBe('truncate-end')
   await pane.unmount()
   const b2 = await $.ui.mount({ plugin: 'tick-it', surface: 'terminal', ...PANE })
   await b2.press({ key: 'open-TCK-147' })
@@ -71,8 +71,8 @@ test('the board pane shows the hold and the next ticket on a narrow terminal', a
   const narrow = { ...PANE, props: { ...PANE.props, bodyColumns: 30 } } as typeof PANE
   const board = await $.ui.mount({ plugin: 'tick-it', surface: 'terminal', ...narrow })
   const held = await board.find({ type: 'Text', text: 'Waiting until 1 Dec 2999' })
-  expect(held).toBeDefined()
+  expect(held?.props?.wrap).toBe('truncate-end')
   const next = await board.find({ type: 'Text', text: 'Next to take: TCK-147' })
-  expect(next).toBeDefined()
+  expect(next?.props?.wrap).toBe('truncate-end')
   await board.unmount()
 })

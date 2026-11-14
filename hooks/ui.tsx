@@ -263,7 +263,7 @@ export const registerUi: Register = on => {
             <Text color={STATUS_COLOR[t.status] ?? COLOR.dim}>{t.status}</Text>
             <Text color={COLOR.dim}>{[t.size, t.epic, ...(milestone === undefined ? [] : [milestone])].join(' · ')}</Text>
           </Box>
-          {heldUntil(t) !== undefined && <Text key="held" color={COLOR.warn}>{`Waiting until ${heldUntil(t)}`}</Text>}
+          {heldUntil(t) !== undefined && <Text key="held" color={COLOR.warn} wrap="truncate-end">{`Waiting until ${heldUntil(t)}`}</Text>}
           {pr !== null && (
             <Box flexDirection="row" gap={1} flexWrap="wrap">
               <Text color={pr.ci === 'failure' ? COLOR.over : pr.ci === 'success' ? COLOR.ok : COLOR.dim}>{`${pullRequestLine(pr)}${pr.queued ? ' · in merge queue' : ''}${pr.conflicting ? ' · conflicting' : ''}`}</Text>
