@@ -157,7 +157,11 @@ export const branchLine = (key: string) =>
 export const DONE_LINE =
   'Finish by moving the ticket to In review with update_ticket. That is the normal finish of every session, not a workaround, so there is no need to say a command was missing. With the tick-it mod loaded, that move does all of /tick-it done (a command for people to type): it stewards the ticket and the mod reports the session. Without the mod, go on with the tools: the review rounds, then report_session. report_session done alone does not finish the ticket. The guide is docs/cloud-sessions.md, "Finish a session".'
 
-export const brief = (t: Ticket, board: Ticket[] = [], instructions = '', files: AttachmentRef[] = [], memories: MemoryRef[] = [], from: Served | null = null, uiPaths: UiPaths = null): string => {
+/** What a session is told about the review budget of its ticket's size (whole dollars) beside the round ceiling; nothing is said when no budget is set. The start message words it the same (budgetLine in apps/mcp/src/sessions.ts), and tests/board.brief.test.tsx keeps the five key phrases in step. */
+export const budgetLine = (rounds: number, budget: number) =>
+  `The review budget for this ticket's size is $${budget}, with a ceiling of ${rounds} rounds (and the one further round): run another round while blocking findings are open, spend is under budget and rounds are under the ceiling. Before a further round, read the ticket's reviewSpend with get_ticket (costUsd, budget, remaining), and do not start a round whose cost, judged by the cost of the rounds so far, would clearly overshoot the remaining budget. If reviewSpend is null (you cannot see costs), go by the round ceiling alone and do not guess the spend. If the budget is reached with BLOCKING findings still open, do not start another round: call set_needs_human with kind no-clean-round and a note naming the budget and the BLOCKING findings still open, and leave the ticket In review. A fix already made is still reviewed once first.`
+
+export const brief = (t: Ticket, board: Ticket[] = [], instructions = '', files: AttachmentRef[] = [], memories: MemoryRef[] = [], from: Served | null = null, uiPaths: UiPaths = null, reviewBudget: number | null = null, reviewRounds = 0): string => {
   const budget = from?.sizeBudgets[t.size] ?? BUDGET[t.size]
   const lines = from !== null && from.ticket === t.id ? from.briefLines : null
   return [
@@ -173,6 +177,7 @@ export const brief = (t: Ticket, board: Ticket[] = [], instructions = '', files:
     'Each acceptance line is a checkable item with its own id (get_ticket lists them in acceptanceItems). Tick each one you have met with set_criterion_checked, each with a note on how it is met (add_criterion_note); a round is read as clean only while every criterion is ticked (one flagged after-deploy is left out), and when a round is clean with one still unticked the mod asks you to tick the ones you have met, then asks a person (leaving the ticket In review) if one still is. Where a screenshot or other file proves a criterion, add a note on it with add_criterion_note and attach the file to that note with add_attachment as evidence.',
     `Size ${t.size}: keep the whole diff under ${budget} changed lines. ` + 'Edits past that are refused by the tick-it mod; if the work does not fit, ' + 'say so and offer the choices in the refusal.',
     ...(lines?.beforeReview ?? []),
+    ...(reviewBudget === null ? [] : [budgetLine(reviewRounds, reviewBudget)]),
     `When it is built and its checks pass, move ${t.id} to In review yourself with Tick-it's update_ticket, without waiting to be asked: tick-it then runs its review agents on it.`,
     ...(lines?.addToTicket ?? addToTicketLines(t.id)),
     lines?.branch ?? branchLine(t.id),
