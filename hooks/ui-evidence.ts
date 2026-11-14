@@ -18,11 +18,43 @@ export const UI_EVIDENCE_CHECKLIST: readonly string[] = [
  */
 const UI_PATH = /(^|[^\w-])apps\/web\/src\/(design\/|(pages|client|links|markdown|pictures|render|style|dropzone)\.tsx?\b)|(?<![\w-]|docs\/)design\/|\.storybook\/|[\w./-]*\.stories\.tsx?\b|[\w./-]*\.css(\.ts)?(?![\w-])/
 
-/** True when the text (file paths, or a ticket's title, description and acceptance) names a web page or component, a design file, a story or a stylesheet. Words alone ("page", "board") do not count: Tick-it's own tickets use them for the API and docs. */
-export const touchesUi = (text: string): boolean => UI_PATH.test(text)
+/** A glob ("**" crosses folders, "*" and "?" stay in one) as a regular expression on a whole path: the same reading as globToRegExp in scripts/ui-evidence-check.mjs. */
+export function globToRegExp(glob: string): RegExp {
+  let re = ''
+  for (let i = 0; i < glob.length; i++) {
+    const c = glob[i]
+    if (c === '*' && glob[i + 1] === '*') {
+      i++
+      if (glob[i + 1] === '/') {
+        i++
+        re += '(?:.*/)?'
+      } else re += '.*'
+    } else if (c === '*') re += '[^/]*'
+    else if (c === '?') re += '[^/]'
+    else re += c.replace(/[.+^${}()|[\]\\]/g, '\\$&')
+  }
+  return new RegExp(`^${re}$`)
+}
+
+/** The repository's UI globs (design.uiPaths of .tick-it/config.json, as get_repository_settings gives them in config) when any are set; null otherwise, which means the built-in paths. */
+export type UiPaths = readonly string[] | null
+
+/** The path-like words of a text: split at spaces, quotes, brackets and commas, with a leading "./" and trailing punctuation dropped. */
+const wordsOf = (text: string): string[] => text.split(/[\s"'`()[\],;<>]+/).map(w => w.replace(/^\.\//, '').replace(/[.:]+$/, '')).filter(w => w !== '')
+
+/**
+ * True when the text (file paths, or a ticket's title, description and acceptance) names a web page or component, a design file, a story or a stylesheet.
+ * With the repository's design.uiPaths it is a word of the text matching one of those globs; with none, the built-in tick-it paths.
+ * Words alone ("page", "board") do not count: Tick-it's own tickets use them for the API and docs.
+ */
+export const touchesUi = (text: string, uiPaths: UiPaths = null): boolean => {
+  if (uiPaths === null || uiPaths.length === 0) return UI_PATH.test(text)
+  const globs = uiPaths.map(globToRegExp)
+  return wordsOf(text).some(w => globs.some(g => g.test(w)))
+}
 
 /** True when the criteria already carry the checklist (any line beginning "UI evidence:"). */
 export const hasUiEvidence = (acceptance: readonly string[]): boolean => acceptance.some(a => a.startsWith('UI evidence:'))
 
 /** The criteria with the checklist added when the ticket touches the UI and does not carry it; unchanged otherwise. */
-export const withUiEvidence = (acceptance: readonly string[], text = acceptance.join('\n')): string[] => (touchesUi(text) && !hasUiEvidence(acceptance) ? [...acceptance, ...UI_EVIDENCE_CHECKLIST] : [...acceptance])
+export const withUiEvidence = (acceptance: readonly string[], text = acceptance.join('\n'), uiPaths: UiPaths = null): string[] => (touchesUi(text, uiPaths) && !hasUiEvidence(acceptance) ? [...acceptance, ...UI_EVIDENCE_CHECKLIST] : [...acceptance])

@@ -4,12 +4,15 @@ import type { AttachmentRef, MemoryRef, Ticket, TicketSize } from '../types'
 
 import { brief, servedConfig, storeServed } from './board'
 import type { BriefLines } from './board'
+import type { UiPaths } from './ui-evidence'
 import { MOD_VERSION, TICKIT_SERVER, TICKIT_CONNECTORS, DEFAULT_ROUNDS, MAX_ROUND_LIMIT, SIZES } from './state'
 
 // Declared in this file: the engine reads an atom only where it is written (a module cannot use one imported from state.ts).
 const tickets = atom({ plugin: 'tick-it', key: 'tickets' } as const, [])
 /** The repository's instructions for every brief, fetched when a ticket is taken and read locally after. */
 const instructions = atom({ plugin: 'tick-it', key: 'instructions' } as const, '')
+/** The repository's UI globs (design.uiPaths), fetched with the instructions; null when it sets none or Tick-it cannot say, so the built-in paths apply. */
+const uiPathsHeld = atom({ plugin: 'tick-it', key: 'uiPaths' } as const, { repository: '', paths: null } as { repository: string; paths: string[] | null })
 /** The review rounds by ticket size, fetched with the instructions and kept as they were when Tick-it cannot say. */
 const rounds = atom({ plugin: 'tick-it', key: 'rounds' } as const, { repository: '', limits: DEFAULT_ROUNDS } as { repository: string; limits: Record<TicketSize, number> })
 /** The files attached to the ticket just taken (and its epic) and the memories recalled for it, fetched with get_ticket when it is taken and read locally after. */
@@ -92,6 +95,28 @@ export async function repositoryHere($: EngineInterface): Promise<string | undef
   return (await read($, startedSession))?.repository
 }
 
+/** The design.uiPaths of get_repository_settings' config (one entry per base branch: the first that sets any), or null when none does. */
+export function uiPathsOf(value: Record<string, unknown>): string[] | null {
+  if (!Array.isArray(value.config)) return null
+  for (const entry of value.config as unknown[]) {
+    const paths = (entry as { design?: { uiPaths?: unknown } } | null)?.design?.uiPaths
+    if (Array.isArray(paths) && paths.length > 0 && paths.every(p => typeof p === 'string' && p !== '')) return paths as string[]
+  }
+  return null
+}
+
+/** The repository's UI globs for the gate: asked of Tick-it now; as last fetched when it cannot answer; null (built-in paths) when it has none. */
+export async function uiPathsHere($: EngineInterface, repository: string): Promise<UiPaths> {
+  const got = await callTickit($, 'get_repository_settings', { repository }).catch(() => ({ ok: false as const, why: 'unreachable' }))
+  if (got.ok) {
+    const paths = uiPathsOf(got.value)
+    await update($, uiPathsHeld, () => ({ repository, paths }))
+    return paths
+  }
+  const held = await read($, uiPathsHeld)
+  return held.repository === repository ? held.paths : null
+}
+
 /** Fetches the repository's instructions for every brief (get_repository_settings) into the mod's state; kept as they were when Tick-it cannot say. */
 export async function fetchInstructions($: EngineInterface): Promise<void> {
   const repository = await repositoryHere($)
@@ -101,6 +126,7 @@ export async function fetchInstructions($: EngineInterface): Promise<void> {
     const text = got.value.instructions
     await update($, instructions, () => text)
   }
+  if (got.ok) await update($, uiPathsHeld, () => ({ repository, paths: uiPathsOf(got.value) }))
   const given = got.ok ? got.value.reviewRounds : undefined
   if (typeof given === 'object' && given !== null) {
     const held = given as Record<string, unknown>
@@ -137,7 +163,7 @@ export async function roundLimit($: EngineInterface, size: TicketSize): Promise<
 /** A ticket's brief with the repository's instructions, as of the last fetch. */
 export async function briefOf($: EngineInterface, t: Ticket): Promise<string> {
   const held = await read($, attachments)
-  return brief(t, await read($, tickets), await read($, instructions), held.ticket === t.id ? held.files : [], held.ticket === t.id ? held.memories : [], await servedConfig($))
+  return brief(t, await read($, tickets), await read($, instructions), held.ticket === t.id ? held.files : [], held.ticket === t.id ? held.memories : [], await servedConfig($), (await read($, uiPathsHeld)).paths)
 }
 
 /** Fetches the ticket's attachments (get_ticket) into the mod's state; none when Tick-it cannot say. */

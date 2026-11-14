@@ -38,6 +38,16 @@ test('the brief carries the ticket description above the acceptance, and nothing
   expect(brief(t)).not.toContain('Description:')
 })
 
+test("the brief uses the repository's design.uiPaths for the UI-evidence checklist when set, and the built-in paths otherwise", () => {
+  const t = { id: 'TCK-2', title: 'Two', epic: 'E', size: 'XS' as const, status: 'Ready' as const, acceptance: ['Header shows the menu in src/ui/menu.tsx'] }
+  const none = brief(t)
+  expect(none).not.toContain('UI evidence')
+  const set = brief(t, [], '', [], [], null, ['src/ui/**'])
+  expect(set.match(/^- UI evidence: /gm)).toHaveLength(5)
+  expect(brief({ ...t, acceptance: ['Edit apps/web/src/pages.tsx'] }, [], '', [], [], null, ['src/ui/**'])).not.toContain('UI evidence')
+  expect(brief({ ...t, acceptance: ['Edit apps/web/src/pages.tsx'] }, [], '', [], [], null, null).match(/^- UI evidence: /gm)).toHaveLength(5)
+})
+
 test('the brief adds the UI-evidence checklist to a ticket that names a page or design file, and to no other', () => {
   const t = { id: 'TCK-2', title: 'Two', epic: 'E', size: 'XS' as const, status: 'Ready' as const, acceptance: ['Header shows the menu in apps/web/src/pages.tsx'] }
   const ui = brief(t)
