@@ -75,16 +75,16 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/upload-screenshots.mjs" put ./shots presigne
 #    Claude calls confirm_screenshot for each name printed
 
 # 2. Before review, check a UI change does not commit pictures (the branch side only; whether pictures were uploaded is read from Tick-it by `/tick-it done`):
-node "${CLAUDE_PLUGIN_ROOT}/scripts/ui-evidence-check.mjs" ABC-12 --base origin/main
+node "${CLAUDE_PLUGIN_ROOT}/scripts/ui-evidence-check.mjs" ABC-12 --base origin/main --pictures-under docs/screenshots
 ```
 
-The check reads the repository's UI path globs from `.tick-it/ui-evidence.json` (`--config <file>` names another); with no file, or no `uiPaths`, no path is a UI path and nothing is checked:
+The check reads the repository's UI path globs from `design.uiPaths` in `.tick-it/config.json` (the file Tick-it's GitHub App reads; `--config <file>` names another); with none, no path is a UI path and nothing is checked:
 
 ```json
-{ "uiPaths": ["src/ui/**", "**/*.css"], "committedPicturesUnder": ["docs/screenshots/"] }
+{ "design": { "uiPaths": ["src/ui/**", "**/*.css"] } }
 ```
 
-A change touching a `uiPaths` glob fails when it adds or changes a picture file (PNG, JPEG, GIF, WebP) under a `committedPicturesUnder` folder. Globs: `**` crosses folders, `*` and `?` stay within one. The mod's own `/tick-it done` gate still uses its built-in UI paths and does not read this file; the skill is `skills/upload-screenshots/SKILL.md`. The tick-it repository moving onto these copies, and the gate reading the globs, are follow-up tickets.
+A change touching a `uiPaths` glob fails when it adds or changes a picture file (PNG, JPEG, GIF, WebP) under `--pictures-under` (default `docs/change-screenshots/`). Globs: `**` crosses folders, `*` and `?` stay within one. The mod's own `/tick-it done` gate still uses its built-in UI paths and does not read `design.uiPaths`; the skill is `skills/upload-screenshots/SKILL.md`. The tick-it repository moving onto these copies, and the gate reading the globs, are follow-up tickets.
 
 ## Planning an epic
 

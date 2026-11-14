@@ -11,4 +11,4 @@ Upload the picture files in a folder for a ticket (`$ARGUMENTS`: the ticket key,
 3. `node ${CLAUDE_PLUGIN_ROOT}/scripts/upload-screenshots.mjs put <dir> <presigned.json>` PUTs each file and prints `{ "confirm": [{ "name" }] }` for those accepted.
 4. Call `confirm_screenshot` (repository, ticket, name) for each name printed. Only then is a picture confirmed. Never commit the pictures.
 
-Before review, run `node ${CLAUDE_PLUGIN_ROOT}/scripts/ui-evidence-check.mjs <ticket key>`: it fails a UI change (the globs in `.tick-it/ui-evidence.json`) that commits pictures. It does not ask Tick-it whether pictures were uploaded; `/tick-it done` does.
+Before review, run `node ${CLAUDE_PLUGIN_ROOT}/scripts/ui-evidence-check.mjs <ticket key>`: it fails a UI change (`design.uiPaths` in `.tick-it/config.json`) that commits pictures. It does not ask Tick-it whether pictures were uploaded; `/tick-it done` does.

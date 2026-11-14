@@ -137,19 +137,21 @@ test('put refuses what it cannot send: a name with a path, no url, a non-picture
   assert.equal((await run(UPLOAD, [])).status, 2)
 })
 
-test('the evidence check reads the UI path globs from configuration', () => {
-  const config = parseConfig('{"uiPaths":["src/ui/**","**/*.css"],"committedPicturesUnder":["docs/shots"]}')
-  assert.equal(isUiPath('src/ui/deep/a.tsx', config.uiPaths), true)
-  assert.equal(isUiPath('a/b/site.css', config.uiPaths), true)
-  assert.equal(isUiPath('src/server/a.ts', config.uiPaths), false)
+test('the evidence check reads the UI path globs from design.uiPaths of the config', () => {
+  const uiPaths = parseConfig('{"mergeChecks":[],"design":{"uiPaths":["src/ui/**","**/*.css"]}}')
+  assert.deepEqual(uiPaths, ['src/ui/**', '**/*.css'])
+  assert.equal(isUiPath('src/ui/deep/a.tsx', uiPaths), true)
+  assert.equal(isUiPath('a/b/site.css', uiPaths), true)
+  assert.equal(isUiPath('src/server/a.ts', uiPaths), false)
   assert.equal(globToRegExp('a/*.ts').test('a/b/c.ts'), false)
   const added = ['docs/shots/after.png', 'docs/shots/notes.md', 'docs/shots-old/x.png', 'elsewhere/after.png']
-  assert.deepEqual(checkEvidence({ changed: ['src/ui/a.tsx'], added, config }), [
+  assert.deepEqual(checkEvidence({ changed: ['src/ui/a.tsx'], added, uiPaths, picturesUnder: 'docs/shots' }), [
     'docs/shots/after.png is committed: upload pictures with presign_screenshot_upload and confirm_screenshot instead (scripts/upload-screenshots.mjs)',
   ])
-  assert.deepEqual(checkEvidence({ changed: ['src/server/a.ts'], added, config }), [])
-  assert.deepEqual(checkEvidence({ changed: ['src/ui/a.tsx'], added, config: parseConfig('{}') }), [])
-  for (const bad of ['{"uiPaths":"src"}', 'null', '[]']) assert.throws(() => parseConfig(bad))
+  assert.equal(checkEvidence({ changed: ['src/ui/a.tsx'], added: ['docs/change-screenshots/a.png'], uiPaths }).length, 1)
+  assert.deepEqual(checkEvidence({ changed: ['src/server/a.ts'], added, uiPaths, picturesUnder: 'docs/shots' }), [])
+  assert.deepEqual(checkEvidence({ changed: ['src/ui/a.tsx'], added, uiPaths: parseConfig('{"mergeChecks":[]}'), picturesUnder: 'docs/shots' }), [])
+  for (const bad of ['{"design":{"uiPaths":"src"}}', 'null', '[]']) assert.throws(() => parseConfig(bad))
 })
 
 test('the evidence check command reads the change from git and exits 0, 1 or 2', () => {
@@ -158,7 +160,7 @@ test('the evidence check command reads the change from git and exits 0, 1 or 2',
   const check = (...a) => spawnSync('node', [CHECK, ...a], { cwd: repo, encoding: 'utf8' })
   git('init', '-q', '-b', 'main')
   mkdirSync(join(repo, '.tick-it'))
-  writeFileSync(join(repo, '.tick-it/ui-evidence.json'), '{"uiPaths":["src/ui/**"],"committedPicturesUnder":["docs/shots/"]}')
+  writeFileSync(join(repo, '.tick-it/config.json'), '{"design":{"uiPaths":["src/ui/**"]}}')
   git('add', '.')
   git('commit', '-qm', 'base')
   git('checkout', '-qb', 'work')
@@ -166,14 +168,14 @@ test('the evidence check command reads the change from git and exits 0, 1 or 2',
   writeFileSync(join(repo, 'src/ui/a.tsx'), 'x')
   git('add', '.')
   git('commit', '-qm', 'ui')
-  const passing = check('ABC-1', '--base', 'main')
+  const passing = check('ABC-1', '--base', 'main', '--pictures-under', 'docs/shots')
   assert.equal(passing.status, 0)
   assert.match(passing.stdout, /ABC-1: UI evidence is complete/)
   mkdirSync(join(repo, 'docs/shots'), { recursive: true })
   writeFileSync(join(repo, 'docs/shots/after.png'), 'p')
   git('add', '.')
   git('commit', '-qm', 'picture')
-  const failing = check('ABC-1', '--base', 'main')
+  const failing = check('ABC-1', '--base', 'main', '--pictures-under', 'docs/shots')
   assert.equal(failing.status, 1)
   assert.match(failing.stderr, /docs\/shots\/after\.png is committed/)
   assert.equal(check('not a key').status, 2)
