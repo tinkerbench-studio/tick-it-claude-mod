@@ -29,8 +29,8 @@
     { "tool": "list_screenshots", "answer": { "screenshots": [{ "key": "acme/web-app/TCK-143/board-before-after.png", "name": "board-before-after.png" }] } },
     { "tool": "list_pull_requests", "answer": { "pullRequests": [{ "number": 12, "state": "open", "draft": false, "ci": "success", "behind": false, "mergeState": "mergeable", "ciInstructed": false }] } },
     { "tool": "start_session", "answer": { "session": { "id": "s_new1234567" } } },
-    { "tool": "create_ticket", "answer": { "ticket": { "key": "TCK-200", "title": "A new ticket", "size": "S", "status": "Ready" } } },
-    { "tool": "update_ticket", "answer": { "ticket": { "key": "TCK-143", "status": "In progress", "assignee": "maddiecs84" }, "session": "s_taken12345" } },
+    { "tool": "create_ticket", "answer": { "ticket": { "key": "TCK-200", "title": "A new ticket", "epicId": "e-checkout", "size": "S", "status": "Ready" } } },
+    { "tool": "update_ticket", "answer": { "ticket": { "key": "TCK-143", "epicId": "e-checkout", "status": "In progress", "assignee": "maddiecs84" }, "session": "s_taken12345" } },
     { "tool": "add_attachment", "answer": { "attachment": { "id": "att1", "name": "board.png", "type": "image/png" } } },
     { "tool": "report_session", "answer": { "session": { "id": "s_abc12345", "status": "working" }, "instructions": [] } },
     { "tool": "record_runs", "answer": { "accepted": ["s_abc12345-TCK-143-principal-r1"], "rejected": [] } }
