@@ -20,6 +20,8 @@ export type Ticket = {
   blocks?: string[]
   labels?: string[]
   url?: string
+  /** ISO time the ticket is held until (Tick-it's notBefore); absent when it has no hold. */
+  notBefore?: string
 }
 
 /** Token counts as the API reports them, summed over a review agent's run. */

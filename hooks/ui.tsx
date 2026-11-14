@@ -2,7 +2,7 @@ import type { MilestoneView, TicketStatus } from '../types'
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 import { PANE, TICKET_PANE, WARN_AT, groupsOf, COLOR } from './state'
-import { budgetOf, linkTickets, boardStops, pickMilestone, nextMilestone, milestoneLine, milestoneOf, findCurrent, pullRequestLine, startSession, fixCi, rerunFailed, openPullRequest } from './board'
+import { budgetOf, linkTickets, boardStops, heldUntil, nextToTake, pickMilestone, nextMilestone, milestoneLine, milestoneOf, findCurrent, pullRequestLine, startSession, fixCi, rerunFailed, openPullRequest } from './board'
 import { take } from './work'
 import { reviewAgain, stopStewarding, summarise, reviewLine, findingRows } from './reviews'
 
@@ -124,6 +124,7 @@ export const registerUi: Register = on => {
         )}
         {problem !== null && <Text color={COLOR.warn}>{`Could not read the board: ${problem}.`}</Text>}
         <Text color={COLOR.dim}>Press a ticket to take it.</Text>
+        {nextToTake(list) !== undefined && <Text key="next-to-take" color={COLOR.dim}>{`Next to take: ${nextToTake(list)?.id}`}</Text>}
         {s !== null && (
           <Box key="steward" flexDirection="column">
             <Text bold>
@@ -193,6 +194,7 @@ export const registerUi: Register = on => {
                       {t.title}
                     </Button>
                     <Text color={COLOR.dim} wrap="truncate-end">{t.epic}</Text>
+                    {heldUntil(t) !== undefined && <Text key={`held-${t.id}`} color={COLOR.warn} wrap="truncate-end">{`Waiting until ${heldUntil(t)}`}</Text>}
                   </Box>
                   <Box width={4}>
                     <Text>{t.size}</Text>
@@ -261,6 +263,7 @@ export const registerUi: Register = on => {
             <Text color={STATUS_COLOR[t.status] ?? COLOR.dim}>{t.status}</Text>
             <Text color={COLOR.dim}>{[t.size, t.epic, ...(milestone === undefined ? [] : [milestone])].join(' · ')}</Text>
           </Box>
+          {heldUntil(t) !== undefined && <Text key="held" color={COLOR.warn}>{`Waiting until ${heldUntil(t)}`}</Text>}
           {pr !== null && (
             <Box flexDirection="row" gap={1} flexWrap="wrap">
               <Text color={pr.ci === 'failure' ? COLOR.over : pr.ci === 'success' ? COLOR.ok : COLOR.dim}>{`${pullRequestLine(pr)}${pr.queued ? ' · in merge queue' : ''}${pr.conflicting ? ' · conflicting' : ''}`}</Text>
