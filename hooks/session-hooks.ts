@@ -6,6 +6,7 @@ import { callTickit, originHere, freshBriefOf } from './tickit'
 import { refreshBoard, showStatus } from './board'
 import { reportsForItself, instructionsOf, take } from './work'
 import { reportAgents, flush } from './outbox'
+import { log } from './log'
 
 // Declared in this file: the engine reads an atom only where it is written (a module cannot use one imported from state.ts).
 const tickets = atom({ plugin: 'tick-it', key: 'tickets' } as const, [])
@@ -69,14 +70,18 @@ export const registerSession: Register = on => {
   // rest of Tick-it's tools (tickets, epics, costs) stay the model's to use.
   on('tool.check', async ($, e, next) => {
     const isTickit = /tick-?it/i.test(e.tool)
+    const denied = async (why: string, reason: string) => {
+      await log($, 'debug', 'tool-denied', { tool: e.tool, why })
+      return { decision: 'deny' as const, reason }
+    }
     if (isTickit && e.tool.endsWith(`__${RECORD_TOOL}`) && next.origin.plugin === 'engine') {
-      return { decision: 'deny' as const, reason: 'tick-it records review runs itself, from what each review agent spent.' }
+      return denied('runs-are-the-mods', 'tick-it records review runs itself, from what each review agent spent.')
     }
     if (isTickit && e.tool.endsWith(`__${AGENTS_TOOL}`) && next.origin.plugin === 'engine') {
-      return { decision: 'deny' as const, reason: 'tick-it reports the repository’s review agents itself, from its .tick-it/skills.' }
+      return denied('agents-are-the-mods', 'tick-it reports the repository’s review agents itself, from its .tick-it/skills.')
     }
     if (isTickit && e.tool.endsWith(`__${REPORT_TOOL}`) && next.origin.plugin === 'engine' && !(await reportsForItself($, e.input))) {
-      return { decision: 'deny' as const, reason: 'tick-it reports the session’s progress itself.' }
+      return denied('reports-are-the-mods', 'tick-it reports the session’s progress itself.')
     }
     return next(e)
   })
@@ -86,6 +91,7 @@ export const registerSession: Register = on => {
   // Tick-it the session is working.
   on('prompt.submit', async ($, e, next) => {
     const line = START_LINE.exec(e.text)
+    await log($, 'debug', 'start-line', { matched: line !== null, command: e.command !== undefined })
     if (line === null && e.command === undefined) {
       // A breakdown session: the mod takes no ticket and reports nothing for it, so that session reports for itself. A message that starts a build is never one, and the first one to name a session arms it, once.
       const breakdown = BREAKDOWN_LINE.exec(e.text)
@@ -100,6 +106,7 @@ export const registerSession: Register = on => {
     const [, id = '', ticket = '', repository = ''] = line
     const origin = await originHere($)
     if (origin !== null && origin !== repository) {
+      await log($, 'debug', 'start-not-taken', { ticket, why: 'other-repository' })
       return next({ ...e, context: [...(e.context ?? []), `tick-it: this session is in ${origin ?? 'a folder whose origin is not on GitHub'}, not ${repository}, so it did not take ${ticket}.`] })
     }
     // A folder with no origin works on the repository the first message names.
@@ -111,9 +118,11 @@ export const registerSession: Register = on => {
     }
     const t = await take($, ticket)
     if (typeof t === 'string') {
+      await log($, 'warn', 'start-not-taken', { ticket, session: id, why: 'take-refused' })
       await update($, startedSession, () => previous)
       return next({ ...e, context: [...(e.context ?? []), ...notes, `tick-it could not take ${ticket}: ${t}`] })
     }
+    await log($, 'debug', 'ticket-taken', { ticket: t.id, session: id })
     const s: StartedSession = { id, repository, ticket: t.id, status: 'working', reportedAt: 0, claudeSession: await $.session.id() }
     await update($, startedSession, () => s)
     await $.store.set(STARTED_KEY, s)
@@ -130,6 +139,7 @@ export const registerSession: Register = on => {
       await $.store.set(STARTED_KEY, reported)
     }
     // Tick-it hands over at once what it already wants of the session, such as a merge conflict to resolve: Claude gets it when this turn ends.
+    await log($, sent.ok ? 'info' : 'warn', 'report', { ticket: t.id, status: 'working', sent: sent.ok })
     const asked = instructionsOf(sent)
     if (asked.length > 0) await update($, pendingInstructions, pending => [...pending, ...asked])
     return next({ ...e, context: [...(e.context ?? []), ...notes, await freshBriefOf($, t)] })
