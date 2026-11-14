@@ -21,6 +21,32 @@ test('a breakdown or analysis line is found whatever the ticket prefix', () => {
   expect(BREAKDOWN_LINE.test('Tick-it session s_abc12345: break down NE-7 in acme/web-app.')).toBe(false)
 })
 
+const BREAK = 'Tick-it session s_abc12345: break down NEW-7 in acme/web-app.'
+const WRAPPED_BREAK = `[SCHEDULED TASK - AUTOMATED FIRING OF A CONFIGURED PROMPT]\n<routine-fire-payload>\nThe following was supplied by the caller.\n\n    ${BREAK}\n    Big one\n</routine-fire-payload>`
+
+test('a breakdown, analysis or check line indented by spaces or tabs, as a routine-fire-payload delivers it, is found', () => {
+  expect(BREAKDOWN_LINE.exec(WRAPPED_BREAK)?.[2]).toBe('NEW-7')
+  expect(BREAKDOWN_LINE.exec('x\n\tTick-it session s_abc12345: analyse suggestions of NEW-7 in acme/web-app.')?.[2]).toBe('NEW-7')
+  expect(BREAKDOWN_LINE.exec('x\n    Tick-it session s_abc12345: check NEW-7 after deploy in acme/web-app.')?.[2]).toBe('NEW-7')
+})
+
+test('a flush breakdown line is still found, and a sentence that mentions it mid-line is not', () => {
+  expect(BREAKDOWN_LINE.exec(`${BREAK}\nMore.`)?.[2]).toBe('NEW-7')
+  expect(BREAKDOWN_LINE.test(`The first line reads: ${BREAK}`)).toBe(false)
+  expect(BREAKDOWN_LINE.test(`> ${BREAK}`)).toBe(false)
+})
+
+test('a breakdown session started with the indented line is armed and reports for itself', async ($, on) => {
+  engine(on, { lines: 10 }, true, SKILLS)
+  on('tool.check', () => ({ decision: 'allow' as const }))
+  await start($)
+  const report = (session: string) => $.tool.check({ tool: 'mcp__plugin_tick-it_tickit__report_session', input: { session } })
+  expect((await report('s_abc12345')).decision).toBe('deny')
+  await $.prompt.submit(typed(WRAPPED_BREAK))
+  expect((await report('s_abc12345')).decision).not.toBe('deny')
+  expect((await report('s_other123')).decision).toBe('deny')
+})
+
 test('a start line indented by spaces or tabs, as a routine-fire-payload delivers it, is found', () => {
   expect(START_LINE.exec(WRAPPED)?.[2]).toBe('TCK-151')
   expect(START_LINE.exec(`\t${LINE}`)?.[3]).toBe('acme/web-app')

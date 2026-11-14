@@ -74,6 +74,8 @@ export type Net = {
   reviewRounds?: Record<string, number>
   /** What get_mod_config answers; 'unreachable' makes the call fail, and absent leaves it unanswered (the mod keeps its own copies). */
   modConfig?: Record<string, unknown> | 'unreachable'
+  /** The reviewSpend get_ticket answers with (null when costs cannot be seen); absent leaves it out of the ticket. */
+  reviewSpend?: Record<string, unknown> | null
   /** The config of get_repository_settings (one entry per base branch with its design section); absent when not answered. */
   config?: unknown[]
   /** The repository's autoMerge setting, as get_repository_settings answers it. */
@@ -145,7 +147,7 @@ export const engine = (
       if (e.tool === 'get_ticket') {
         if (seen.failTicketReads === true) return refuse('Tick-it is down')
         const ticket = seen.server.find(t => t.key === a.key)
-        return ticket === undefined ? refuse(`No ticket ${String(a.key)} in acme/web-app.`) : answer({ ticket })
+        return ticket === undefined ? refuse(`No ticket ${String(a.key)} in acme/web-app.`) : answer({ ticket: net.reviewSpend === undefined ? ticket : { ...ticket, reviewSpend: net.reviewSpend } })
       }
       if (e.tool === 'list_pull_requests') {
         if (net.pullRequests === 'unreachable') return refuse('Tick-it is down')
