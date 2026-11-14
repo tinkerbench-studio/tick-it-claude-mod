@@ -2,8 +2,7 @@
 //   node scripts/upload-screenshots.mjs plan <dir>                    prints the { name, type } of each picture in <dir>
 //   node scripts/upload-screenshots.mjs put <dir> <presigned.json>    PUTs each file and prints the confirm_screenshot arguments
 // A script cannot call MCP tools, so the session calls presign_screenshot_upload between the two steps and
-// confirm_screenshot after (the upload-screenshots skill walks through it). `uploadScreenshots` does all of it
-// when the caller can hand it the two tools. A name is the file's own name, no path.
+// confirm_screenshot after (the upload-screenshots skill walks through it). A name is the file's own name, no path.
 // Exit 0 when every PUT succeeded, 1 when one failed, 2 on a wrong call.
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { basename, join } from 'node:path'
@@ -40,43 +39,26 @@ export async function put(dir, presigned, send = fetch) {
   return { confirm, failed }
 }
 
-/**
- * Plan, presign, PUT and confirm every picture in dir for a ticket. tools: { presign_screenshot_upload, confirm_screenshot },
- * each taking the tool's arguments and answering its result. A picture is confirmed only after its PUT was accepted.
- * Answers { confirmed: [name], failed: [{ name, reason }] }.
- */
-export async function uploadScreenshots({ repository, ticket, dir, tools, send = fetch }) {
-  const presigned = []
-  const failed = []
-  for (const { name, type } of plan(dir)) {
-    try {
-      const answer = await tools.presign_screenshot_upload({ repository, ticket, name, type })
-      presigned.push({ name, url: answer.url, headers: answer.headers })
-    } catch (error) {
-      failed.push({ name, reason: `presign failed: ${error instanceof Error ? error.message : String(error)}` })
-    }
-  }
-  const sent = await put(dir, presigned, send)
-  failed.push(...sent.failed)
-  const confirmed = []
-  for (const { name } of sent.confirm) {
-    try {
-      await tools.confirm_screenshot({ repository, ticket, name })
-      confirmed.push(name)
-    } catch (error) {
-      failed.push({ name, reason: `confirm failed: ${error instanceof Error ? error.message : String(error)}` })
-    }
-  }
-  return { confirmed, failed }
-}
-
 async function main([command, dir, file]) {
   if (command === 'plan' && dir) {
-    console.log(JSON.stringify(plan(dir), null, 2))
+    try {
+      console.log(JSON.stringify(plan(dir), null, 2))
+    } catch (error) {
+      console.error(`${dir}: ${error.message}`)
+      return 2
+    }
     return 0
   }
   if (command === 'put' && dir && file) {
-    const { confirm, failed } = await put(dir, JSON.parse(readFileSync(file, 'utf8')))
+    let presigned
+    try {
+      presigned = JSON.parse(readFileSync(file, 'utf8'))
+      if (!Array.isArray(presigned)) throw new Error('not a JSON array')
+    } catch (error) {
+      console.error(`${file}: ${error.message}`)
+      return 2
+    }
+    const { confirm, failed } = await put(dir, presigned)
     console.log(JSON.stringify({ confirm }, null, 2))
     for (const f of failed) console.error(`${f.name}: ${f.reason}`)
     return failed.length === 0 ? 0 : 1

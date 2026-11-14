@@ -74,7 +74,7 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/upload-screenshots.mjs" plan ./shots        
 node "${CLAUDE_PLUGIN_ROOT}/scripts/upload-screenshots.mjs" put ./shots presigned.json      # PUTs them, prints what to confirm
 #    Claude calls confirm_screenshot for each name printed
 
-# 2. Before review, check a UI change does not commit pictures:
+# 2. Before review, check a UI change does not commit pictures (the branch side only; whether pictures were uploaded is read from Tick-it by `/tick-it done`):
 node "${CLAUDE_PLUGIN_ROOT}/scripts/ui-evidence-check.mjs" ABC-12 --base origin/main
 ```
 
@@ -84,7 +84,7 @@ The check reads the repository's UI path globs from `.tick-it/ui-evidence.json` 
 { "uiPaths": ["src/ui/**", "**/*.css"], "committedPicturesUnder": ["docs/screenshots/"] }
 ```
 
-A change touching a `uiPaths` glob fails when it adds a picture file (PNG, JPEG, GIF, WebP) under a `committedPicturesUnder` folder. Globs: `**` crosses folders, `*` and `?` stay within one. tick-it itself still carries its own copies in `scripts/`; moving it onto these is a change in that repository.
+A change touching a `uiPaths` glob fails when it adds or changes a picture file (PNG, JPEG, GIF, WebP) under a `committedPicturesUnder` folder. Globs: `**` crosses folders, `*` and `?` stay within one. The mod's own `/tick-it done` gate still uses its built-in UI paths and does not read this file; the skill is `skills/upload-screenshots/SKILL.md`. The tick-it repository moving onto these copies, and the gate reading the globs, are follow-up tickets.
 
 ## Planning an epic
 

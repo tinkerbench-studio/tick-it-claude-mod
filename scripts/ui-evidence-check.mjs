@@ -1,4 +1,6 @@
-// Checks a UI change is not carrying committed pictures, before review:
+// The branch side of the UI evidence check: a UI change must not commit its pictures, before review.
+// Whether pictures are uploaded is read from Tick-it (list_screenshots) by the mod's gate at /tick-it done, not here;
+// the mod's gate keeps its own built-in UI paths and does not read this configuration (a follow-up ticket).
 //   node scripts/ui-evidence-check.mjs <TCK-key> [--base <ref>] [--config <file>]
 // The UI path globs come from the repository's .tick-it/ui-evidence.json:
 //   { "uiPaths": ["src/**", "**/*.css"], "committedPicturesUnder": ["docs/screenshots/"] }
@@ -35,12 +37,13 @@ export const isUiPath = (path, uiPaths) => uiPaths.some(g => globToRegExp(g).tes
 export function parseConfig(text) {
   const raw = JSON.parse(text)
   const strings = v => Array.isArray(v) && v.every(s => typeof s === 'string' && s.length > 0)
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('must be a JSON object')
   if (!strings(raw.uiPaths ?? [])) throw new Error('uiPaths must be a list of glob strings')
   if (!strings(raw.committedPicturesUnder ?? [])) throw new Error('committedPicturesUnder must be a list of folder prefixes')
-  return { uiPaths: raw.uiPaths ?? [], committedPicturesUnder: raw.committedPicturesUnder ?? [] }
+  return { uiPaths: raw.uiPaths ?? [], committedPicturesUnder: (raw.committedPicturesUnder ?? []).map(d => (d.endsWith('/') ? d : `${d}/`)) }
 }
 
-/** The problems with a change's evidence, each naming the offending file; none when it passes. changed: paths touched; added: files added. */
+/** The problems with a change's evidence, each naming the offending file; none when it passes. changed: paths touched; added: files the change adds, changes or renames. */
 export function checkEvidence({ changed, added = [], config }) {
   if (!changed.some(p => isUiPath(p, config.uiPaths))) return []
   return added
@@ -48,12 +51,13 @@ export function checkEvidence({ changed, added = [], config }) {
     .map(f => `${f} is committed: upload pictures with presign_screenshot_upload and confirm_screenshot instead (scripts/upload-screenshots.mjs)`)
 }
 
-const git = (...args) => execFileSync('git', args, { encoding: 'utf8', maxBuffer: 1 << 28 }).split('\n').filter(Boolean)
+const git = (...args) => execFileSync('git', args, { encoding: 'utf8', maxBuffer: 1 << 28, stdio: ['ignore', 'pipe', 'pipe'] }).split('\n').filter(Boolean)
 
 function main(argv) {
   const [key, ...rest] = argv
   const opt = name => (rest.includes(name) ? rest[rest.indexOf(name) + 1] : undefined)
-  if (!/^[A-Za-z]{3}-[1-9]\d*$/.test(key ?? '')) {
+  const badOption = ['--base', '--config'].some(n => rest.includes(n) && (!opt(n) || opt(n).startsWith('--')))
+  if (!/^[A-Za-z]+-[1-9]\d*$/.test(key ?? '') || badOption) {
     console.error('usage: node scripts/ui-evidence-check.mjs <TCK-key> [--base <ref>] [--config <file>]')
     return 2
   }
@@ -65,9 +69,15 @@ function main(argv) {
     console.error(`${file}: ${error.message}`)
     return 2
   }
-  const base = git('merge-base', 'HEAD', opt('--base') ?? 'origin/main')[0]
-  const changed = git('diff', '--name-only', base)
-  const problems = checkEvidence({ changed, added: git('diff', '--name-only', '--diff-filter=AMR', base), config })
+  let changed, problems
+  try {
+    const base = git('merge-base', 'HEAD', opt('--base') ?? 'origin/main')[0]
+    changed = git('diff', '--name-only', base)
+    problems = checkEvidence({ changed, added: git('diff', '--name-only', '--diff-filter=AMR', base), config })
+  } catch (error) {
+    console.error(`could not read the change from git (is --base, default origin/main, fetched?): ${error.message.split('\n')[0]}`)
+    return 2
+  }
   if (problems.length === 0) {
     console.log(changed.some(p => isUiPath(p, config.uiPaths)) ? `${key}: UI evidence is complete` : `${key}: no UI path changed, nothing to check`)
     return 0

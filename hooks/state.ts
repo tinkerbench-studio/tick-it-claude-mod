@@ -68,6 +68,7 @@ export const USAGE = [
   "/tick-it:retro <epic>               have Claude write the epic's retrospective",
   '/tick-it:import-github              have Claude import the open GitHub issues as tickets, once',
   '/tick-it:review-agents              have Claude set up review agents in .tick-it/skills from the samples',
+  '/tick-it:upload-screenshots <id> <dir>  have Claude upload a ticket\'s pictures to Tick-it, not git',
 ].join('\n')
 
 // ---- Reporting to Tick-it ------------------------------------------------------
