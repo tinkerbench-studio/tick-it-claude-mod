@@ -88,13 +88,24 @@ test('the guard measures against the budget Tick-it serves, not the mod’s copy
 test('a ticket with no epic gets no epic in the new-ticket choice', async ($, on) => {
   const seen = engine(on, { lines: 90 })
   const t = seen.server.find(t => t.key === 'TCK-143')
-  if (t !== undefined) {
-    t.epic = null
-    delete t.epicId
-  }
+  expect(t).toBeDefined()
+  t!.epic = null
+  delete t!.epicId
   await start($)
   await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-143' })
   const big = await $.tool.call({ tool: 'Write', file_path: '/repo/api/b.ts', content: Array.from({ length: 40 }, (_, i) => `line ${i}`).join('\n') })
   expect(JSON.stringify(big)).toContain('create_ticket with status Backlog')
   expect(JSON.stringify(big)).not.toContain('in epic')
+})
+
+// The guard decides by the epic's id, not its title: a real epic that happens to be titled "Unsorted" is still named.
+test('a ticket in an epic titled Unsorted keeps its epic in the new-ticket choice', async ($, on) => {
+  const seen = engine(on, { lines: 90 })
+  const t = seen.server.find(t => t.key === 'TCK-143')
+  expect(t).toBeDefined()
+  t!.epic = 'Unsorted'
+  await start($)
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-143' })
+  const big = await $.tool.call({ tool: 'Write', file_path: '/repo/api/b.ts', content: Array.from({ length: 40 }, (_, i) => `line ${i}`).join('\n') })
+  expect(JSON.stringify(big)).toContain('create_ticket in epic \\"Unsorted\\" with status Backlog')
 })
