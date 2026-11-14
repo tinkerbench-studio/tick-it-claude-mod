@@ -104,7 +104,7 @@ A change touching a `uiPaths` glob fails when it adds or changes a picture file 
 
 ## Drafting a ticket
 
-`/tick-it:draft-ticket <what the ticket is for>` has Claude read the code and the board, then propose a title, a size (XS to L) and acceptance checks, and name any similar open ticket. It splits work by [docs/ticket-breakdown.md](https://github.com/tinkerbench-studio/tick-it/blob/main/docs/ticket-breakdown.md), as plan-epic and breakdown sessions do. It reads only this repository unless the work reaches another, which it gets by `docs/other-repositories.md` and proposes tickets for without creating them; a repository it cannot get is named before the draft is shown, and each ticket is created with its repository. The acceptance-check conventions (docs, refusal, failure-path and test-coverage checks, and the UI-evidence checklist) are in [docs/ticket-breakdown.md](https://github.com/tinkerbench-studio/tick-it/blob/main/docs/ticket-breakdown.md), section 6. The skill is `skills/draft-ticket/SKILL.md`; Claude also uses it when asked to draft or add a ticket.
+`/tick-it:draft-ticket <what the ticket is for>` has Claude read the code and the board, then propose a title, a size (XS to L) and acceptance checks, and name any similar open ticket. It splits work by [docs/ticket-breakdown.md](https://github.com/tinkerbench-studio/tick-it/blob/main/docs/ticket-breakdown.md), as plan-epic and breakdown sessions do. It reads only this repository unless the work reaches another, which it gets by `docs/other-repositories.md` and proposes tickets for without creating them; a repository it cannot get is named before the draft is shown, and each ticket is created with its repository. Once you agree, a new epic is made first with `create_epic` (its owner goes there) and `create_ticket` is given its `epicId`, never an epic title or an owner. The acceptance-check conventions (docs, refusal, failure-path and test-coverage checks, and the UI-evidence checklist) are in [docs/ticket-breakdown.md](https://github.com/tinkerbench-studio/tick-it/blob/main/docs/ticket-breakdown.md), section 6. The skill is `skills/draft-ticket/SKILL.md`; Claude also uses it when asked to draft or add a ticket.
 
 ## Revising a plan
 
@@ -112,7 +112,7 @@ People comment on a plan on the epic's page in the Tick-it web app: on the plan 
 
 ## Importing GitHub issues
 
-`/tick-it:import-github [filters]` has Claude read the repository's open issues with `gh`, size each one, make an oversized issue into an epic of several tickets, and show you the plan before importing it in one `import_tickets` call. The tickets land in the Backlog and link back to their issue, with the issue's labels and text as the ticket's labels and description. It is a one-off copy: issues imported before are skipped, later changes on GitHub are not brought across, and nothing is written back. The skill is `skills/import-github/SKILL.md`.
+`/tick-it:import-github [filters]` has Claude read the repository's open issues with `gh`, size each one, make an oversized issue into an epic of several tickets and show you the plan before importing it: once you agree, a new epic is made first with `create_epic`, then one `import_tickets` call gives each ticket its `epicId` (it never makes an epic or takes an owner). The tickets land in the Backlog and link back to their issue, with the issue's labels and text as the ticket's labels and description. It is a one-off copy: issues imported before are skipped, later changes on GitHub are not brought across, and nothing is written back. The skill is `skills/import-github/SKILL.md`.
 
 ## Retrospectives
 
@@ -133,7 +133,7 @@ When the repository has milestones, the board pane opens with a header (`◇ <mi
 
 While a ticket is stewarded, the board pane has three actions: `r review again now` starts the next round when the current turn ends (also after the rounds ran out or stewarding stopped; with no turn running, a prompt with nothing to fix carries it in), the `o show/hide optional` button shows or hides optional findings, and `s stop stewarding` ends the rounds and leaves the ticket In review. `r` and `s` are reported in the session's status updates. When Tick-it suggests breaking the ticket down (after several review rounds in a row that each end with blocking findings), no further fix round starts: stewarding stops with a note, the ticket stays In review, and Claude is handed the suggestion to offer to you; `r` starts the next round if you decline. The pane lists the round's blocking findings by file and line. The pane reads findings the session already holds and sends nothing new to Tick-it; the counts are the ones recorded with the round's runs, and a line says how many findings are not listed.
 
-No review skills means no review: `/tick-it done` takes the ticket straight to Done (with a reason on the move, since no pull request has merged for it). `/tick-it:review-agents` has Claude set some up in `.tick-it/skills`, fitted to the repository, from five samples that come with the mod (`skills/review-agents/samples`): `acceptance` (every size, Haiku), `tests` (every size, Sonnet), `principal` (S and up, Opus), `security` (M and L, Sonnet) and `ux-evidence` (every size, Sonnet: a change to what a person sees needs before and after Storybook screenshots on its pull request and ticket).
+No review skills means no review: `/tick-it done` takes the ticket straight to Done (with a reason on the move, since no pull request has merged for it). `/tick-it:review-agents` has Claude set some up in `.tick-it/skills`, fitted to the repository, from five samples that come with the mod (`skills/review-agents/samples`), each of which names its base (see Base review skills below) and holds only the repository's own rules: `acceptance` (every size, Haiku), `tests` (every size, Sonnet), `principal` (S and up, Opus), `security` (M and L, Sonnet) and `ux-evidence` (every size, Sonnet: a change to what a person sees needs before and after Storybook screenshots on its pull request and ticket).
 
 A review skill (`paths` lists the globs of the files it applies to, separated by commas or spaces; a skill with no `paths`, or an empty one, applies to every path, and the mod reports each skill's globs to Tick-it with `report_review_agents`; Tick-it records them. A round lists the files changed against the merge base with the remote's default branch (`git merge-base HEAD origin/HEAD`, then `origin/main` or `origin/master`; uncommitted and untracked files count as changed) and runs a skill only when its sizes match the ticket and, if it has `paths`, a changed file matches one of its globs (a skill with no `paths` always runs); a skill left out because no changed file matches its paths is recorded on the round as not applicable (`notApplicable`; one whose sizes leave out the ticket is not recorded), and when none applies the ticket moves to Done with that reason. When the files cannot be listed, every skill that matches the size runs. A glob matches at any depth unless it starts with `/`, which reads it from the repository's top, as Tick-it reads it; `**/` crosses folders, `*` and `?` stay in one):
 
@@ -148,6 +148,34 @@ paths: apps/mcp/migrations/**, docs/** # optional; globs on one line, separated 
 
 What to check, in your own words.
 ```
+
+### Base review skills
+
+The plugin ships a base for each of the five roles, in `skills/review-agents/bases/<name>/SKILL.md`: `acceptance`, `principal`, `security`, `tests` and `ux-evidence`. A base holds the rules that are the same in every repository and none that belongs to one. A repository's own skill adds its rules to a base by naming it in its front matter:
+
+```markdown
+---
+name: principal
+base: principal
+---
+
+- BLOCKING: a break with our conventions: hooks live in `hooks/` and register through `hooks/register.tsx`.
+```
+
+When the round starts, the mod reads the base from its own folder and gives the reviewer the base first and the repository's rules after it, as rules that add to the base and are the ones to follow where the two differ. The `description`, `model` and `sizes` a skill leaves out are its base's; `name` and `paths` are always the skill's own, and those are what `report_review_agents` sends. So a repository keeps only what is particular to it, and a change to a base reaches every repository with the next release of the plugin. A skill with no `base` is read whole, as before. A `base` this version of the plugin does not have (the name is a folder name: lower-case letters, digits and hyphens) changes nothing in the skill, which reviews by its own rules alone, and the line that starts the round says so.
+
+The base is put in by the mod. A session without the mod (one that stewards from Tick-it's own instructions) reads only the file in `.tick-it/skills`, so there a skill with a `base` reviews by the repository's rules alone.
+
+### VibeSec-Skill
+
+The secure-coding skill `VibeSec-Skill` is not part of the `tick-it` plugin: it is not about Tick-it. This repository's marketplace (`tickit`, in `.claude-plugin/marketplace.json`) lists it as a plugin of its own, `vibesec`, which is a reference to the skill's own repository, [BehiSecc/VibeSec-Skill](https://github.com/BehiSecc/VibeSec-Skill) (Apache-2.0), pinned to one commit; no copy of it is kept here. Install it with:
+
+```
+/plugin marketplace add tinkerbench-studio/tick-it-claude-mod
+/plugin install vibesec@tickit
+```
+
+The skill is then `vibesec:VibeSec-Skill` in every repository, in place of a copy in each one's `.claude/skills`. To take a newer version of the skill, read what changed upstream and set `sha` of the `vibesec` entry to the new commit.
 
 ### Who does what: the steward, the CI instruction and the merge queue
 

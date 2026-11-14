@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 import type { PullRequestView, ReviewRun, ReviewUsage, Steward, Ticket, TicketSize } from '../types'
-import { SIZES, REVIEWS_KEY, SKILLS_DIR, OLD_SKILLS_DIR, KEEP_REVIEWS, MAX_FINDING_TEXT, PRICES } from './state'
+import { SIZES, REVIEWS_KEY, SKILLS_DIR, OLD_SKILLS_DIR, BASES_DIR, KEEP_REVIEWS, MAX_FINDING_TEXT, PRICES } from './state'
 import { callTickit, fetchInstructions, fetchModConfig, hasModLimits, repositoryHere, reviewBudgetOf, roundLimit } from './tickit'
 import { setStatus, showStatus, refreshPullRequest, servedConfig } from './board'
 import { report } from './work'
@@ -26,7 +26,21 @@ const pullRequestError = atom({ plugin: 'tick-it', key: 'pullRequestError' } as 
 // and tokens come from its turn.complete; the cost is worked out from them.
 
 /** A review skill found in the repository. */
-export type ReviewSkill = { name: string; description: string; model?: string; sizes?: TicketSize[]; paths?: string[]; body: string }
+export type ReviewSkill = {
+  name: string
+  description: string
+  model?: string
+  sizes?: TicketSize[]
+  paths?: string[]
+  body: string
+  /** The base review skill of the plugin it adds its rules to (front matter `base`). */
+  base?: string
+  /** That base's body, once found; left out when the plugin has no base of that name. */
+  baseBody?: string
+}
+
+/** A base is named by its folder under BASES_DIR: lower-case letters, digits and hyphens only, so a name can never leave that folder. */
+const BASE_NAME = /^[a-z0-9][a-z0-9-]*$/
 
 /** What the usage costs at API list prices, or undefined for a model with no price here. */
 export const costOf = (model: string, u: ReviewUsage): number | undefined => {
@@ -71,8 +85,25 @@ export const parseSkill = (folder: string, text: string): ReviewSkill => {
     sizes: sizes !== undefined && sizes.length > 0 ? sizes : undefined,
     paths: paths !== undefined && paths.length > 0 ? paths : undefined,
     body: (match?.[2] ?? text).trim(),
+    ...(fields.get('base') ? { base: fields.get('base') } : {}),
   }
 }
+
+/**
+ * A repository's skill on its base: the base's body goes before the skill's own rules, and the description, model and
+ * sizes the skill leaves out are the base's. Its name and paths stay its own.
+ */
+export const withBase = (skill: ReviewSkill, base: ReviewSkill): ReviewSkill => ({
+  ...skill,
+  description: skill.description || base.description,
+  model: skill.model ?? base.model,
+  sizes: skill.sizes ?? base.sizes,
+  baseBody: base.body,
+})
+
+/** The skills whose base this version of the plugin does not have: they review by their own rules alone, and the round says so. */
+export const missingBases = (skills: { folder: string; skill: ReviewSkill }[]): string[] =>
+  skills.filter(({ skill }) => skill.base !== undefined && skill.baseBody === undefined).map(({ folder, skill }) => `${folder} (base ${JSON.stringify(skill.base)})`)
 
 /** The BLOCKING and OPTIONAL lines of a reviewer's report. */
 export const readFindings = (answer: string) => {
@@ -153,11 +184,35 @@ export async function findSkills($: EngineInterface): Promise<{ folder: string; 
     const path = `${dir}/${entry.name}/SKILL.md`
     if (!(await $.fs.exists(path))) continue
     const text = await $.fs.read(path)
-    if (typeof text === 'string') found.push({ folder: entry.name, skill: parseSkill(entry.name, text) })
+    if (typeof text !== 'string') continue
+    const skill = parseSkill(entry.name, text)
+    found.push({ folder: entry.name, skill: await readBase($, skill) })
   }
 
   return found.sort((a, b) => a.folder.localeCompare(b.folder))
 }
+
+/** The skill with its base read from the plugin's own folder; unchanged when it names none, or one the plugin does not have. */
+async function readBase($: EngineInterface, skill: ReviewSkill): Promise<ReviewSkill> {
+  if (skill.base === undefined || !BASE_NAME.test(skill.base)) return skill
+  const path = `${$.plugin.root}/${BASES_DIR}/${skill.base}/SKILL.md`
+  if (!(await $.fs.exists(path))) return skill
+  const text = await $.fs.read(path)
+
+  return typeof text === 'string' && text.trim() !== '' ? withBase(skill, parseSkill(skill.base, text)) : skill
+}
+
+/** What the reviewer follows: the skill's own body, or its base and then the repository's rules on top. */
+export const skillLines = (skill: ReviewSkill): string[] =>
+  skill.baseBody === undefined
+    ? [`Follow this review skill (${SKILLS_DIR}/${skill.name}):`, skill.body]
+    : [
+        `Follow this review skill (${SKILLS_DIR}/${skill.name}). It adds this repository's rules to tick-it's "${skill.base}" base. The base:`,
+        skill.baseBody,
+        '',
+        "This repository's own rules. They add to the base, and where the two differ these are the ones to follow:",
+        skill.body === '' ? '(none)' : skill.body,
+      ]
 
 export const reviewPrompt = (t: Ticket, skill: ReviewSkill, round: number, earlier: Earlier[] = [], head?: string): string =>
   [
@@ -166,8 +221,7 @@ export const reviewPrompt = (t: Ticket, skill: ReviewSkill, round: number, earli
     ...t.acceptance.map(a => `- ${a}`),
     `Review the change in the working tree against HEAD (git diff HEAD and the untracked files). Do not change any file.`,
     '',
-    `Follow this review skill (${SKILLS_DIR}/${skill.name}):`,
-    skill.body,
+    ...skillLines(skill),
     '',
     ...(earlier.length === 0
       ? []
@@ -340,8 +394,11 @@ export async function startRound($: EngineInterface, t: Ticket, round: number, t
     return `${why} (${t.id})`
   }
 
+  const noBase = missingBases(skills)
+  const without = noBase.length === 0 ? '' : ` This version of tick-it has no such base, so ${noBase.join(', ')} ${noBase.length === 1 ? 'reviews' : 'review'} by the repository's own rules alone.`
+
   await log($, 'debug', 'round-started', { ticket: t.id, round, why: trigger, skills: started.map(r => r.skill).join(',') })
-  return `Round ${round}: ${started.map(r => r.skill).join(', ')} reviewing ${t.id} in this session.`
+  return `Round ${round}: ${started.map(r => r.skill).join(', ')} reviewing ${t.id} in this session.${without}`
 }
 
 /** The stewarding pane's r: the next round starts when the current turn ends, even after the rounds ran out or stewarding stopped. */
