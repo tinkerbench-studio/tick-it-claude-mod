@@ -106,7 +106,7 @@ export const MAX_FINDINGS = 200
 // ---- Tick-it, the server -----------------------------------------------------
 
 /** This mod's version, sent with get_mod_config (the server requires it). Kept equal to `version` in .claude-plugin/plugin.json: checks/contract-fixtures.test.mjs fails when they differ. */
-export const MOD_VERSION = '0.26.1'
+export const MOD_VERSION = '0.27.0'
 
 /** The server's key in this mod's manifest (.claude-plugin/plugin.json). */
 export const TICKIT_SERVER = 'tickit'

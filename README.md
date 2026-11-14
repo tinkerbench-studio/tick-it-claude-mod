@@ -23,6 +23,18 @@ Tests: `claude plugin test .` runs the hook tests in `tests/`, and `node --test 
 
 Shared settings: the size budgets, default review rounds and the brief's instruction lines come from Tick-it's `get_mod_config` tool when a ticket is taken (`hooks/tickit.ts`, `fetchModConfig`). The copies in `hooks/state.ts` and `hooks/board.ts` are only the fallback for when Tick-it cannot answer. Two more brief lines come from `get_mod_config` too, with no local copy: `briefLines.beforeReview` (an array of lines, put in the brief before the line that says how to finish) and `briefLines.afterFix` (one line, added at the end of the fix prompt in `hooks/reviews.ts`). When Tick-it serves neither key, the brief and the fix prompt are the same as without them. The call also sends `modVersion` (`MOD_VERSION` in `hooks/state.ts`), which the server requires; `checks/contract-fixtures.test.mjs` fails when it differs from `version` in `.claude-plugin/plugin.json`. When the mod is older than the server's `minModVersion`, the answer carries a `notice`, and the mod shows that text to you as a toast each time a ticket is taken; a null notice shows nothing.
 
+## Logging
+
+The mod logs the decisions it makes, so a cause can be read afterwards: whether a start line matched, which ticket it took, why a review round started or did not, why a tool call was denied, and each report to Tick-it and each send of review runs from the outbox.
+
+- **Setting:** the environment variable `TICK_IT_LOG`, one of `error`, `warn`, `info` or `debug` (not case-sensitive). A level logs itself and the levels before it. Unset, or any other value, it is `warn`: only errors and warnings are logged, so the log stays quiet.
+  - `error`: runs Tick-it rejected.
+  - `warn`: a ticket that could not be taken, a report or send that did not get through, a round no reviewer could start.
+  - `info`: each report to Tick-it and each send of review runs.
+  - `debug`: the decisions above (`start-line`, `ticket-taken`, `start-not-taken`, `round-started` (with `why`: `done-command`, `steward-command`, `moved-by-claude` or `after-fix`), `round-not-started`, `round-settled`, `tool-denied`).
+- **Where:** `tick-it-mod.log` in `TMPDIR` (`/tmp` when it is not set), or the file named by `TICK_IT_LOG_FILE`. The file keeps its newest 1000 lines; the mod rewrites it whole, as the engine writes whole files.
+- **What a line holds:** `<time> <level> <event> key=value ...`, only ids, states and reasons (`ticket=TCK-151 why=no-skills`). A value that is not a short token (a title, comment, path or file's text) is replaced with `<omitted>`, and nothing from the environment is logged, not even the level's value. Writing a line never stops the mod: a log that cannot be written is skipped.
+
 ## Releases
 
 The marketplace (`tinkerbench-studio/marketplace`) pins this plugin to a git tag, `v<version>`, so an install gets a release and not whatever is on `main`. To release:
