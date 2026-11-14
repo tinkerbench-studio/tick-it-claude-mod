@@ -5,6 +5,7 @@ import { OUTBOX_KEY, DROPPED_KEY, KEEP_DROPPED, RECORD_TOOL, AGENTS_TOOL } from 
 import { sendTickit, textOf, repositoryHere } from './tickit'
 import { sendWaitingLinks } from './work'
 import { findSkills } from './reviews'
+import { log } from './log'
 
 // Declared in this file: the engine reads an atom only where it is written (a module cannot use one imported from state.ts).
 const outbox = atom({ plugin: 'tick-it', key: 'outbox' } as const, [])
@@ -125,6 +126,8 @@ export async function flush($: EngineInterface): Promise<string> {
   }
 
   const sentCount = waiting.filter(r => accepted.has(r.agentId)).length
+  if (refused.length > 0) await log($, 'error', 'runs-dropped', { dropped: refused.length })
+  await log($, failure === null ? 'info' : 'warn', 'outbox-send', { sent: sentCount, dropped: refused.length, waiting: left.length, failed: failure !== null })
   const parts = [sentCount > 0 ? `Sent ${plural(sentCount, 'review run')} to Tick-it.` : '', refused.length > 0 ? `Dropped ${plural(refused.length, 'review run')} Tick-it rejected: ${refused.map(d => `${describeRun(d.run)} (${d.reason})`).join('; ')}.` : '', failure !== null ? `${plural(left.length, 'review run')} still waiting: ${failure}.` : '']
 
   return parts.filter(p => p !== '').join(' ')

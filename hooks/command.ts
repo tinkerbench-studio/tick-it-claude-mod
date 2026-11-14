@@ -60,7 +60,7 @@ export const registerCommand: Register = on => {
         if (missing !== undefined) return { text: missing }
         const why = await setStatus($, t.id, 'In review')
         if (why !== undefined) return { text: `Could not move ${t.id} to In review: ${why}.` }
-        return { text: await startRound($, t, 1) }
+        return { text: await startRound($, t, 1, undefined, 'steward-command') }
       }
       case 'reviews':
         return { text: `${await reviewReport($, rest[0])}\n${await syncLine($)}` }

@@ -92,7 +92,7 @@ export const registerTurn: Register = on => {
         const t = (await read($, tickets)).find(one => one.id === toReview)
         try {
           if (t === undefined) throw new Error(`${toReview} is not on the board this session has`)
-          await startRound($, t, 1)
+          await startRound($, t, 1, undefined, 'moved-by-claude')
         } catch (error) {
           await report($, 'stopped', `Could not start the review: ${error instanceof Error ? error.message : String(error)}`.slice(0, 450), true)
         }
@@ -111,7 +111,7 @@ export const registerTurn: Register = on => {
         await $.prompt.submit({ text: suggested.join('\n\n') })
       } else if (fixingNow?.phase === 'fixing') {
         const t = (await read($, tickets)).find(one => one.id === fixingNow.ticket)
-        if (t !== undefined) await startRound($, t, fixingNow.round + 1, fixingNow.ticking)
+        if (t !== undefined) await startRound($, t, fixingNow.round + 1, fixingNow.ticking, 'after-fix')
       } else {
         // What the reports above brought are handed over last, with the session idle; while a review round runs they wait for the next turn's end.
         const pending = (await read($, steward))?.phase === 'reviewing' ? [] : await read($, pendingInstructions)

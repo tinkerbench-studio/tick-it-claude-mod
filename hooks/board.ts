@@ -1,6 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 import { withUiEvidence } from './ui-evidence'
+import type { UiPaths } from './ui-evidence'
 import type { AttachmentRef, MemoryRef, MilestoneView, PullRequestView, Ticket, TicketSize, TicketStatus } from '../types'
 import { PANE, STORE_KEY, BUDGET, SIZES, MONTHS } from './state'
 import { callTickit, repositoryHere } from './tickit'
@@ -112,8 +113,8 @@ export const attachmentLines = (files: AttachmentRef[]): string[] =>
   files.length === 0 ? [] : ['Attachments:', ...files.map(f => `- ${f.name} (${f.type}, id ${f.id})${f.type === 'application/pdf' ? ': a PDF, a link you cannot read yourself; ask a person for what it says' : ''}`), ...(files.some(f => ['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(f.type)) ? ["Fetch each image with Tick-it's get_attachment (its id above) before building, and build to what it shows."] : [])]
 
 /** The brief's acceptance lines: the ticket's own, then the fixed UI-evidence checklist when it touches what a person sees and does not list it, with a note that those lines are not items on the ticket. */
-export const uiEvidenceLines = (t: Ticket): string[] => {
-  const withChecklist = withUiEvidence(t.acceptance, [t.title, t.description ?? '', ...t.acceptance].join('\n'))
+export const uiEvidenceLines = (t: Ticket, uiPaths: UiPaths = null): string[] => {
+  const withChecklist = withUiEvidence(t.acceptance, [t.title, t.description ?? '', ...t.acceptance].join('\n'), uiPaths)
   const added = withChecklist.slice(t.acceptance.length)
   return added.length === 0 ? [] : [...added.map(a => `- ${a}`), 'The "UI evidence:" lines are acceptance this change must meet, though they are not ticked on the ticket: deliver them as the ux-evidence review skill and the drawing-board canvas-sync skill describe, and say in the pull request description and the ticket comment where each is.']
 }
@@ -156,7 +157,7 @@ export const branchLine = (key: string) =>
 export const DONE_LINE =
   'Finish by moving the ticket to In review with update_ticket. That is the normal finish of every session, not a workaround, so there is no need to say a command was missing. With the tick-it mod loaded, that move does all of /tick-it done (a command for people to type): it stewards the ticket and the mod reports the session. Without the mod, go on with the tools: the review rounds, then report_session. report_session done alone does not finish the ticket. The guide is docs/cloud-sessions.md, "Finish a session".'
 
-export const brief = (t: Ticket, board: Ticket[] = [], instructions = '', files: AttachmentRef[] = [], memories: MemoryRef[] = [], from: Served | null = null): string => {
+export const brief = (t: Ticket, board: Ticket[] = [], instructions = '', files: AttachmentRef[] = [], memories: MemoryRef[] = [], from: Served | null = null, uiPaths: UiPaths = null): string => {
   const budget = from?.sizeBudgets[t.size] ?? BUDGET[t.size]
   const lines = from !== null && from.ticket === t.id ? from.briefLines : null
   return [
@@ -164,7 +165,7 @@ export const brief = (t: Ticket, board: Ticket[] = [], instructions = '', files:
     ...(t.description === undefined ? [] : ['Description:', t.description]),
     'Acceptance:',
     ...t.acceptance.map(a => `- ${a}`),
-    ...uiEvidenceLines(t),
+    ...uiEvidenceLines(t, uiPaths),
     ...attachmentLines(files),
     ...((t.blockedBy ?? []).length > 0 ? [`Builds on: ${named(t.blockedBy ?? [], board)}.`] : []),
     ...((t.blocks ?? []).length > 0 ? [`Blocks: ${named(t.blocks ?? [], board)}: they wait on this ticket, so keep what they need from it stable.`] : []),
