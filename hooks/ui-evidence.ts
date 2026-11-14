@@ -50,7 +50,8 @@ const wordsOf = (text: string): string[] => text.split(/[\s"'`()[\],;<>]+/).map(
 export const touchesUi = (text: string, uiPaths: UiPaths = null): boolean => {
   if (uiPaths === null || uiPaths.length === 0) return UI_PATH.test(text)
   const globs = uiPaths.map(globToRegExp)
-  return wordsOf(text).some(w => globs.some(g => g.test(w)))
+  // Each line whole first (the gate passes one changed path a line, and a path may hold brackets or parentheses, as Next.js routes do), then the words of prose.
+  return [...text.split('\n').map(l => l.trim()), ...wordsOf(text)].some(w => w !== '' && globs.some(g => g.test(w)))
 }
 
 /** True when the criteria already carry the checklist (any line beginning "UI evidence:"). */

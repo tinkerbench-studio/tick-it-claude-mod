@@ -1,6 +1,6 @@
 {
   "name": "tick-it",
-  "version": "0.26.0",
+  "version": "0.27.0",
   "description": "Tick-it tickets in the session, from the Tick-it MCP server: a board pane, the current ticket above the prompt, its brief for Claude, a size budget on edits, and review agents that steward it to Done.",
   "types": "./types/index.d.ts",
   "mcpServers": {

@@ -28,6 +28,9 @@ test("with the repository's design.uiPaths, touchesUi and the checklist follow t
   expect(touchesUi('src/ui/menu.tsx', globs)).toBe(true)
   expect(touchesUi('Restyle ./src/ui/deep/menu.tsx, please.', globs)).toBe(true)
   expect(touchesUi('web/theme.css', globs)).toBe(true)
+  // A changed path with brackets or parentheses (Next.js routes) is tested whole, as scripts/ui-evidence-check.mjs does.
+  expect(touchesUi('README.md\nsrc/app/(marketing)/about/page.tsx', ['src/app/**/page.tsx'])).toBe(true)
+  expect(touchesUi('src/app/[slug]/page.tsx', ['src/app/**/page.tsx'])).toBe(true)
   // The built-in tick-it paths no longer count once the repository sets its own.
   expect(touchesUi('apps/web/src/pages.tsx', globs)).toBe(false)
   expect(touchesUi('src/uix/menu.tsx', globs)).toBe(false)

@@ -117,6 +117,12 @@ export async function uiPathsHere($: EngineInterface, repository: string): Promi
   return held.repository === repository ? held.paths : null
 }
 
+/** The UI globs last fetched, for this repository only: another repository's are not this one's. */
+async function heldUiPaths($: EngineInterface): Promise<UiPaths> {
+  const held = await read($, uiPathsHeld)
+  return held.repository === (await repositoryHere($)) ? held.paths : null
+}
+
 /** Fetches the repository's instructions for every brief (get_repository_settings) into the mod's state; kept as they were when Tick-it cannot say. */
 export async function fetchInstructions($: EngineInterface): Promise<void> {
   const repository = await repositoryHere($)
@@ -163,7 +169,7 @@ export async function roundLimit($: EngineInterface, size: TicketSize): Promise<
 /** A ticket's brief with the repository's instructions, as of the last fetch. */
 export async function briefOf($: EngineInterface, t: Ticket): Promise<string> {
   const held = await read($, attachments)
-  return brief(t, await read($, tickets), await read($, instructions), held.ticket === t.id ? held.files : [], held.ticket === t.id ? held.memories : [], await servedConfig($), (await read($, uiPathsHeld)).paths)
+  return brief(t, await read($, tickets), await read($, instructions), held.ticket === t.id ? held.files : [], held.ticket === t.id ? held.memories : [], await servedConfig($), await heldUiPaths($))
 }
 
 /** Fetches the ticket's attachments (get_ticket) into the mod's state; none when Tick-it cannot say. */
