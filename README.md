@@ -63,6 +63,29 @@ Asking Claude in plain words works too ("start on TCK-1"): Claude taking a ticke
 
 When a ticket's pull request turns conflicting, Tick-it tells the ticket's live session to merge the base branch in, resolve, run the checks and push. A live session, cloud or local, is told in the reply to a `report_session` (its first report, when it takes the ticket, included), and the mod hands it to Claude as a prompt when the turn ends. A note a person sends a ticket back with (`answer_need`) reaches its session the same way, once: in the reply to the next `report_session` of the live session, cloud or local (or the next session's first, when none is live). A routine only starts a new session, so it is never used to reach a running one; it starts one only for a conflict on a pull request whose session has finished. A session started after the conflict takes the instruction up the same way; one that ended before it got it leaves the pull request flagged and its instruction to the next session. A pull request from a fork, or with a branch name that is not a plain name, is not sent to a session (the text goes into a prompt) and shows as skipped. With no live session, the pull request shows "needs a session" in the web app. Each instruction is on the ticket's timeline.
 
+## Screenshots and the UI evidence check, for any repository
+
+Two scripts ship with the plugin, so a repository does not copy them. Pictures go to Tick-it through `presign_screenshot_upload` and `confirm_screenshot`, never into git. In a repository that is not tick-it, with the plugin installed (its path is `${CLAUDE_PLUGIN_ROOT}`; with `claude --plugin-dir .` it is the clone):
+
+```sh
+# 1. Upload the pictures in ./shots for ticket ABC-12: `/tick-it:upload-screenshots ABC-12 ./shots` has Claude do all four steps.
+node "${CLAUDE_PLUGIN_ROOT}/scripts/upload-screenshots.mjs" plan ./shots                   # { name, type } of each picture
+#    Claude calls presign_screenshot_upload for each and saves url + headers + name in presigned.json
+node "${CLAUDE_PLUGIN_ROOT}/scripts/upload-screenshots.mjs" put ./shots presigned.json      # PUTs them, prints what to confirm
+#    Claude calls confirm_screenshot for each name printed
+
+# 2. Before review, check a UI change does not commit pictures:
+node "${CLAUDE_PLUGIN_ROOT}/scripts/ui-evidence-check.mjs" ABC-12 --base origin/main
+```
+
+The check reads the repository's UI path globs from `.tick-it/ui-evidence.json` (`--config <file>` names another); with no file, or no `uiPaths`, no path is a UI path and nothing is checked:
+
+```json
+{ "uiPaths": ["src/ui/**", "**/*.css"], "committedPicturesUnder": ["docs/screenshots/"] }
+```
+
+A change touching a `uiPaths` glob fails when it adds a picture file (PNG, JPEG, GIF, WebP) under a `committedPicturesUnder` folder. Globs: `**` crosses folders, `*` and `?` stay within one. tick-it itself still carries its own copies in `scripts/`; moving it onto these is a change in that repository.
+
 ## Planning an epic
 
 `/tick-it:plan-epic <what to build>` takes a description of the work or an epic title; given a description, Claude names the epic itself. It has Claude read the code the epic touches and break it into tickets by [docs/ticket-breakdown.md](https://github.com/tinkerbench-studio/tick-it/blob/main/docs/ticket-breakdown.md) (sizes, area and dependency rules, the design and implementation tickets for anything a person sees), each with acceptance checks a reviewer can verify, in build order with `after` set for every real dependency and nothing else, and up to 5 labels each, reusing the repository's existing ones where they fit. It first reads every repository the epic covers (from `get_epic`, or the organisation's repositories for a new organisation epic; only this one for a repository epic unless the change reaches another, when it proposes that repository's tickets and moving the epic up to the organisation without creating them), getting each by `docs/other-repositories.md`; a repository it cannot get is named to you before any plan is shown, and nothing is guessed about its code. Claude makes them with `plan_epic`, all or none per call, which names one repository (an organisation epic with tickets in several repositories gets one call per repository), and `create_ticket` names the repository of each ticket it adds, and, once the epic's own files (if the person gave an existing title) are linked, stops, reporting the waves and what can start now. The acceptance-check conventions (docs, refusal, failure-path and test-coverage checks, and the UI-evidence checklist) are in [docs/ticket-breakdown.md](https://github.com/tinkerbench-studio/tick-it/blob/main/docs/ticket-breakdown.md), section 6. Claude also reads the epic's attached images with `get_attachment` and links each file to the tickets that use it with `link_attachment` (the epic then lists them under used by); it never invents a file and says when a PDF could not be read. The tickets wait in the Backlog until people agree them and move them to Ready. The skill is `skills/plan-epic/SKILL.md`; Claude also uses it when asked to plan an epic.
