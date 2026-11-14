@@ -23,7 +23,7 @@
   "answers": [
     { "tool": "get_mod_config", "answer": { "sizeBudgets": { "S": 100 }, "defaultReviewRounds": { "S": 3 }, "maxReviewRounds": 6, "reviewRounds": 3, "reviewBudget": 3, "minModVersion": "0.1.0", "notice": null, "briefLines": { "memories": "m", "memoryTools": "t", "deferredTools": "d", "done": "x", "branch": "b", "addToTicket": ["a"] } } },
     { "tool": "get_repository_settings", "answer": { "instructions": "", "autoMerge": true, "reviewRounds": { "S": 3 } } },
-    { "tool": "list_tickets", "answer": { "tickets": [{ "key": "TCK-143", "title": "Persist checkout step", "epic": "One-page checkout", "size": "XS", "status": "Ready", "assignee": null }], "nextCursor": "50" } },
+    { "tool": "list_tickets", "answer": { "tickets": [{ "key": "TCK-143", "title": "Persist checkout step", "epic": "One-page checkout", "size": "XS", "status": "Ready", "assignee": null, "notBefore": null }], "nextCursor": "50" } },
     { "tool": "list_milestones", "answer": { "milestones": [{ "title": "Launch", "dueOn": null, "epics": [{ "title": "One-page checkout", "tickets": 3, "done": 1 }], "tickets": 3, "done": 1 }] } },
     { "tool": "get_ticket", "answer": { "ticket": { "key": "TCK-143", "title": "Persist checkout step", "epic": null, "size": "XS", "status": "Ready", "acceptance": ["Step stored"], "assignee": null, "reviewSpend": { "costUsd": 0.5, "budget": 3, "remaining": 2.5 } } } },
     { "tool": "list_screenshots", "answer": { "screenshots": [{ "key": "acme/web-app/TCK-143/board-before-after.png", "name": "board-before-after.png" }] } },
