@@ -47,3 +47,11 @@ test('/tick-it attach reports Tick-it being unreachable, sending nothing', async
   expect((await $.command.run({ ...RUN, command: 'tick-it', args: 'attach TCK-143 note1 run.log' })).text).toContain('Could not attach run.log: not connected to Tick-it')
   expect(seen.ticketCalls.filter(c => c.tool === 'add_attachment')).toEqual([])
 })
+
+test('/tick-it with no known command lists the upload-screenshots skill beside the other skills', async ($, on) => {
+  engine(on, { lines: 0 })
+  await start($)
+  const usage = await $.command.run({ ...RUN, command: 'tick-it', args: '' })
+  expect(usage.text).toContain('/tick-it:upload-screenshots <id> <dir>')
+  expect(usage.text).toContain('/tick-it:review-agents')
+})
