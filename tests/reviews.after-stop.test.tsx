@@ -81,3 +81,52 @@ test('stewarding stopped with the stop button is not restarted by a move to In r
   expect(reports(seen).at(-1)).toMatchObject({ status: 'stopped', summary: 'Stopped after round 1; TCK-143 stays In review.' })
   await ui.unmount()
 })
+
+test('r after the review of a fix made after a stop is a round like any other: it asks for a fix and is not the last', async ($, on) => {
+  let costUsd = 3
+  const net: Net = { modConfig: served, get reviewSpend() { return { size: 'XS', runs: 2, costUsd, unpriced: 0, lowerBound: false, budget: 3, remaining: 3 - costUsd, overBudget: false } } }
+  const seen = engine(on, { lines: 10 }, true, PRINCIPAL, net)
+  await start($)
+  await $.prompt.submit(typed(STARTED.replace('TCK-151', 'TCK-143')))
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'done' })
+  await $.turn.complete(finishTurn('agent-1', 'BLOCKING: still wrong'))
+  costUsd = 0
+  await claudeMovesToReview($)
+  await $.turn.complete(finishTurn(undefined, 'Fixed it and pushed.'))
+  await $.turn.complete(finishTurn('agent-2', 'BLOCKING: still wrong\nVERDICT: changes'))
+  const ui = await $.ui.mount({ plugin: 'tick-it', surface: 'terminal', ...PANE })
+  await ui.press({ key: 'review-again' })
+  await $.turn.complete(finishTurn(undefined, 'Nothing to fix.'))
+  expect(seen.spawned).toHaveLength(3)
+  await $.turn.complete(finishTurn('agent-3', 'BLOCKING: still wrong\nVERDICT: changes'))
+  // Round 3 is not marked the last one: its findings go to Claude to fix.
+  expect(seen.submitted.some(t => t.includes('Round 3 review of TCK-143 found 1 blocking'))).toBe(true)
+  await ui.unmount()
+})
+
+test('a move to In review for the same key in another repository does not restart stewarding', async ($, on) => {
+  const seen = await stoppedByMod($, on)
+  await $.tool.call({ tool: 'mcp__plugin_tick-it_tickit__update_ticket', tool_use_id: 'tu-other', repository: 'acme/other', key: 'TCK-143', status: 'In review' } as never)
+  await $.turn.complete(finishTurn(undefined, 'Pushed.'))
+  expect(seen.spawned).toHaveLength(1)
+})
+
+test('a fix made after a budget stop is the last review even with rounds left and budget in hand: blocking findings stop again, no further round', async ($, on) => {
+  let costUsd = 3
+  const net: Net = { modConfig: served, get reviewSpend() { return { size: 'XS', runs: 2, costUsd, unpriced: 0, lowerBound: false, budget: 3, remaining: 3 - costUsd, overBudget: false } } }
+  const seen = engine(on, { lines: 10 }, true, PRINCIPAL, net)
+  await start($)
+  await $.prompt.submit(typed(STARTED.replace('TCK-151', 'TCK-143')))
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'done' })
+  await $.turn.complete(finishTurn('agent-1', 'BLOCKING: still wrong'))
+  expect(needsHuman(seen)).toHaveLength(1)
+  // The budget is raised: a round could now follow a fix, but the review of this fix is the last.
+  costUsd = 0
+  await claudeMovesToReview($)
+  await $.turn.complete(finishTurn(undefined, 'Fixed it and pushed.'))
+  await $.turn.complete(finishTurn('agent-2', 'BLOCKING: still wrong\nVERDICT: changes'))
+  expect(seen.spawned).toHaveLength(2)
+  expect(seen.submitted).toHaveLength(1)
+  expect(needsHuman(seen)).toHaveLength(2)
+  expect(reports(seen).at(-1)).toMatchObject({ status: 'stopped' })
+})

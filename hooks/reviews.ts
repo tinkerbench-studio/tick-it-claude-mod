@@ -280,6 +280,12 @@ export async function saveReviews($: EngineInterface, fn: (list: ReviewRun[]) =>
   await $.store.set(REVIEWS_KEY, list)
 }
 
+/** The steward as a person's action leaves it: what marks a stop the mod made, or the review of a fix after it, belongs to that stop only. */
+export const withoutStopMarks = (s: Steward): Steward => {
+  const { stoppedBy: _by, afterStop: _after, ...rest } = s
+  return rest
+}
+
 export async function setSteward($: EngineInterface, next: Steward | null) {
   await update($, steward, () => next)
   await showStatus($)
@@ -411,7 +417,7 @@ export async function reviewAgain($: EngineInterface): Promise<string> {
   }
   const idle = s.phase !== 'fixing' && s.fixing !== true
   const note = `Round ${s.round + 1} starts when this turn ends.`
-  await setSteward($, { ...s, phase: 'fixing', ticking: false, maxRounds: Math.max(s.maxRounds, s.round + 1), note })
+  await setSteward($, { ...withoutStopMarks(s), phase: 'fixing', ticking: false, maxRounds: Math.max(s.maxRounds, s.round + 1), note })
   // With no fix turn running, nothing would end: a turn of nothing to fix carries the next round in.
   if (idle) await $.prompt.submit({ text: `tick-it: ${s.ticket} is reviewed again. There is nothing to fix; stop, and round ${s.round + 1} starts when you finish.` })
 
@@ -424,7 +430,7 @@ export async function stopStewarding($: EngineInterface): Promise<string> {
   if (s === null || s.phase === 'done' || s.phase === 'stopped') return 'Nothing is being stewarded.'
   const note = `Stopped after round ${s.round}; ${s.ticket} stays In review.`
   // Stopped in the middle of a fix turn: that turn is still running, so r has no turn to start.
-  await setSteward($, { ...s, phase: 'stopped', note, fixing: s.phase === 'fixing' })
+  await setSteward($, { ...withoutStopMarks(s), phase: 'stopped', note, fixing: s.phase === 'fixing' })
 
   return `tick-it: ${note}`
 }

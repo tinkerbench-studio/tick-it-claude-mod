@@ -4,7 +4,7 @@ import type { ReviewUsage, WorkRun } from '../types'
 import { BREAKDOWN_SUGGESTION, MAX_FINDINGS } from './state'
 import { findCurrent, refreshPullRequest, statusOnTickit } from './board'
 import { refreshDiff, report, recordPullRequest, firstLine, finish } from './work'
-import { costOf, openVerdictLines, readFindings, readVerdicts, parseFinding, saveReviews, setSteward, startRound, settleRound } from './reviews'
+import { withoutStopMarks, costOf, openVerdictLines, readFindings, readVerdicts, parseFinding, saveReviews, setSteward, startRound, settleRound } from './reviews'
 import { queue, flush } from './outbox'
 
 // Declared in this file: the engine reads an atom only where it is written (a module cannot use one imported from state.ts).
@@ -106,7 +106,7 @@ export const registerTurn: Register = on => {
         // Tick-it suggests breaking the ticket down: no further fix round starts. Claude offers the breakdown to the person, and r starts the next round if they decline.
         const note = `Breakdown suggested for ${fixingNow.ticket} after ${fixingNow.round} rounds; it stays In review until you decide (r starts round ${fixingNow.round + 1}).`
         // The offer is a turn of its own: fixing stays true while it runs, as for the stop button, so r then waits for its end rather than queueing a turn of nothing to fix.
-        await setSteward($, { ...fixingNow, phase: 'stopped', note, fixing: true })
+        await setSteward($, { ...withoutStopMarks(fixingNow), phase: 'stopped', note, fixing: true })
         await update($, pendingInstructions, pending => pending.filter(i => !i.startsWith(BREAKDOWN_SUGGESTION)))
         await $.prompt.submit({ text: suggested.join('\n\n') })
       } else if (fixingNow?.phase === 'fixing') {

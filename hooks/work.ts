@@ -383,11 +383,16 @@ export async function finishedByClaude($: EngineInterface, e: ToolCallInput, nex
 async function fixAfterStop($: EngineInterface, key: string, e: ToolCallInput, next: (e: ToolCallInput) => Promise<ToolCallResult>): Promise<ToolCallResult> {
   const s = await read($, steward)
   if (s === null || s.phase !== 'stopped' || s.stoppedBy !== 'mod' || s.ticket !== key) return next(e)
+  // The same key in another repository is another ticket.
+  const given = (e as { repository?: unknown }).repository
+  if (typeof given === 'string' && given !== (await repositoryHere($))) return next(e)
   const ran = await next(e)
   if (!('result' in ran) || ran.isError === true) return ran
   // The state may have changed while Tick-it answered (the stop button, r): only the stop the mod made is carried on.
   const now = await read($, steward)
   if (now === null || now.phase !== 'stopped' || now.stoppedBy !== 'mod' || now.ticket !== key) return ran
+  // The ticket is already In review with its changed lines and UI evidence from the first move: only its pull request is recorded again, as the fix may have opened one.
+  await recordPullRequest($, key).catch(() => undefined)
   await setSteward($, { ticket: key, round: now.round, phase: 'fixing', maxRounds: Math.max(now.maxRounds, now.round + 1), ticking: false, afterStop: true, note: `Reviewing the fix made after stewarding stopped: round ${now.round + 1} starts when this turn ends.` })
   return { ...ran, context: [...(ran.context ?? []), `tick-it: stewarding of ${key} had stopped. Its fix is reviewed once when this turn ends (round ${now.round + 1}); if that still has blocking findings it stops again and a person is asked.`] }
 }
