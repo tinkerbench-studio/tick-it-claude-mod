@@ -439,6 +439,22 @@ export async function untickedAcceptance($: EngineInterface, id: string): Promis
   return items.filter(i => !i.checked && i.afterDeploy !== true).map(i => i.text)
 }
 
+/** Tick-it's reason a ticket is still held back (its reviewState.heldBack or queueHold, read once with get_ticket), as a token the log keeps; undefined when it is not held back or cannot be read. */
+export async function heldBackReason($: EngineInterface, id: string): Promise<string | undefined> {
+  const repository = await repositoryHere($)
+  if (repository === undefined) return undefined
+  const got = await callTickit($, 'get_ticket', { repository, key: id }).catch(() => undefined)
+  if (got === undefined || !got.ok) return undefined
+  const ticket = got.value.ticket as { reviewState?: { heldBack?: unknown; reason?: unknown }; queueHold?: unknown } | undefined
+  const textOfHold = (v: unknown): string | undefined => (typeof v === 'string' && v !== '' ? v : typeof v === 'object' && v !== null ? textOfHold((v as { reason?: unknown }).reason) : undefined)
+  const on = (v: unknown) => v !== undefined && v !== null && v !== false
+  const held = ticket?.reviewState?.heldBack
+  const hold = ticket?.queueHold
+  const reason = (on(held) ? (textOfHold(held) ?? textOfHold(ticket?.reviewState?.reason)) : undefined) ?? (on(hold) ? textOfHold(hold) : undefined)
+  if (reason !== undefined) return reason.trim().replace(/[^A-Za-z0-9_.:#/,-]+/g, '-').slice(0, 100)
+  return on(held) || on(hold) ? 'unknown' : undefined
+}
+
 /**
  * What a pull request adds to a round's blocking findings, so a round is not clean while it is red or stale. The queue owns the branch of a queued
  * pull request: it is never told to update it, only to resolve a conflict (Tick-it sends that itself). Tick-it's own CI instruction for the
@@ -528,6 +544,8 @@ export async function settleRound($: EngineInterface, s: Steward) {
       return
     }
     await log($, 'debug', 'round-settled', { ticket: t.id, round: s.round, outcome: 'clean' })
+    const held = await heldBackReason($, t.id)
+    if (held !== undefined) await log($, 'warn', 'held-back-after-clean', { ticket: t.id, round: s.round, reason: held })
     const why = await setStatus($, t.id, 'Done', 'Review rounds were clean.')
     // Stopped while Tick-it was answering: the ticket stays In review, as the stop said.
     if (!(await stillReviewing())) {

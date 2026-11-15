@@ -126,7 +126,7 @@ export const registerSession: Register = on => {
       await update($, startedSession, () => previous)
       return next({ ...e, context: [...(e.context ?? []), ...notes, `tick-it could not take ${ticket}: ${t}`] })
     }
-    await log($, 'debug', 'ticket-taken', { ticket: t.id, session: id })
+    await log($, 'debug', 'ticket-taken', { ticket: t.id, session: id, claudeSession: await $.session.id() })
     const s: StartedSession = { id, repository, ticket: t.id, status: 'working', reportedAt: 0, claudeSession: await $.session.id() }
     await update($, startedSession, () => s)
     await $.store.set(STARTED_KEY, s)
@@ -143,7 +143,7 @@ export const registerSession: Register = on => {
       await $.store.set(STARTED_KEY, reported)
     }
     // Tick-it hands over at once what it already wants of the session, such as a merge conflict to resolve: Claude gets it when this turn ends.
-    await log($, sent.ok ? 'info' : 'warn', 'report', { ticket: t.id, status: 'working', sent: sent.ok })
+    await log($, sent.ok ? 'info' : 'warn', 'report', { ticket: t.id, session: id, claudeSessionId: s.claudeSession, status: 'working', sent: sent.ok })
     const asked = instructionsOf(sent)
     if (asked.length > 0) await update($, pendingInstructions, pending => [...pending, ...asked])
     return next({ ...e, context: [...(e.context ?? []), ...notes, await freshBriefOf($, t)] })
