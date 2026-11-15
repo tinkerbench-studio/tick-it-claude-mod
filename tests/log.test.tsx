@@ -149,7 +149,7 @@ for (const reject of [false, true]) {
     const lines = log.lines().filter(l => l.includes(' debug outbox-send '))
     expect(lines.length).toBeGreaterThan(0)
     const review = lines.find(l => l.includes('skill=principal')) ?? ''
-    expect(review).toMatch(/outbox-send claudeSession=session-1 tickitSession=\S+ agentId=\S+ skill=principal round=1 headSha=(ab12){10} result=/)
+    expect(review).toMatch(/outbox-send claudeSession=session-1 tickitSession=(?!none)\S+ agentId=\S+ skill=principal round=1 headSha=(ab12){10} result=/)
     expect(review).toContain(reject ? 'result=rejected' : 'result=accepted')
     for (const l of lines) expect(l).not.toMatch(/authorization|token|bearer|ghp_/i)
   })
