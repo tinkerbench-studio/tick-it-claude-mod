@@ -205,3 +205,13 @@ test('a ticket that is not held back logs nothing extra after a clean round', as
   expect(quiet.lines().join('\n')).toContain('round-settled ticket=TCK-143 round=1 outcome=clean')
   expect(quiet.lines().join('\n')).not.toContain('held-back-after-clean')
 })
+
+test('at debug: a build turn has no commit of its own, so its outbox-send line says headSha=none', async ($, on) => {
+  engine(on, { lines: 10 }, true, principal)
+  const log = logging(on, { TICK_IT_LOG: 'debug' })
+  await start($)
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-143' })
+  await $.turn.complete(finishTurn(undefined, 'Built it.'))
+  const build = log.lines().find(l => l.includes(' debug outbox-send ') && l.includes('skill=build')) ?? ''
+  expect(build).toMatch(/outbox-send claudeSession=session-1 agentId=\S+ skill=build round=none headSha=none result=accepted/)
+})
