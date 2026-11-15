@@ -310,6 +310,14 @@ export async function startRound($: EngineInterface, t: Ticket, round: number, t
     return `Stopped; round ${round} of ${t.id} did not start.`
   }
   const limit = await roundLimit($, t.size, t.id)
+  // The fix that followed a round blocked by the pull request alone, with no budget for a reviewer round: no review agent starts, the pull request is read again and settles the round.
+  if (trigger === 'after-fix' && (await read($, steward))?.pullRequestOnly === true && (await budgetStop($, t.id, round - 1)) !== undefined) {
+    const next: Steward = { ticket: t.id, round, phase: 'reviewing', maxRounds: Math.max(limit, round), ...(ticking === true ? { ticking } : {}) }
+    await setSteward($, next)
+    await log($, 'debug', 'round-started', { ticket: t.id, round, why: trigger, readOnly: true })
+    await settleRound($, next, true)
+    return `Round ${round}: no reviewer started for ${t.id} (the review budget has no room); the pull request is read again.`
+  }
   const earlierRuns = await read($, reviews)
   // A skill runs for the ticket's size, or, when it lists `changes`, for what the change touches whatever the size. The change is read only when a skill asks.
   const listing = all.some(({ skill }) => skill.changes !== undefined)
@@ -499,8 +507,11 @@ export async function budgetStop($: EngineInterface, ticket: string, rounds: num
   return undefined
 }
 
-/** Once every reviewer of the round has answered: done, a fix round, one more round past the limit, or stop. */
-export async function settleRound($: EngineInterface, s: Steward) {
+/**
+ * Once every reviewer of the round has answered: done, a fix round, one more round past the limit, or stop.
+ * With `withoutReviewers` no reviewer ran for this round (the budget had no room for one after a fix of the pull request alone): the round is settled on the pull request, so it is clean or it stops, and it asks for no further fix.
+ */
+export async function settleRound($: EngineInterface, s: Steward, withoutReviewers = false) {
   const runs = (await read($, reviews)).filter(r => r.ticket === s.ticket && r.round === s.round)
   if (runs.some(r => r.status === 'running')) return
   const t = (await read($, tickets)).find(one => one.id === s.ticket)
@@ -511,10 +522,23 @@ export async function settleRound($: EngineInterface, s: Steward) {
   if (reviewed.length === 0) await refreshPullRequest($, t.id).catch(() => update($, pullRequestError, () => 'could not read the pull request'))
   // A refresh that failed leaves the last reading in place: it is not trusted, so the round is not clean until Claude has looked with gh.
   const failed = reviewed.length === 0 && (await read($, pullRequestError)) !== null
-  const blocking = reviewed.length > 0 ? reviewed : failed ? ['[pull-request] Tick-it could not read the pull request, so its CI and branch are unchecked: check them with gh (gh pr checks, gh pr view) and fix what fails.'] : pullRequestFindings(await read($, pullRequest))
+  const pr = await read($, pullRequest)
+  const blocking = reviewed.length > 0 ? reviewed : failed ? ['[pull-request] Tick-it could not read the pull request, so its CI and branch are unchecked: check them with gh (gh pr checks, gh pr view) and fix what fails.'] : pullRequestFindings(pr)
+  // CI that has not finished says nothing yet: a round settled on the pull request alone waits for it, and is never read as clean on it.
+  const pending = withoutReviewers && blocking.length === 0 && pr !== null && pr.state === 'open' && pr.ci === 'pending'
   const spent = summarise(runs)
   // The stop button may be pressed while this waits on Tick-it or GitHub: stopped stays stopped.
   const stillReviewing = async () => (await read($, steward))?.phase === 'reviewing'
+  if (pending) {
+    if (!(await stillReviewing())) return
+    await log($, 'debug', 'round-settled', { ticket: t.id, round: s.round, outcome: 'stopped-ci-pending' })
+    const note = `CI is still running on pull request #${pr?.number}, and the budget has no room for a reviewer round: not read as clean. Read it again when CI has finished (r).`
+    await setSteward($, { ...s, phase: 'stopped', note })
+    const repository = await repositoryHere($)
+    if (repository !== undefined) await callTickit($, 'set_needs_human', { repository, key: t.id, kind: 'no-clean-round', note: `CI is still pending on pull request #${pr?.number} after the fix, so it is not read as clean.`.slice(0, 200) }).catch(() => undefined)
+    $.ui.toast(`tick-it: CI is still running on pull request #${pr?.number} for ${t.id}, so it is not read as clean. Over to you.`)
+    return
+  }
   if (blocking.length === 0) {
     if (!(await stillReviewing())) return
     // Tick-it reads a round as clean only while every acceptance check is ticked (one flagged after-deploy is left out), and Claude ticks the ones it has met. The first time one is left, Claude gets a turn to tick it; one still unticked after that is one it could not meet (or the checks cannot be read), so a person is asked and the ticket stays In review.
@@ -581,7 +605,20 @@ export async function settleRound($: EngineInterface, s: Steward) {
   if (!(await stillReviewing())) return
   // Another round (the review of a fix) starts only while spend is under the budget and the next round is not expected to overshoot what is left. A fix asked for here is always reviewed, so the check is made before asking for one.
   const over = await budgetStop($, t.id, s.round)
-  if (over !== undefined) {
+  // Reviewers found nothing, so what blocks is the pull request's own (CI, base): fixing it needs no reviewer spend to confirm, as the pull request can be read again. The budget does not stop the round; Claude is asked for the fix, and with no room for a reviewer round after it, the pull request alone settles the round.
+  const pullRequestOnly = reviewed.length === 0
+  if (over !== undefined && withoutReviewers) {
+    // The fix after the budget ran out did not clear the pull request: nothing more is asked for, and a person is.
+    if (!(await stillReviewing())) return
+    await log($, 'debug', 'round-settled', { ticket: t.id, round: s.round, outcome: 'stopped-pull-request-still-blocking', blocking: blocking.length })
+    const note = `The pull request still blocks after the fix (${blocking.length} blocking finding${blocking.length === 1 ? '' : 's'}) and the $${over.budget} review budget has no room for another round, no clean round.`
+    await setSteward($, { ...s, phase: 'stopped', note })
+    const repository = await repositoryHere($)
+    if (repository !== undefined) await callTickit($, 'set_needs_human', { repository, key: t.id, kind: 'no-clean-round', note: note.slice(0, 200) }).catch(() => undefined)
+    $.ui.toast(`tick-it: ${t.id}'s pull request still has ${blocking.length} blocking findings after the fix and the review budget has no room for another round. Over to you.`)
+    return
+  }
+  if (over !== undefined && !pullRequestOnly) {
     if (!(await stillReviewing())) return
     await log($, 'debug', 'round-settled', { ticket: t.id, round: s.round, outcome: 'stopped-at-budget', blocking: blocking.length })
     const note = `Review budget $${over.budget} ${over.reached ? 'reached' : `would be overshot by round ${s.round + 1}`} (${usd.format(over.costUsd)} spent over ${s.round} round${s.round === 1 ? '' : 's'}), ${blocking.length} blocking finding${blocking.length === 1 ? '' : 's'} still open, no clean round.`
@@ -594,11 +631,13 @@ export async function settleRound($: EngineInterface, s: Steward) {
   // The limit is hit with reviewers still blocking: one further round goes past it, and the timeline shows it as one.
   const pastLimit = s.round === limit
   await log($, 'debug', 'round-settled', { ticket: t.id, round: s.round, outcome: pastLimit ? 'fix-then-last-round' : 'fix', blocking: blocking.length })
-  await setSteward($, { ...s, phase: 'fixing', ticking: false, ...(pastLimit ? { maxRounds: s.round + 1, note: `Still blocking after ${s.round} rounds; round ${s.round + 1} goes past the limit.` } : {}) })
+  // The budget has no room for a reviewer round after this fix: the pull request is read again instead, and settles the round.
+  const readOnly = over !== undefined && pullRequestOnly
+  await setSteward($, { ...s, phase: 'fixing', ticking: false, ...(readOnly ? { pullRequestOnly: true } : {}), ...(pastLimit ? { maxRounds: s.round + 1, note: `Still blocking after ${s.round} rounds; round ${s.round + 1} goes past the limit.` } : {}) })
   const served = await servedConfig($)
   const afterFix = served !== null && served.ticket === t.id ? served.briefLines.afterFix : undefined
   await $.prompt.submit({
-    text: [`Round ${s.round} review of ${t.id} found ${blocking.length} blocking finding${blocking.length === 1 ? '' : 's'}. ` + 'Fix each one within the ticket, then stop. tick-it reviews again when you finish.' + (pastLimit ? ` The next review, round ${s.round + 1}, is the last: ${limit} rounds are the limit and it goes past it.` : ''), ...blocking.map(line => `- ${line}`), ...(afterFix === undefined ? [] : [afterFix])].join('\n'),
+    text: [`Round ${s.round} review of ${t.id} found ${blocking.length} blocking finding${blocking.length === 1 ? '' : 's'}. ` + (readOnly ? `Fix each one within the ticket, then stop. The review budget has no room for another reviewer round, so tick-it reads the pull request again when you finish: it is clean when CI passes and the branch is not behind its base.` : 'Fix each one within the ticket, then stop. tick-it reviews again when you finish.') + (pastLimit && !readOnly ? ` The next review, round ${s.round + 1}, is the last: ${limit} rounds are the limit and it goes past it.` : ''), ...blocking.map(line => `- ${line}`), ...(afterFix === undefined ? [] : [afterFix])].join('\n'),
   })
 }
 
