@@ -409,6 +409,7 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
   const eligible = all.filter(({ folder, skill }) => (bySize(skill) && pathsMatch(skill)) || changesFor(skill.changes, touched, paths).length > 0 || (skill.changes !== undefined && ranBefore(folder)) || earlierBlockers(earlierRuns, t.id, folder, round).length > 0)
   // From round 2 a reviewer runs only with work left: a blocking finding still open, or a changed file since the previous round that matches its paths (any file, for a reviewer with no paths).
   // One that reviewed the ticket clean and finds none carries its clean verdict forward. A round 1 (a fresh steward run) runs every applicable reviewer; files that cannot be listed run them all too.
+  // Skipped (carried-forward) runs have no head, so after a round that started no reviewer this is an older head: the window is wider, so reviewers run at most more often, never less.
   const previous = first ? undefined : earlierRuns.filter(r => r.ticket === t.id && r.round < round && r.headSha !== undefined).sort((a, b) => a.round - b.round || a.startedAt - b.startedAt).at(-1)
   const since = previous?.headSha === undefined || eligible.length === 0 ? null : await changedSince($, previous.headSha).catch(() => null)
   const reviewedBefore = (folder: string) => earlierRuns.some(r => r.ticket === t.id && r.skill === folder && r.round < round && r.status === 'done' && r.notApplicable === undefined)
@@ -438,7 +439,7 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
   if (skills.length === 0 && forwarded.length > 0) {
     const steward: Steward = { ticket: t.id, round, phase: 'reviewing', maxRounds: Math.max(limit, round), ...(ticking === true ? { ticking } : {}) }
     await setSteward($, steward)
-    await log($, 'debug', 'round-not-started', { ticket: t.id, round, why: 'forwarded-forward' })
+    await log($, 'debug', 'round-not-started', { ticket: t.id, round, why: 'carried-forward' })
     await settleRound($, steward, true)
     return `Round ${round}: no reviewer has work left on ${t.id} (${forwarded.map(c => c.folder).join(', ')} carry their clean verdicts forward); settling from the pull request and the acceptance checks.`
   }
