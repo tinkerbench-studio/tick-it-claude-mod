@@ -12,6 +12,8 @@ export const STORE_KEY = 'tickets'
 export const STARTED_KEY = 'started-session'
 /** The first line of a session Tick-it started for a ticket. A routine session receives it inside a routine-fire-payload block, indented, so spaces or tabs may come before it; text before it on the line may not. */
 export const START_LINE = /^[ \t]*Tick-it session (s_[a-z0-9]{8,40}): work on ([A-Z]{3}-[1-9]\d*) in ([A-Za-z0-9-]+\/[A-Za-z0-9._-]+)\.$/m
+/** The first line of a session Tick-it started to carry on a ticket already In review or Ready to merge (a conflict, failing CI, a failing merge check, a released CI fix, a head no review has seen): the mod takes the ticket into the session without moving its status. Written like START_LINE, indented where a routine session receives it. */
+export const CONTINUE_LINE = /^[ \t]*Tick-it session (s_[a-z0-9]{8,40}): continue ([A-Z]{3}-[1-9]\d*) in ([A-Za-z0-9-]+\/[A-Za-z0-9._-]+)\.$/m
 /** The first line of a breakdown session (or a temporary suggestion-analysis or post-deploy check session) Tick-it started: it builds nothing, so the mod does not track it. */
 export const BREAKDOWN_LINE = /^[ \t]*Tick-it session (s_[a-z0-9]{8,40}): (?:break down|analyse suggestions of|check) ([A-Z]{3}-[1-9]\d*)(?: after deploy)? in ([A-Za-z0-9-]+\/[A-Za-z0-9._-]+)\.$/m
 export const BREAKDOWN_KEY = 'breakdown-session'

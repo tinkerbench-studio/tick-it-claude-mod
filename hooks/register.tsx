@@ -6,7 +6,7 @@ import { registerTools } from './tool-hooks'
 import { registerTurn } from './turn'
 import { registerUi } from './ui'
 
-export { AGENTS_TOOL, BREAKDOWN_LINE, BUDGET, DEFAULT_ROUNDS, PRICES, RECORD_TOOL, REPORT_TOOL, START_LINE, TICKIT_CONNECTORS, TICKIT_SERVER } from './state'
+export { AGENTS_TOOL, BREAKDOWN_LINE, BUDGET, CONTINUE_LINE, DEFAULT_ROUNDS, PRICES, RECORD_TOOL, REPORT_TOOL, START_LINE, TICKIT_CONNECTORS, TICKIT_SERVER } from './state'
 export * from './board'
 export * from './tickit'
 export * from './work'
