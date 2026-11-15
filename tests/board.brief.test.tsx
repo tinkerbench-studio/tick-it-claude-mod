@@ -281,5 +281,5 @@ test('the brief names the security areas and the skill to load before writing co
 
 test('the brief tells a session to write another repository\'s ticket as owner/name#KEY and its pull request as owner/name#n', () => {
   const t = { id: 'TCK-2', title: 'Two', epic: 'E', size: 'XS' as const, status: 'Ready' as const, acceptance: ['a'] }
-  expect(brief(t)).toContain("name another repository's ticket as owner/name#KEY and its pull request as owner/name#n, never a bare key or #n")
+  expect(brief(t)).toContain("name another repository's ticket as owner/name#KEY and its pull request as owner/name#n, never a bare key or #n: a bare one always means this repository")
 })
