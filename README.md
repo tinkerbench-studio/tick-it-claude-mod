@@ -1,6 +1,6 @@
 # tick-it, the Claude Code mod
 
-Tick-it in your Claude session. The board comes from Tick-it's MCP server for the repository you are in, read from its GitHub `origin` remote. `/tick-it take <id>` works on a ticket, and `/tick-it done` moves it to In review, with the lines its change touched since it was taken, and **stewards it to completion**.
+Tick-it in your Claude session. The board comes from Tick-it's MCP server for the repository you are in, read from its GitHub `origin` remote. `/tick-it take <id>` works on a ticket (a Backlog or Ready ticket held until a `notBefore` date that is still ahead (as on Tick-it, a ticket already In progress or In review is not refused) is refused with that date, and nothing is moved or assigned), and `/tick-it done` moves it to In review, with the lines its change touched since it was taken, and **stewards it to completion**.
 
 Every move happens on Tick-it first: take, done, drop, Done after a clean review round with every acceptance check ticked (a check flagged after-deploy is left out), and `/tick-it add`. `/tick-it attach <id> <note> <file>` moves nothing: it attaches a file, such as a log or screenshot, to a note on a ticket's acceptance check (the mod reads it as bytes, so any type up to 3 MB). The board is cached, so when Tick-it can't be reached `/tick-it board` shows the last board read and says why, and nothing moves.
 

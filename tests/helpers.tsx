@@ -195,6 +195,7 @@ export const engine = (
       if (e.tool === 'update_ticket') {
         const ticket = seen.server.find(t => t.key === a.key)
         if (ticket === undefined) return refuse(`No ticket ${String(a.key)} in acme/web-app.`)
+        if (a.status === 'In progress' && (ticket as { refuseHold?: string }).refuseHold !== undefined) return refuse((ticket as { refuseHold: string }).refuseHold)
         if (a.status === 'Done' && diff.pr !== undefined) return refuse(`${String(a.key)}'s pull request #${diff.pr} is still open: it moves to Done when it merges.`)
         if (a.status === 'Done' && (typeof a.reason !== 'string' || a.reason.trim() === '')) return refuse(`${String(a.key)} has no merged pull request: give a reason to move it to Done.`)
         if (a.status !== undefined) ticket.status = String(a.status)

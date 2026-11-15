@@ -117,3 +117,24 @@ test("the pane's start shows the server's refusal of a held ticket unchanged and
   expect(seen.server.find(t => t.key === 'TCK-149')).toMatchObject({ status: before.status, assignee: before.assignee })
   await pane.unmount()
 })
+
+test("/tick-it take shows the server's refusal of a hold in its reason, sends update_ticket once, and moves nothing", async ($, on) => {
+  const seen = engine(on, { lines: 0 })
+  const reason = `TCK-149 is held until ${FUTURE}: it cannot be started before then.`
+  // The hold is not in what the mod read (a date set after it read), so only the server refuses.
+  Object.assign(seen.server.find(t => t.key === 'TCK-149')!, { refuseHold: reason })
+  const before = { ...seen.server.find(t => t.key === 'TCK-149')! }
+  await start($)
+  const out = await take($, 'TCK-149')
+  expect(JSON.stringify(out)).toContain(reason)
+  expect(seen.ticketCalls.filter(c => c.tool === 'update_ticket')).toHaveLength(1)
+  expect(seen.server.find(t => t.key === 'TCK-149')).toMatchObject({ status: before.status, assignee: before.assignee })
+})
+
+test('/tick-it take resumes a held ticket that is already In progress, as the server does', async ($, on) => {
+  const seen = engine(on, { lines: 0 })
+  Object.assign(seen.server.find(t => t.key === 'TCK-149')!, { notBefore: FUTURE, status: 'In progress' })
+  await start($)
+  await take($, 'TCK-149')
+  expect(seen.server.find(t => t.key === 'TCK-149')).toMatchObject({ status: 'In progress', assignee: 'maddiecs84' })
+})
