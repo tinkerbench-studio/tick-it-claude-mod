@@ -69,30 +69,33 @@ test('signed out: the last board read still shows, with why, and nothing moves',
   expect(board.text).toContain('Showing the last board read: not connected to Tick-it (Tick-it needs you to sign in). Sign in with /mcp')
   expect(board.text).toContain('TCK-143  Persist checkout step in session  XS')
   const taken = await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-143' })
-  expect(taken.text).toContain('Could not take TCK-143: not connected to Tick-it')
+  expect(taken.text).toContain('Could not read TCK-143: not connected to Tick-it')
   expect(seen.ticketCalls).toHaveLength(calls)
   expect(seen.server.find(t => t.key === 'TCK-143')?.status).toBe('Ready')
 })
 
-test('a ticket missing from the last board read is not called "no ticket" when the board could not be read', async ($, on) => {
+test('a ticket that could not be read is not called "no ticket" when Tick-it could not be reached', async ($, on) => {
   const net: Net = {}
   engine(on, { lines: 0 }, false, {}, net)
   await start($)
   await $.command.run({ ...RUN, command: 'tick-it', args: 'board' })
   net.connected = false
   const taken = await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-999' })
-  expect(taken.text).toContain('Could not read the board to find TCK-999: not connected to Tick-it')
+  expect(taken.text).toContain('Could not read TCK-999: not connected to Tick-it')
   expect(taken.text).not.toContain('No ticket')
   net.connected = true
   expect((await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-999' })).text).toBe('No ticket TCK-999. Try /tick-it board.')
 })
 
-test('a board that cannot be read does not stop a ticket from being taken: it is read alone with get_ticket', async ($, on) => {
+test('a ticket is taken by reading just that ticket: the board is not read, so a board that cannot be read does not stop it', async ($, on) => {
   const net: Net = { listFails: true }
   const seen = engine(on, { lines: 0 }, false, {}, net)
   await start($)
+  const before = seen.ticketCalls.length
   const taken = await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-143' })
-  expect(taken.text).not.toContain('Could not read the board')
-  expect(seen.ticketCalls.some(c => c.tool === 'get_ticket' && (c.args as { key?: string }).key === 'TCK-143')).toBe(true)
+  expect(taken.text).not.toContain('Could not')
+  const calls = seen.ticketCalls.slice(before)
+  expect(calls.some(c => c.tool === 'get_ticket' && (c.args as { key?: string }).key === 'TCK-143')).toBe(true)
+  expect(calls.some(c => c.tool === 'list_tickets')).toBe(false)
   expect(seen.server.find(t => t.key === 'TCK-143')?.status).toBe('In progress')
 })
