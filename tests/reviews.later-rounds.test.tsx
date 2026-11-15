@@ -99,3 +99,29 @@ test('steward starting round 1 again runs every applicable reviewer, whatever an
   expect(seen.spawned.length - before).toBe(3)
   expect(carried(seen)).toHaveLength(0)
 })
+
+test('the ticking turn changes no file: round 2 carries every verdict forward and asks a person about the unticked check, not about a budget', async ($, on) => {
+  const seen = engine(on, { lines: 10, changed: CHANGED, since: [] }, true, skill('all', ''))
+  Object.assign(seen.server.find(t => t.key === 'TCK-143') ?? {}, { acceptanceItems: [{ id: 'c1', text: 'It saves', checked: false }] })
+  await start($)
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-143' })
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'done' })
+  await $.turn.complete(finishTurn('agent-1', 'VERDICT: clean'))
+  expect(seen.submitted[0]).toContain('1 acceptance check is not ticked')
+  const before = seen.spawned.length
+  await $.turn.complete(finishTurn(undefined, 'Could not tick it.'))
+  expect(seen.spawned.length - before).toBe(0)
+  expect(carried(seen).map(r => r.skill)).toEqual(['all'])
+  const need = seen.ticketCalls.find(c => c.tool === 'set_needs_human')?.args
+  expect(need).toMatchObject({ kind: 'no-clean-round', note: expect.stringContaining('acceptance check is not ticked') })
+  expect(String(need?.note)).not.toContain('budget')
+})
+
+test('every verdict carried forward while CI is still pending after the fix: settled as any round whose reviewers found nothing (pending is not failing), never as a budget stop', async ($, on) => {
+  const pr = { number: 12, state: 'open', draft: false, ci: 'failure', behind: false }
+  const seen = await roundOne($, on, { lines: 10, changed: CHANGED, since: [] }, {}, { pullRequests: [pr] })
+  pr.ci = 'pending'
+  await $.turn.complete(finishTurn(undefined, 'Pushed a CI fix.'))
+  expect(seen.spawned.filter(s => s.description.endsWith('round 2'))).toHaveLength(0)
+  expect(seen.ticketCalls.some(c => c.tool === 'set_needs_human' && String(c.args.note).includes('budget has no room'))).toBe(false)
+})

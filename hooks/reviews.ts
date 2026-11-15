@@ -412,7 +412,8 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
   // Skipped (carried-forward) runs have no head, so after a round that started no reviewer this is an older head: the window is wider, so reviewers run at most more often, never less.
   const previous = first ? undefined : earlierRuns.filter(r => r.ticket === t.id && r.round < round && r.headSha !== undefined).sort((a, b) => a.round - b.round || a.startedAt - b.startedAt).at(-1)
   const since = previous?.headSha === undefined || eligible.length === 0 ? null : await changedSince($, previous.headSha).catch(() => null)
-  const reviewedBefore = (folder: string) => earlierRuns.some(r => r.ticket === t.id && r.skill === folder && r.round < round && r.status === 'done' && r.notApplicable === undefined)
+  // Carry forward only from a skill whose newest real run finished (a failed or stopped one reviewed nothing); its open blockers are checked apart, through earlierBlockers.
+  const reviewedBefore = (folder: string) => earlierRuns.filter(r => r.ticket === t.id && r.skill === folder && r.round < round && r.notApplicable === undefined).sort((a, b) => a.round - b.round || a.startedAt - b.startedAt).at(-1)?.status === 'done'
   const forwarded = eligible.filter(({ folder, skill }) => since !== null && reviewedBefore(folder) && earlierBlockers(earlierRuns, t.id, folder, round).length === 0 && !since.some(f => skill.paths === undefined || skill.paths.some(g => globMatches(g, f))))
   const skills = eligible.filter(f => !forwarded.includes(f))
   const skipped = all.filter(f => !skills.includes(f) && (sized.includes(f) || forwarded.includes(f)))
@@ -435,12 +436,13 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
     await queue($, runs)
     await flush($).catch(() => undefined)
   }
-  // Every reviewer forwarded a clean verdict forward and none has work left: the round settles from the pull request and the acceptance ticks, as when a head was already reviewed.
+  // Every reviewer carried a clean verdict forward and none has work left: the round settles from the pull request and the acceptance ticks, as when a head was already reviewed.
   if (skills.length === 0 && forwarded.length > 0) {
-    const steward: Steward = { ticket: t.id, round, phase: 'reviewing', maxRounds: Math.max(limit, round), ...(ticking === true ? { ticking } : {}) }
+    const steward: Steward = { ticket: t.id, round, phase: 'reviewing', maxRounds: Math.max(limit, round), ...(ticking === true ? { ticking } : {}), ...(trigger === 'after-stop' ? { afterStop: true } : {}) }
     await setSteward($, steward)
     await log($, 'debug', 'round-not-started', { ticket: t.id, round, why: 'carried-forward' })
-    await settleRound($, steward, true)
+    // Settled as any round whose reviewers found nothing: the pull request and the acceptance ticks decide (a failing pull request asks for a fix). Not the budget stop, which is for a round with no room for a reviewer.
+    await settleRound($, steward)
     return `Round ${round}: no reviewer has work left on ${t.id} (${forwarded.map(c => c.folder).join(', ')} carry their clean verdicts forward); settling from the pull request and the acceptance checks.`
   }
   if (skills.length === 0) {
