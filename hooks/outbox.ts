@@ -128,6 +128,16 @@ export async function flush($: EngineInterface): Promise<string> {
     await $.store.set(DROPPED_KEY, list)
   }
 
+  // Each run's fate under the session it was sent as: a session id Tick-it does not know for the ticket is why a clean round can still be held back.
+  if (repository !== undefined) {
+    const session = await $.session.id()
+    const tickitSession = (await read($, startedSession))?.id ?? 'none'
+    for (const run of waiting) {
+      const refusal = refused.find(d => d.run.agentId === run.agentId)
+      const sha = 'headSha' in run ? run.headSha : undefined
+      await log($, 'debug', 'outbox-send', { claudeSession: session, tickitSession, agentId: run.agentId, skill: 'skill' in run ? run.skill : run.kind, round: run.round ?? 'none', headSha: sha ?? 'none', result: accepted.has(run.agentId) ? 'accepted' : refusal !== undefined ? 'rejected' : 'unanswered' })
+    }
+  }
   const sentCount = waiting.filter(r => accepted.has(r.agentId)).length
   if (refused.length > 0) await log($, 'error', 'runs-dropped', { dropped: refused.length })
   await log($, failure === null ? 'info' : 'warn', 'outbox-send', { sent: sentCount, dropped: refused.length, waiting: left.length, failed: failure !== null })

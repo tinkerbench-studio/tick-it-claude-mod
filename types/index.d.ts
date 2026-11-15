@@ -41,6 +41,8 @@ export type ReviewRun = {
   skill: string
   model: string
   startedAt: number
+  /** The commit the reviewer ran on (git rev-parse HEAD when the round started); Tick-it records it with the run. */
+  headSha?: string
   status: 'running' | 'done' | 'failed'
   durationMs?: number
   usage?: ReviewUsage
