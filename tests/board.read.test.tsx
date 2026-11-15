@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { RUN, engine, start, reports, PAGED, paged } from './helpers'
+import { RUN, engine, start, reports, PAGED, paged, PANE } from './helpers'
 import type { Net } from './helpers'
 
 test('the board is read from Tick-it for the repository the session is in', async ($, on) => {
@@ -8,7 +8,7 @@ test('the board is read from Tick-it for the repository the session is in', asyn
   seen.server.push({ key: 'TCK-160', title: 'Only on the server', epic: null, size: 'XS', status: 'Backlog', acceptance: [], assignee: null })
   await start($)
   const board = await $.command.run({ ...RUN, command: 'tick-it', args: 'board' })
-  expect(seen.ticketCalls.filter(c => c.tool === 'list_tickets').map(c => c.args)).toContainEqual({ repository: 'acme/web-app' })
+  expect(seen.ticketCalls.filter(c => c.tool === 'list_tickets').map(c => c.args)).toContainEqual({ repository: 'acme/web-app', slim: true })
   expect(board.text).toContain('Backlog (1)')
   expect(board.text).toContain('TCK-160  Only on the server  XS')
   expect(board.text).not.toContain('Showing the last board read')
@@ -25,7 +25,7 @@ test('a board of several pages is saved whole, once each and in order', async ($
     .filter(c => c.tool === 'list_tickets')
     .slice(before)
     .map(c => c.args)
-  expect(calls).toEqual([{ repository: 'acme/web-app' }, { repository: 'acme/web-app', cursor: '2' }, { repository: 'acme/web-app', cursor: '4' }, { repository: 'acme/web-app', cursor: '6' }, { repository: 'acme/web-app', cursor: '8' }].slice(0, Math.ceil(seen.server.length / 2)))
+  expect(calls).toEqual([{ repository: 'acme/web-app', slim: true }, { repository: 'acme/web-app', slim: true, cursor: '2' }, { repository: 'acme/web-app', slim: true, cursor: '4' }, { repository: 'acme/web-app', slim: true, cursor: '6' }, { repository: 'acme/web-app', slim: true, cursor: '8' }].slice(0, Math.ceil(seen.server.length / 2)))
   const text = board.text ?? ''
   const at = PAGED.map(n => text.indexOf(`TCK-${n}  `))
   for (const i of at) expect(i).toBeGreaterThanOrEqual(0)
@@ -106,4 +106,39 @@ test('a get_ticket answer with no result names its content blocks and the start 
   const taken = await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-143' })
   expect(taken.text).toContain('had no result in it (2 content blocks: text 234 chars, image 0 chars; the text starts: Tick-it is busy, try again later.')
   expect(seen.server.find(t => t.key === 'TCK-143')?.status).not.toBe('In progress')
+})
+
+test('a board read slim keeps the details of a ticket read whole, and opening a ticket only on the board reads it whole', async ($, on) => {
+  const seen = engine(on, { lines: 0 })
+  seen.server.push({ key: 'TCK-161', title: 'Only listed', epic: null, size: 'XS', status: 'Backlog', acceptance: ['Never read whole'], assignee: null })
+  await start($)
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-143' })
+  const before = seen.server.find(t => t.key === 'TCK-143')?.acceptance ?? []
+  expect(before.length).toBeGreaterThan(0)
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'board' })
+  const paneOf = (title: string) => $.ui.mount({ plugin: 'tick-it', surface: 'terminal', component: 'Pane', requestId: 'tick-it-ticket', props: { title, isFocused: true, bodyColumns: 60, placement: 'dock', scroll: { offset: 0, bodyRows: 30 }, view: {} } } as const)
+  // The taken ticket keeps the acceptance its get_ticket read gave, after a slim read of the board.
+  const taken = await paneOf('TCK-143')
+  for (const a of before) expect((await taken.find({ key: 'acceptance' }))?.props?.text).toContain(a)
+  await taken.unmount()
+  // A ticket only on the board is read whole when it is opened, not before.
+  expect(seen.ticketCalls.some(c => c.tool === 'get_ticket' && c.args.key === 'TCK-161')).toBe(false)
+  const board = await $.ui.mount({ plugin: 'tick-it', surface: 'terminal', ...PANE })
+  await board.press({ key: 'open-TCK-161' })
+  await board.unmount()
+  expect(seen.ticketCalls.filter(c => c.tool === 'get_ticket' && c.args.key === 'TCK-161').map(c => c.args)).toEqual([{ repository: 'acme/web-app', key: 'TCK-161', include: [] }])
+  const opened = await paneOf('TCK-161')
+  expect((await opened.find({ key: 'acceptance' }))?.props?.text).toContain('Never read whole')
+  await opened.unmount()
+})
+
+test('a board page too large for Claude Code to pass on is reported as too large, and the cached board stays', async ($, on) => {
+  const net: Net = {}
+  const seen = engine(on, { lines: 0 }, false, {}, net)
+  await start($)
+  const known = seen.server.map(t => t.key)
+  net.listTooLarge = true
+  const board = await $.command.run({ ...RUN, command: 'tick-it', args: 'board' })
+  expect(board.text).toContain("Showing the last board read: Tick-it's answer to list_tickets was too large for Claude Code to pass on (over its 50,000-character limit for a tool reply)")
+  for (const k of known) expect(board.text).toContain(k)
 })

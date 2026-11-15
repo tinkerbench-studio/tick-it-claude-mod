@@ -65,6 +65,8 @@ export type Net = {
   connected?: boolean
   /** list_tickets fails (the board cannot be read) while the other tools answer. */
   listFails?: boolean
+  /** list_tickets answers as Claude Code passes on a reply over its size limit: a note that the output was too large, with a preview. */
+  listTooLarge?: boolean
   /** get_ticket answers with text that holds no result (not JSON, no structured content). */
   ticketNoResult?: boolean
   /** Only this server connects (a cloud session: the claude.ai connector, not the plugin's own). */
@@ -116,8 +118,9 @@ export const engine = (
   net: Net = {},
 ): Seen => {
   const seen: Seen = { spawned: [], submitted: [], toasts: [], opened: [], recorded: [], server: SAMPLE(), ticketCalls: [], processes: [] }
+  // As Claude Code's $.mcp.call passes an answer on: its content blocks and isError, never the server's structuredContent.
   const answer = (value: Record<string, unknown>) => ({
-    value: { isError: false, content: [{ type: 'text', text: JSON.stringify(value) }], structuredContent: value },
+    value: { isError: false, content: [{ type: 'text', text: JSON.stringify(value) }] },
   })
   const refuseOr = (instructions: string) => (instructions === 'unreachable' ? refuse('Tick-it is down') : answer({ instructions, canEdit: true }))
   const refuse = (text: string) => ({ value: { isError: true, content: [{ type: 'text', text }] } })
@@ -141,12 +144,15 @@ export const engine = (
       if (a.repository !== 'acme/web-app') return refuse(`No tickets in ${String(a.repository)} yet. create_ticket adds the first one.`)
       if (e.tool === 'list_tickets') {
         if (net.listFails === true) return refuse('Tick-it is down')
-        if (net.pageSize === undefined) return answer({ tickets: seen.server })
+        if (net.listTooLarge === true) return { value: { isError: false, content: [{ type: 'text', text: '<persisted-output>\nOutput too large (50.2KB). Full output saved to: /tmp/x.txt\n\nPreview (first 2KB):\n{"tickets":[{"key":"TCK-1"' }] } }
+        // As Tick-it answers slim: true, each ticket without its description, acceptance, links, labels or url.
+        const shape = (list: Remote[]) => (a.slim === true ? list.map(({ key, title, epic, size, status, assignee }) => ({ key, title, epic, size, status, assignee })) : list)
+        if (net.pageSize === undefined) return answer({ tickets: shape(seen.server) })
         if (a.cursor !== undefined && a.cursor === net.failAt) return refuse('Tick-it is down')
         const from = a.cursor === undefined ? 0 : Number(a.cursor)
         const to = from + net.pageSize
         // The last page leaves nextCursor out; the pages before it name the next.
-        return answer({ tickets: seen.server.slice(from, to), ...(net.loop === true ? { nextCursor: '2' } : to < seen.server.length ? { nextCursor: String(to) } : {}) })
+        return answer({ tickets: shape(seen.server.slice(from, to)), ...(net.loop === true ? { nextCursor: '2' } : to < seen.server.length ? { nextCursor: String(to) } : {}) })
       }
       if (e.tool === 'list_screenshots') {
         if (diff.pictures === 'unreachable') return refuse('Tick-it is down')

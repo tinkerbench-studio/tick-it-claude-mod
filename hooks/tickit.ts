@@ -49,6 +49,9 @@ export async function sendTickit($: EngineInterface, tool: string, args: Record<
 /** owner/name from a GitHub remote URL, https or ssh; undefined for anything else. */
 export const repositoryOf = (remote: string): string | undefined => /github\.com[:/]([A-Za-z0-9-]+\/[A-Za-z0-9._-]+?)(?:\.git)?\/?$/.exec(remote.trim())?.[1]
 
+/** How Claude Code marks a tool reply it did not pass on whole: saved to a file, cut short, or over its token limit. */
+const TOO_LARGE = /<persisted-output>|<truncated-output>|^Output too large|exceeds maximum allowed tokens/
+
 export type Called = { ok: true; value: Record<string, unknown> } | { ok: false; why: string }
 
 export const textOf = (result: { content: readonly { type: string; text?: string }[] }) =>
@@ -76,6 +79,8 @@ export async function callTickit($: EngineInterface, tool: string, args: Record<
       // Not JSON: keep looking.
     }
   }
+  // Claude Code passes on a tool reply over its size limit (50,000 characters) as a note that the output was too large, not the reply itself.
+  if (TOO_LARGE.test(textOf(result))) return { ok: false, why: `Tick-it's answer to ${tool} was too large for Claude Code to pass on (over its 50,000-character limit for a tool reply), so the mod could not read it` }
   return { ok: false, why: `Tick-it's answer to ${tool} had no result in it (${result.content.length} content blocks: ${result.content.map(b => `${b.type} ${b.type === 'text' ? (b.text ?? '').length : 0} chars`).join(', ') || 'none'}; the text starts: ${textOf(result).slice(0, 80) || 'empty'})` }
 }
 

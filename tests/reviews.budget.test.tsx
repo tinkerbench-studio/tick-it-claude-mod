@@ -150,3 +150,21 @@ test('with reviewSpend null (costs cannot be seen) the steward goes by the round
 test('with get_ticket unreachable the steward goes by the round limit alone', async ($, on) => {
   await byRoundsAlone($, on, { modConfig: served({ reviewRounds: 2, reviewBudget: 3 }), reviewSpend: spend(99) }, true)
 })
+
+// ---- Reply size: Claude Code passes on no tool reply over 50,000 characters ----------
+
+test('every get_ticket the mod sends asks for the core only or names the parts it reads', async ($, on) => {
+  const seen = engine(on, { lines: 10 }, true, PRINCIPAL, { modConfig: served({ reviewRounds: 4, reviewBudget: 3 }), reviewSpend: spend(0.5) })
+  await start($)
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-143' })
+  // Moved on Tick-it where the hook did not see it: the turn end reads its status, then round 1 blocks, the fix is made and round 2 is clean.
+  seen.server.find(t => t.key === 'TCK-143')!.status = 'In review'
+  await $.turn.complete(finishTurn(undefined, 'Built it.'))
+  await $.turn.complete(finishTurn('agent-1', 'BLOCKING: wrong'))
+  await $.turn.complete(finishTurn(undefined, 'Fixed it.'))
+  await $.turn.complete(finishTurn('agent-2', 'VERDICT: clean'))
+  const reads = seen.ticketCalls.filter(c => c.tool === 'get_ticket')
+  // The brief's read names the two parts it shows; every other read (status, unticked checks, held back, review spend) is the core.
+  for (const r of reads) expect([[], ['attachments', 'memories']]).toContainEqual(r.args.include)
+  expect(reads.filter(r => Array.isArray(r.args.include) && (r.args.include as unknown[]).length === 0).length).toBeGreaterThanOrEqual(5)
+})
