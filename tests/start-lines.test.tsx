@@ -78,3 +78,40 @@ test('moving the ticket of an indented-line session to review starts its review 
   await $.turn.complete(finishTurn('agent-1', 'VERDICT: clean'))
   expect(reports(seen).map(r => r.status)).toEqual(['working', 'reviewing', 'reviewing', 'reviewing', 'done'])
 })
+
+const TOOLS = ['record_runs', 'report_session', 'report_review_agents'] as const
+const check = ($: Parameters<Parameters<typeof test>[1]>[0], tool: string) => $.tool.check({ tool: `mcp__plugin_tick-it_tickit__${tool}`, input: { session: 's_abc12345', runs: [] } })
+
+test('a denied record_runs, report_session or agents report while no ticket is current says the mod took no ticket', async ($, on) => {
+  engine(on, { lines: 10 }, true, SKILLS)
+  on('tool.check', () => ({ decision: 'allow' as const }))
+  await start($)
+  for (const tool of TOOLS) {
+    const denied = await check($, tool)
+    expect(denied.decision).toBe('deny')
+    expect('reason' in denied ? denied.reason : '').toContain('The mod did not take a ticket in this session')
+  }
+})
+
+test('a start line that does not match leaves the ticket untaken, and a session that took one keeps the plain deny reasons', async ($, on) => {
+  const seen = engine(on, { lines: 10 }, true, SKILLS)
+  on('tool.check', () => ({ decision: 'allow' as const }))
+  await start($)
+  await $.prompt.submit(typed(`The first line reads: ${LINE}`))
+  expect(seen.server.find(t => t.key === 'TCK-151')).not.toMatchObject({ status: 'In progress' })
+  expect(reports(seen)).toEqual([])
+  const untaken = await check($, 'record_runs')
+  expect('reason' in untaken ? untaken.reason : '').toContain('did not take a ticket')
+
+  await $.prompt.submit(typed(WRAPPED))
+  const reasons: Record<string, string> = {
+    record_runs: 'tick-it records review runs itself, from what each review agent spent.',
+    report_review_agents: 'tick-it reports the repository’s review agents itself, from its .tick-it/skills.',
+    report_session: 'tick-it reports the session’s progress itself.',
+  }
+  for (const [tool, reason] of Object.entries(reasons)) {
+    const denied = await check($, tool)
+    expect(denied.decision).toBe('deny')
+    expect('reason' in denied ? denied.reason : '').toBe(reason)
+  }
+})

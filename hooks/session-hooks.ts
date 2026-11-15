@@ -13,6 +13,7 @@ const tickets = atom({ plugin: 'tick-it', key: 'tickets' } as const, [])
 /** The session Tick-it started this one as: set by its first message, reported to as the work goes on. */
 const startedSession = atom({ plugin: 'tick-it', key: 'started' } as const, null)
 const breakdownSession = atom({ plugin: 'tick-it', key: 'breakdown' } as const, null)
+const current = atom({ plugin: 'tick-it', key: 'current' } as const, null)
 const reviews = atom({ plugin: 'tick-it', key: 'reviews' } as const, [])
 const pendingInstructions = atom({ plugin: 'tick-it', key: 'pendingInstructions' } as const, [] as string[])
 const outbox = atom({ plugin: 'tick-it', key: 'outbox' } as const, [])
@@ -70,9 +71,12 @@ export const registerSession: Register = on => {
   // rest of Tick-it's tools (tickets, epics, costs) stay the model's to use.
   on('tool.check', async ($, e, next) => {
     const isTickit = /tick-?it/i.test(e.tool)
+    // With no ticket taken the mod records and reports nothing, so say that: the model must not assume reviews are being recorded.
+    const untaken = async () => ((await read($, current)) === null && (await read($, startedSession)) === null ? ' The mod did not take a ticket in this session, so nothing is being recorded or reported for it: take the ticket with /tick-it take, or follow the brief without the mod.' : '')
     const denied = async (why: string, reason: string) => {
-      await log($, 'debug', 'tool-denied', { tool: e.tool, why })
-      return { decision: 'deny' as const, reason }
+      const none = await untaken()
+      await log($, 'debug', 'tool-denied', { tool: e.tool, why, ...(none === '' ? {} : { ticket: 'none' }) })
+      return { decision: 'deny' as const, reason: reason + none }
     }
     if (isTickit && e.tool.endsWith(`__${RECORD_TOOL}`) && next.origin.plugin === 'engine') {
       return denied('runs-are-the-mods', 'tick-it records review runs itself, from what each review agent spent.')
