@@ -111,7 +111,7 @@ export const registerTurn: Register = on => {
         await $.prompt.submit({ text: suggested.join('\n\n') })
       } else if (fixingNow?.phase === 'fixing') {
         const t = (await read($, tickets)).find(one => one.id === fixingNow.ticket)
-        if (t !== undefined) await startRound($, t, fixingNow.round + 1, fixingNow.ticking, 'after-fix')
+        if (t !== undefined) await startRound($, t, fixingNow.round + 1, fixingNow.ticking, fixingNow.afterStop === true ? 'after-stop' : 'after-fix')
       } else {
         // What the reports above brought are handed over last, with the session idle; while a review round runs they wait for the next turn's end.
         const pending = (await read($, steward))?.phase === 'reviewing' ? [] : await read($, pendingInstructions)

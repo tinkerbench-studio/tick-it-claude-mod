@@ -290,7 +290,7 @@ export async function setSteward($: EngineInterface, next: Steward | null) {
 }
 
 /** What began a round, as the log says it: the done command, the steward command, Claude's own move to In review, or the fix turn ending. */
-export type RoundTrigger = 'done-command' | 'steward-command' | 'moved-by-claude' | 'after-fix'
+export type RoundTrigger = 'done-command' | 'steward-command' | 'moved-by-claude' | 'after-fix' | 'after-stop'
 
 /** Starts one review round: every skill that applies to the ticket's size, each as a subagent. */
 export async function startRound($: EngineInterface, t: Ticket, round: number, ticking?: boolean, trigger: RoundTrigger = 'done-command'): Promise<string> {
@@ -329,7 +329,7 @@ export async function startRound($: EngineInterface, t: Ticket, round: number, t
     if (why !== undefined) return `${none} Tick-it did not take ${t.id} to Done: ${why}.`
     return `${none} ${t.id} is Done without review.${all.length === 0 ? ' /tick-it:review-agents sets some up.' : ''}`
   }
-  await setSteward($, { ticket: t.id, round, phase: 'reviewing', maxRounds: Math.max(limit, round), ...(ticking === true ? { ticking } : {}) })
+  await setSteward($, { ticket: t.id, round, phase: 'reviewing', maxRounds: Math.max(limit, round), ...(ticking === true ? { ticking } : {}), ...(trigger === 'after-stop' ? { afterStop: true } : {}) })
   const started: ReviewRun[] = []
   const refused: string[] = []
   const head = (await $.process.run(['git', 'rev-parse', 'HEAD'])).stdout.trim() || undefined
@@ -568,10 +568,11 @@ export async function settleRound($: EngineInterface, s: Steward) {
     return
   }
   const limit = await roundLimit($, t.size, t.id)
-  if (s.round > limit) {
+  // The review of a fix made after the mod stopped is the last: it asks for no further fix or round, whatever the limit or budget say.
+  if (s.round > limit || s.afterStop === true) {
     if (!(await stillReviewing())) return
     await log($, 'debug', 'round-settled', { ticket: t.id, round: s.round, outcome: 'stopped-past-limit', blocking: blocking.length })
-    await setSteward($, { ...s, phase: 'stopped', note: `${blocking.length} blocking after ${s.round} rounds.` })
+    await setSteward($, { ...s, phase: 'stopped', stoppedBy: 'mod', note: `${blocking.length} blocking after ${s.round} rounds.` })
     // Tell Tick-it a person is needed. Best effort, like a report: the toast below says the same.
     const repository = await repositoryHere($)
     if (repository !== undefined) await callTickit($, 'set_needs_human', { repository, key: t.id, kind: 'no-clean-round', note: `${blocking.length} blocking finding${blocking.length === 1 ? '' : 's'} still open after ${s.round} rounds, no clean round.` }).catch(() => undefined)
@@ -585,7 +586,7 @@ export async function settleRound($: EngineInterface, s: Steward) {
     if (!(await stillReviewing())) return
     await log($, 'debug', 'round-settled', { ticket: t.id, round: s.round, outcome: 'stopped-at-budget', blocking: blocking.length })
     const note = `Review budget $${over.budget} ${over.reached ? 'reached' : `would be overshot by round ${s.round + 1}`} (${usd.format(over.costUsd)} spent over ${s.round} round${s.round === 1 ? '' : 's'}), ${blocking.length} blocking finding${blocking.length === 1 ? '' : 's'} still open, no clean round.`
-    await setSteward($, { ...s, phase: 'stopped', note })
+    await setSteward($, { ...s, phase: 'stopped', stoppedBy: 'mod', note })
     const repository = await repositoryHere($)
     if (repository !== undefined) await callTickit($, 'set_needs_human', { repository, key: t.id, kind: 'no-clean-round', note: note.slice(0, 200) }).catch(() => undefined)
     $.ui.toast(`tick-it: ${t.id} still has ${blocking.length} blocking findings and the $${over.budget} review budget is ${over.reached ? 'used up' : 'too low for another round'}. Over to you.`)
