@@ -157,3 +157,36 @@ test('s after the review of a fix made after a stop stays stopped: a later move 
   expect(seen.spawned).toHaveLength(2)
   await ui.unmount()
 })
+
+for (const [what, ci] of [['still blocks', 'failure'], ['is still pending', 'pending']] as const) {
+test(`a pull request that ${what} after the fix when the budget has no room is a stop the mod made: the next fix is reviewed once`, async ($, on) => {
+  const net: Net = {
+    modConfig: { ...served, reviewBudget: 1 },
+    reviewSpend: { size: 'XS', runs: 1, costUsd: 0.97, unpriced: 0, lowerBound: false, budget: 1, remaining: 0.03, overBudget: false },
+    pullRequests: [{ number: 12, state: 'open', draft: false, ci: 'failure', behind: false }],
+  }
+  const seen = engine(on, { lines: 10 }, true, PRINCIPAL, net)
+  await start($)
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-143' })
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'done' })
+  await $.turn.complete(finishTurn('agent-1', 'VERDICT: clean'))
+  net.pullRequests = [{ number: 12, state: 'open', draft: false, ci, behind: false }]
+  await $.turn.complete(finishTurn(undefined, 'Tried.'))
+  expect(needsHuman(seen)).toHaveLength(1)
+  expect(seen.spawned).toHaveLength(1)
+  await claudeMovesToReview($)
+  await $.turn.complete(finishTurn(undefined, 'Fixed it and pushed.'))
+  expect(seen.spawned).toHaveLength(2)
+})
+}
+
+test('after the one review of a fix made after a stop blocked again, a further move to In review starts no round: a person is asked', async ($, on) => {
+  const seen = await stoppedByMod($, on)
+  await claudeMovesToReview($)
+  await $.turn.complete(finishTurn(undefined, 'Fixed it and pushed.'))
+  await $.turn.complete(finishTurn('agent-2', 'BLOCKING: still wrong\nVERDICT: changes'))
+  expect(needsHuman(seen)).toHaveLength(2)
+  await claudeMovesToReview($)
+  await $.turn.complete(finishTurn(undefined, 'Pushed once more.'))
+  expect(seen.spawned).toHaveLength(2)
+})

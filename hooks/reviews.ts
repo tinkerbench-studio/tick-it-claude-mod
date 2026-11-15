@@ -553,7 +553,7 @@ export async function settleRound($: EngineInterface, s: Steward, withoutReviewe
     await log($, 'debug', 'round-settled', { ticket: t.id, round: s.round, outcome: 'stopped-ci-pending' })
     const what = pr === null || pr.state !== 'open' ? 'no open pull request is found' : pr.ci === 'pending' ? `CI is still pending on pull request #${pr.number}` : `CI or the branch of pull request #${pr.number} is not confirmed (CI ${pr.ci ?? 'not reported'}, ${pr.behind === null ? 'behind unknown' : pr.behind ? 'behind its base' : 'up to date'})`
     const note = `${what[0]?.toUpperCase() ?? ''}${what.slice(1)} after the fix, and the budget has no room for a reviewer round: not read as clean. r reads the pull request again.`
-    await setSteward($, { ...s, phase: 'stopped', note })
+    await setSteward($, { ...s, phase: 'stopped', stoppedBy: 'mod', note })
     const repository = await repositoryHere($)
     if (repository !== undefined) await callTickit($, 'set_needs_human', { repository, key: t.id, kind: 'no-clean-round', note: note.slice(0, 200) }).catch(() => undefined)
     $.ui.toast(`tick-it: ${what} for ${t.id}, so it is not read as clean. Over to you.`)
@@ -630,7 +630,7 @@ export async function settleRound($: EngineInterface, s: Steward, withoutReviewe
     if (!(await stillReviewing())) return
     await log($, 'debug', 'round-settled', { ticket: t.id, round: s.round, outcome: 'stopped-pull-request-still-blocking', blocking: blocking.length })
     const note = `${failed ? 'The pull request could not be read after the fix' : 'The pull request still blocks after the fix'} (${blocking.length} blocking finding${blocking.length === 1 ? '' : 's'}) and the review budget has no room for another round, no clean round.`
-    await setSteward($, { ...s, phase: 'stopped', note })
+    await setSteward($, { ...s, phase: 'stopped', stoppedBy: 'mod', note })
     const repository = await repositoryHere($)
     if (repository !== undefined) await callTickit($, 'set_needs_human', { repository, key: t.id, kind: 'no-clean-round', note: note.slice(0, 200) }).catch(() => undefined)
     $.ui.toast(`tick-it: ${t.id}'s pull request still has ${blocking.length} blocking findings after the fix and the review budget has no room for another round. Over to you.`)

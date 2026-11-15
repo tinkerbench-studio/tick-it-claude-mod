@@ -378,11 +378,11 @@ export async function finishedByClaude($: EngineInterface, e: ToolCallInput, nex
  * Claude moving a ticket to In review again after the mod stopped stewarding it
  * itself (the round limit or the review budget): the fix it pushed is reviewed
  * once, when the turn ends, and the outcome is reported. A stop the person
- * pressed (no stoppedBy) is left alone, as is any ticket not being stewarded.
+ * pressed (no stoppedBy) is left alone, as is a stop after that one review (afterStop: a person is asked), as is any ticket not being stewarded.
  */
 async function fixAfterStop($: EngineInterface, key: string, e: ToolCallInput, next: (e: ToolCallInput) => Promise<ToolCallResult>): Promise<ToolCallResult> {
   const s = await read($, steward)
-  if (s === null || s.phase !== 'stopped' || s.stoppedBy !== 'mod' || s.ticket !== key) return next(e)
+  if (s === null || s.phase !== 'stopped' || s.stoppedBy !== 'mod' || s.afterStop === true || s.ticket !== key) return next(e)
   // The same key in another repository is another ticket.
   const given = (e as { repository?: unknown }).repository
   if (typeof given === 'string' && given !== (await repositoryHere($))) return next(e)
