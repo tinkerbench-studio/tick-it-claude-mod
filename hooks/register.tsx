@@ -12,6 +12,7 @@ export * from './tickit'
 export * from './work'
 export * from './reviews'
 export * from './outbox'
+export * from './security-areas'
 
 export const register: Register = on => {
   registerSession(on)

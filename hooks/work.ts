@@ -1,6 +1,8 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, ToolCallInput, ToolCallResult } from 'claude-code'
 import type { PendingLink, StartedSession, Ticket, TicketStatus } from '../types'
+import { patchFiles } from './security-areas'
+import type { ChangedFile } from './security-areas'
 import { STARTED_KEY, REPORT_EVERY_MS, REPORT_TOOL, SKILLS_DIR, EMPTY_TREE, UNLINKED_KEY, FILE_TYPES, MAX_ATTACH_BYTES, MAX_FILES, MAX_PATH, MAX_FILE_LINES } from './state'
 import { sendTickit, callTickit, repositoryHere } from './tickit'
 import type { Called } from './tickit'
@@ -148,6 +150,29 @@ export async function measureFiles($: EngineInterface): Promise<{ path: string; 
       .map(([path, lines]) => ({ path, lines: Math.min(lines, MAX_FILE_LINES) }))
       .sort((a, b) => b.lines - a.lines)
       .slice(0, MAX_FILES)
+  } catch {
+    return []
+  }
+}
+
+/** How much of an untracked file is read for the words that put a change in a security area. */
+const MAX_AREA_TEXT = 200_000
+
+/**
+ * The files the ticket changed, each with its changed lines: from the same base and files as measureFiles.
+ * A file whose lines cannot be read (a binary, a patch git cut short) still counts by its path. Never throws:
+ * a change that cannot be read touches nothing, and must not stop a review.
+ */
+export async function changedContent($: EngineInterface): Promise<ChangedFile[]> {
+  try {
+    const args = ['git', 'diff', '-U0', '--no-color', '--no-ext-diff']
+    let patch = await $.process.run([...args, (await read($, baseCommit)) ?? 'HEAD'])
+    if (patch.exitCode !== 0) patch = await $.process.run([...args, EMPTY_TREE])
+    const files = new Map(patchFiles(patch.exitCode === 0 ? patch.stdout : '').map(f => [f.path, f.lines]))
+    for (const path of numstatFiles((await numstat($, true)) ?? '').keys()) if (!files.has(path)) files.set(path, '')
+    for (const file of await untrackedFiles($)) files.set(file, (await readText($, file)).slice(0, MAX_AREA_TEXT))
+
+    return [...files].map(([path, lines]) => ({ path, lines }))
   } catch {
     return []
   }

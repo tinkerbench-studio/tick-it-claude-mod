@@ -18,3 +18,5 @@ Work through the comments on the plan of the epic named in the arguments (ask fo
    - Never move a ticket out of the Backlog, and never delete one: say in a reply what should go, for a person to decide.
 4. **Reply to every suggestion** with `add_comment` (`byClaude: true`): what you changed, or why you did not. Then `resolve_comment` (`epicId`) the ones you changed. Leave a suggestion you disagree with open for its author.
 5. Reply with what changed and what is still open. The plan can be agreed on the epic's page in the Tick-it web app once no suggestion is open.
+
+In any text you write into a ticket (a description, acceptance check, comment or note), name another repository's ticket as `owner/name#KEY` and its pull request as `owner/name#n`, never a bare key or `#n`: a bare one always means this repository, and repositories can share a prefix.
