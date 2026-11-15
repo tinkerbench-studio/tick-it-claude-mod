@@ -159,6 +159,7 @@ test('this repository has no marketplace of its own, and the README installs onl
   assert.equal(existsSync(new URL('../.claude-plugin/marketplace.json', import.meta.url)), false, 'the tinkerbench-studio marketplace is the only one')
   const readme = read('README.md')
   for (const words of ['### VibeSec-Skill', '`vibesec`', 'BehiSecc/VibeSec-Skill', '/plugin marketplace add tinkerbench-studio/marketplace', '/plugin install vibesec@tinkerbench-studio', 'no copy of it is kept here', 'set `sha` of the `vibesec` entry']) expect(readme).toContain(words, `README no longer says "${words}"`)
+  for (const words of ['/plugin marketplace add tinkerbench-studio/marketplace', '/plugin install tick-it@tinkerbench-studio', '/plugin update tick-it@tinkerbench-studio', 'claude plugin marketplace add tinkerbench-studio/marketplace', 'claude plugin marketplace update tinkerbench-studio', 'claude plugin install tick-it@tinkerbench-studio', 'claude plugin update tick-it@tinkerbench-studio']) expect(readme).toContain(words, `README no longer says "${words}"`)
   for (const old of ['@tickit', 'marketplace add tinkerbench-studio/tick-it-claude-mod', 'marketplace update tickit']) assert.ok(!readme.includes(old), `README still says "${old}"`)
 })
 
