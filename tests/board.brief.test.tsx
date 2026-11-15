@@ -271,3 +271,10 @@ test("taking a ticket whose get_mod_config gives a budget and rounds briefs Clau
   expect(JSON.stringify(other.context)).not.toContain('reviewSpend')
   expect(JSON.stringify(other.context)).not.toContain('review budget')
 })
+
+test('the brief names the security areas and the skill to load before writing code in one', () => {
+  const text = brief({ id: 'TCK-2', title: 'Two', epic: 'E', size: 'XS' as const, status: 'Ready' as const, acceptance: ['a'] })
+  expect(text).toContain('Secure coding: before you write or change code in a security area, load its skill and follow it: tick-it:secure-<area>')
+  for (const area of ['authentication', 'access-control', 'database', 'infrastructure', 'secrets', 'input', 'web', 'dependencies', 'agents', 'personal-data']) expect(text).toContain(area)
+  expect(text).toContain('A security reviewer runs on a ticket of any size whose change touches one of them')
+})

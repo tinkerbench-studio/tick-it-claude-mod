@@ -1,6 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 import { withUiEvidence } from './ui-evidence'
+import { SECURE_CODING_LINE } from './security-areas'
 import type { UiPaths } from './ui-evidence'
 import type { AttachmentRef, MemoryRef, MilestoneView, PullRequestView, Ticket, TicketSize, TicketStatus } from '../types'
 import { PANE, STORE_KEY, BUDGET, SIZES, MONTHS } from './state'
@@ -175,6 +176,7 @@ export const brief = (t: Ticket, board: Ticket[] = [], instructions = '', files:
     ...((t.blocks ?? []).length > 0 ? [`Blocks: ${named(t.blocks ?? [], board)}: they wait on this ticket, so keep what they need from it stable.`] : []),
     ...(t.url === undefined ? [] : [`Put this line in the description of every pull request you open for ${t.id}: [${t.id} ${t.title}](${t.url})`, 'A pull request that carries several tickets links each one, a line each.', 'If a pull request was opened without it, add the line in the next review round or stewarding pass instead of failing; keep the description as it is and add the line only once.']),
     'Each acceptance line is a checkable item with its own id (get_ticket lists them in acceptanceItems). Tick each one you have met with set_criterion_checked, each with a note on how it is met (add_criterion_note); a round is read as clean only while every criterion is ticked (one flagged after-deploy is left out), and when a round is clean with one still unticked the mod asks you to tick the ones you have met, then asks a person (leaving the ticket In review) if one still is. Where a screenshot or other file proves a criterion, add a note on it with add_criterion_note and attach the file to that note with add_attachment as evidence.',
+    SECURE_CODING_LINE,
     `Size ${t.size}: keep the whole diff under ${budget} changed lines. ` + 'Edits past that are refused by the tick-it mod; if the work does not fit, ' + 'say so and offer the choices in the refusal.',
     ...(lines?.beforeReview ?? []),
     ...(reviewBudget === null ? [] : [budgetLine(reviewRounds, reviewBudget)]),
