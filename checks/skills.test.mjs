@@ -155,18 +155,12 @@ test('review-agents and the README explain how a repository’s skill adds its r
   expect(read('hooks/state.ts')).toContain("BASES_DIR = 'skills/review-agents/bases'")
 })
 
-test('the tickit marketplace references VibeSec-Skill at its own repository, pinned to a commit, and the README records it', () => {
-  const marketplace = JSON.parse(read('.claude-plugin/marketplace.json'))
-  assert.equal(marketplace.name, 'tickit')
-  const entry = marketplace.plugins.find(plugin => plugin.name === 'vibesec')
-  assert.ok(entry, 'the marketplace has no vibesec entry')
-  assert.equal(entry.source.source, 'github')
-  assert.equal(entry.source.repo, 'BehiSecc/VibeSec-Skill')
-  assert.match(entry.source.sha, /^[0-9a-f]{40}$/, 'the reference is not pinned to a full commit')
-  assert.equal(entry.source.ref, undefined, 'a ref beside the sha is one more thing to keep in step')
-  assert.equal(entry.license, 'Apache-2.0')
+test('this repository has no marketplace of its own, and the README installs only from tinkerbench-studio', () => {
+  assert.equal(existsSync(new URL('../.claude-plugin/marketplace.json', import.meta.url)), false, 'the tinkerbench-studio marketplace is the only one')
   const readme = read('README.md')
-  for (const words of ['### VibeSec-Skill', '`vibesec`', 'BehiSecc/VibeSec-Skill', '/plugin marketplace add tinkerbench-studio/tick-it-claude-mod', '/plugin install vibesec@tickit', 'no copy of it is kept here', 'set `sha` of the `vibesec` entry']) expect(readme).toContain(words, `README no longer says "${words}"`)
+  for (const words of ['### VibeSec-Skill', '`vibesec`', 'BehiSecc/VibeSec-Skill', '/plugin marketplace add tinkerbench-studio/marketplace', '/plugin install vibesec@tinkerbench-studio', 'no copy of it is kept here', 'set `sha` of the `vibesec` entry']) expect(readme).toContain(words, `README no longer says "${words}"`)
+  for (const words of ['/plugin marketplace add tinkerbench-studio/marketplace', '/plugin install tick-it@tinkerbench-studio', '/plugin update tick-it@tinkerbench-studio', 'claude plugin marketplace add tinkerbench-studio/marketplace', 'claude plugin marketplace update tinkerbench-studio', 'claude plugin install tick-it@tinkerbench-studio', 'claude plugin update tick-it@tinkerbench-studio']) expect(readme).toContain(words, `README no longer says "${words}"`)
+  for (const old of ['@tickit', 'marketplace add tinkerbench-studio/tick-it-claude-mod', 'marketplace update tickit']) assert.ok(!readme.includes(old), `README still says "${old}"`)
 })
 
 const AREAS = ['authentication', 'access-control', 'database', 'infrastructure', 'secrets', 'input', 'web', 'dependencies', 'agents', 'personal-data']

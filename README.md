@@ -215,14 +215,14 @@ What is particular to a repository (where its sign-in lives, the helper every qu
 
 ### VibeSec-Skill
 
-The secure-coding skill `VibeSec-Skill` is not part of the `tick-it` plugin, and the plugin's own `secure-*` skills above do not replace or copy it: it is one long guide to web application security, where they are short rules by area that the reviewer checks. This repository's marketplace (`tickit`, in `.claude-plugin/marketplace.json`) lists it as a plugin of its own, `vibesec`, which is a reference to the skill's own repository, [BehiSecc/VibeSec-Skill](https://github.com/BehiSecc/VibeSec-Skill) (Apache-2.0), pinned to one commit; no copy of it is kept here. Install it with:
+The secure-coding skill `VibeSec-Skill` is not part of the `tick-it` plugin, and the plugin's own `secure-*` skills above do not replace or copy it: it is one long guide to web application security, where they are short rules by area that the reviewer checks. The `tinkerbench-studio` marketplace lists it as a plugin of its own, `vibesec`, which is a reference to the skill's own repository, [BehiSecc/VibeSec-Skill](https://github.com/BehiSecc/VibeSec-Skill) (Apache-2.0), pinned to one commit; no copy of it is kept here. This repository has no marketplace of its own. Install it with:
 
 ```
-/plugin marketplace add tinkerbench-studio/tick-it-claude-mod
-/plugin install vibesec@tickit
+/plugin marketplace add tinkerbench-studio/marketplace
+/plugin install vibesec@tinkerbench-studio
 ```
 
-The skill is then `vibesec:VibeSec-Skill` in every repository, in place of a copy in each one's `.claude/skills`. To take a newer version of the skill, read what changed upstream and set `sha` of the `vibesec` entry to the new commit.
+The skill is then `vibesec:VibeSec-Skill` in every repository, in place of a copy in each one's `.claude/skills`. To take a newer version of the skill, read what changed upstream and set `sha` of the `vibesec` entry in the marketplace to the new commit.
 
 ### Who does what: the steward, the CI instruction and the merge queue
 
@@ -280,8 +280,10 @@ Tick-it is an MCP server, and this mod lists it in `.claude-plugin/plugin.json` 
 - **Cloud sessions load the mod from the environment's setup script:** a project's `extraKnownMarketplaces` and `enabledPlugins` in `.claude/settings.json` are not applied in a cloud session, and a SessionStart hook would install it too late for that session. Add these to the cloud environment's setup script:
 
   ```sh
-  claude plugin marketplace add tinkerbench-studio/tick-it-claude-mod
-  claude plugin install tick-it@tickit
+  claude plugin marketplace add tinkerbench-studio/marketplace
+  claude plugin marketplace update tinkerbench-studio
+  claude plugin install tick-it@tinkerbench-studio
+  claude plugin update tick-it@tinkerbench-studio
   ```
 
   The plugin's own `tickit` server cannot connect there (the sandbox proxy answers `mcp.tick-it.dev` with 403, and the mod holds no token), so the mod falls back to the claude.ai connector, whose tools a cloud session lists as `mcp__Tick-It__*` (server name `Tick-It`). With the mod loaded, runs carry the real input, output and cache token counts; the start message tells a session without it to record runs itself.
