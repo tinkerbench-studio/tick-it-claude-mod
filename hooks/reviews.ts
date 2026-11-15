@@ -375,6 +375,7 @@ export async function startRound($: EngineInterface, t: Ticket, round: number, t
       model: spawned.model,
       startedAt,
       status: 'running',
+      ...(head === undefined ? {} : { headSha: head }),
       ...(earlier.length === 0 ? {} : { earlier }),
     })
   }

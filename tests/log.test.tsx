@@ -132,6 +132,9 @@ test('at debug: ticket-taken and report carry the Claude Code session id beside 
   const text = log.lines().join('\n')
   expect(text).toContain('ticket-taken ticket=TCK-151 session=s_abc12345 claudeSession=session-1')
   expect(text).toContain('report ticket=TCK-151 session=s_abc12345 claudeSessionId=session-1 status=working sent=true')
+  // A later report logs both ids too.
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'done' })
+  expect(log.lines().filter(l => l.includes(' report ticket=TCK-151 session=s_abc12345 claudeSession=session-1 status=')).length).toBeGreaterThan(0)
 })
 
 for (const reject of [false, true]) {
@@ -146,7 +149,7 @@ for (const reject of [false, true]) {
     const lines = log.lines().filter(l => l.includes(' debug outbox-send '))
     expect(lines.length).toBeGreaterThan(0)
     const review = lines.find(l => l.includes('skill=principal')) ?? ''
-    expect(review).toMatch(/outbox-send session=session-1 agentId=\S+ skill=principal round=1 headSha=none result=/)
+    expect(review).toMatch(/outbox-send claudeSession=session-1 agentId=\S+ skill=principal round=1 headSha=(ab12){10} result=/)
     expect(review).toContain(reject ? 'result=rejected' : 'result=accepted')
     for (const l of lines) expect(l).not.toMatch(/authorization|token|bearer|ghp_/i)
   })
@@ -167,6 +170,17 @@ test('after a clean round the mod reads the ticket once and warns held-back-afte
   expect(warns[0]).toContain(' warn held-back-after-clean ticket=TCK-143 round=1 reason=No-review-has-been-recorded')
   // The acceptance read and the one hold read: the hold is read once.
   expect(reads() - before).toBe(2)
+})
+
+test('heldBack and queueHold as Tick-it sends them, plain strings, are the reason', async ($, on) => {
+  const seen = engine(on, { lines: 10 }, true, principal)
+  Object.assign(seen.server.find(t => t.key === 'TCK-143') ?? {}, { reviewState: { heldBack: 'No review has been recorded' } })
+  const log = logging(on, { TICK_IT_LOG: 'warn' })
+  await start($)
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-143' })
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'done' })
+  await $.turn.complete(finishTurn('agent-1', 'VERDICT: clean'))
+  expect(log.lines().join('\n')).toContain('held-back-after-clean ticket=TCK-143 round=1 reason=No-review-has-been-recorded')
 })
 
 test('a queue hold is its reason too', async ($, on) => {

@@ -129,8 +129,8 @@ export async function flush($: EngineInterface): Promise<string> {
     const session = await $.session.id()
     for (const run of waiting) {
       const refusal = refused.find(d => d.run.agentId === run.agentId)
-      const sha = (run as { headSha?: string }).headSha
-      await log($, 'debug', 'outbox-send', { session, agentId: run.agentId, skill: 'skill' in run ? run.skill : run.kind, round: run.round ?? 'none', headSha: sha ?? 'none', result: accepted.has(run.agentId) ? 'accepted' : refusal !== undefined ? 'rejected' : 'unanswered' })
+      const sha = 'headSha' in run ? run.headSha : undefined
+      await log($, 'debug', 'outbox-send', { claudeSession: session, agentId: run.agentId, skill: 'skill' in run ? run.skill : run.kind, round: run.round ?? 'none', headSha: sha ?? 'none', result: accepted.has(run.agentId) ? 'accepted' : refusal !== undefined ? 'rejected' : 'unanswered' })
     }
   }
   const sentCount = waiting.filter(r => accepted.has(r.agentId)).length
