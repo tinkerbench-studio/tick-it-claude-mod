@@ -143,6 +143,8 @@ export type Steward = {
   stoppedBy?: 'mod'
   /** This round reviews a fix made after the mod stopped: if it still has blocking findings the mod stops again and starts no further round. */
   afterStop?: boolean
+  /** The round's only blocking findings were the pull request's own and the review budget has no room for a reviewer round: after the fix the pull request is read again and settles the round. */
+  pullRequestOnly?: boolean
 }
 
 declare module 'claude-code' {
