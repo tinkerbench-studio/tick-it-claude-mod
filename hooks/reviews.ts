@@ -4,7 +4,9 @@ import type { PullRequestView, ReviewRun, ReviewUsage, Steward, Ticket, TicketSi
 import { SIZES, REVIEWS_KEY, SKILLS_DIR, OLD_SKILLS_DIR, BASES_DIR, KEEP_REVIEWS, MAX_FINDING_TEXT, PRICES } from './state'
 import { callTickit, fetchInstructions, fetchModConfig, hasModLimits, repositoryHere, reviewBudgetOf, roundLimit } from './tickit'
 import { setStatus, showStatus, refreshPullRequest, servedConfig } from './board'
-import { report } from './work'
+import { report, changedContent } from './work'
+import { AREA_SKILL_DIR, AREA_NAMES, areaSkill, changesFor, parseChanges, touchedAreas, touchedLine, unknownChanges } from './security-areas'
+import type { Changes, Touched } from './security-areas'
 import { log } from './log'
 
 // Declared in this file: the engine reads an atom only where it is written (a module cannot use one imported from state.ts).
@@ -31,6 +33,10 @@ export type ReviewSkill = {
   model?: string
   sizes?: TicketSize[]
   paths?: string[]
+  /** The kinds of change that run it on a ticket of any size (front matter `changes`): security areas and the repository's own globs. */
+  changes?: Changes
+  /** The `changes` entries that name no area and are no glob. */
+  unknownChanges?: string[]
   body: string
   /** The base review skill of the plugin it adds its rules to (front matter `base`). */
   base?: string
@@ -50,7 +56,7 @@ export const costOf = (model: string, u: ReviewUsage): number | undefined => {
   return (u.input * input + u.output * output + u.cacheRead * cacheRead + u.cacheWrite * cacheWrite) / 1_000_000
 }
 
-/** Reads a SKILL.md: its front matter (name, description, model, sizes, paths) and its body. */
+/** Reads a SKILL.md: its front matter (name, description, model, sizes, paths, changes) and its body. */
 export const parseSkill = (folder: string, text: string): ReviewSkill => {
   const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/.exec(text)
   const fields = new Map<string, string>()
@@ -83,20 +89,23 @@ export const parseSkill = (folder: string, text: string): ReviewSkill => {
     model: fields.get('model') || undefined,
     sizes: sizes !== undefined && sizes.length > 0 ? sizes : undefined,
     paths: paths !== undefined && paths.length > 0 ? paths : undefined,
+    ...(parseChanges(fields.get('changes')) === undefined ? {} : { changes: parseChanges(fields.get('changes')) }),
+    ...(unknownChanges(fields.get('changes')).length === 0 ? {} : { unknownChanges: unknownChanges(fields.get('changes')) }),
     body: (match?.[2] ?? text).trim(),
     ...(fields.get('base') ? { base: fields.get('base') } : {}),
   }
 }
 
 /**
- * A repository's skill on its base: the base's body goes before the skill's own rules, and the description, model and
- * sizes the skill leaves out are the base's. Its name and paths stay its own.
+ * A repository's skill on its base: the base's body goes before the skill's own rules, and the description, model,
+ * sizes and changes the skill leaves out are the base's. Its name and paths stay its own.
  */
 export const withBase = (skill: ReviewSkill, base: ReviewSkill): ReviewSkill => ({
   ...skill,
   description: skill.description || base.description,
   model: skill.model ?? base.model,
   sizes: skill.sizes ?? base.sizes,
+  ...((skill.changes ?? base.changes) === undefined ? {} : { changes: skill.changes ?? base.changes }),
   baseBody: base.body,
 })
 
@@ -201,6 +210,16 @@ async function readBase($: EngineInterface, skill: ReviewSkill): Promise<ReviewS
   return typeof text === 'string' && text.trim() !== '' ? withBase(skill, parseSkill(skill.base, text)) : skill
 }
 
+/** An area's practices, from the plugin's own secure-coding skill for it; undefined when this version of the plugin has none. */
+async function readPractices($: EngineInterface, area: string): Promise<string | undefined> {
+  if (!AREA_NAMES.includes(area)) return undefined
+  const path = `${$.plugin.root}/${AREA_SKILL_DIR(area)}/SKILL.md`
+  if (!(await $.fs.exists(path))) return undefined
+  const text = await $.fs.read(path)
+  const body = typeof text === 'string' ? parseSkill(area, text).body : ''
+  return body === '' ? undefined : body
+}
+
 /** What the reviewer follows: the skill's own body, or its base and then the repository's rules on top. */
 export const skillLines = (skill: ReviewSkill): string[] =>
   skill.baseBody === undefined
@@ -213,7 +232,27 @@ export const skillLines = (skill: ReviewSkill): string[] =>
         skill.body === '' ? '(none)' : skill.body,
       ]
 
-export const reviewPrompt = (t: Ticket, skill: ReviewSkill, round: number, earlier: Earlier[] = [], head?: string): string =>
+/** What a reviewer whose skill lists `changes` is told of this change: what it touches, the practices of each area touched, and whether that alone is why it runs. */
+export type ChangeReview = { touched: Touched[]; practices: { area: string; body: string }[]; bySize: boolean }
+
+/** The lines that point a reviewer at what the change touches, with the secure-coding practices its author was to follow there. */
+export const changeLines = (t: Ticket, skill: ReviewSkill, review: ChangeReview | undefined): string[] =>
+  review === undefined || review.touched.length === 0
+    ? []
+    : [
+        `What this change touches, read from its changed paths and lines (a first reading: check it against the diff): ${touchedLine(review.touched)}.`,
+        ...(review.bySize ? [] : [`${t.id} is size ${t.size}, outside this skill's sizes (${(skill.sizes ?? []).join(', ')}): you run because of what the change touches, so review those parts of it.`]),
+        'Review each of those first, by what it is: a change to sign-in is judged as a change to sign-in, a migration as a migration.',
+        ...(review.practices.length === 0
+          ? []
+          : [
+              'The practices the author was to follow in each area are below. A "Must" the change breaks is BLOCKING, with the rule named; a "Should" it passes over is OPTIONAL. Judge only what the change adds or alters, and leave out a rule the change does not reach.',
+              ...review.practices.flatMap(p => ['', `### ${p.area} (${areaSkill(p.area)})`, p.body]),
+            ]),
+        '',
+      ]
+
+export const reviewPrompt = (t: Ticket, skill: ReviewSkill, round: number, earlier: Earlier[] = [], head?: string, change?: ChangeReview): string =>
   [
     `You are the "${skill.name}" reviewer for ticket ${t.id}: ${t.title} (epic: ${t.epic}), review round ${round}.`,
     'Acceptance:',
@@ -222,6 +261,7 @@ export const reviewPrompt = (t: Ticket, skill: ReviewSkill, round: number, earli
     '',
     ...skillLines(skill),
     '',
+    ...changeLines(t, skill, change),
     ...(earlier.length === 0
       ? []
       : [
@@ -270,10 +310,20 @@ export async function startRound($: EngineInterface, t: Ticket, round: number, t
     return `Stopped; round ${round} of ${t.id} did not start.`
   }
   const limit = await roundLimit($, t.size, t.id)
-  const skills = all.filter(({ skill }) => skill.sizes === undefined || skill.sizes.includes(t.size))
+  const earlierRuns = await read($, reviews)
+  // A skill runs for the ticket's size, or, when it lists `changes`, for what the change touches whatever the size. The change is read only when a skill asks.
+  const listing = all.some(({ skill }) => skill.changes !== undefined)
+  const changed = listing ? await changedContent($) : []
+  const touched = touchedAreas(changed)
+  const paths = changed.map(f => f.path)
+  const bySize = (skill: ReviewSkill) => skill.sizes === undefined || skill.sizes.includes(t.size)
+  // Once a skill has reviewed the ticket it reviews every later round: a fix that takes the change out of an area still has that round's findings to answer.
+  const ranBefore = (folder: string) => earlierRuns.some(r => r.ticket === t.id && r.skill === folder && r.round < round)
+  const skills = all.filter(({ folder, skill }) => bySize(skill) || changesFor(skill.changes, touched, paths).length > 0 || (skill.changes !== undefined && ranBefore(folder)))
   if (skills.length === 0) {
     await log($, 'debug', 'round-not-started', { ticket: t.id, round, why: all.length === 0 ? 'no-skills' : 'no-skill-for-size' })
-    const none = all.length === 0 ? `No review skills in ${SKILLS_DIR}.` : `None of the review skills in ${SKILLS_DIR} (${all.map(f => f.folder).join(', ')}) review a ticket of size ${t.size}.`
+    const untouched = listing ? ', and its change touches nothing that runs one whatever the size' : ''
+    const none = all.length === 0 ? `No review skills in ${SKILLS_DIR}.` : `None of the review skills in ${SKILLS_DIR} (${all.map(f => f.folder).join(', ')}) review a ticket of size ${t.size}${untouched}.`
     await setSteward($, { ticket: t.id, round, phase: 'done', maxRounds: limit, note: none })
     const why = await setStatus($, t.id, 'Done', 'Done without review: no review skill applies to this ticket.')
     if (why !== undefined) return `${none} Tick-it did not take ${t.id} to Done: ${why}.`
@@ -283,14 +333,22 @@ export async function startRound($: EngineInterface, t: Ticket, round: number, t
   const started: ReviewRun[] = []
   const refused: string[] = []
   const head = (await $.process.run(['git', 'rev-parse', 'HEAD'])).stdout.trim() || undefined
-  const earlierRuns = await read($, reviews)
+  const practices = new Map<string, string>()
+  for (const { area } of touched) {
+    const body = await readPractices($, area)
+    if (body !== undefined) practices.set(area, body)
+  }
+  const forChanges: string[] = []
   for (const { folder, skill } of skills) {
     const earlier = earlierBlockers(earlierRuns, t.id, folder, round)
+    const mine = changesFor(skill.changes, touched, paths)
+    const change: ChangeReview | undefined = skill.changes === undefined ? undefined : { touched: mine, practices: mine.flatMap(m => (practices.has(m.area) ? [{ area: m.area, body: practices.get(m.area) ?? '' }] : [])), bySize: bySize(skill) }
+    if (!bySize(skill) && mine.length > 0) forChanges.push(`${folder} runs for what the change touches: ${mine.map(m => m.area).join(', ')}.`)
     const startedAt = await $.clock.now()
     const description = `tick-it review: ${skill.name} on ${t.id}, round ${round}`
     const spawn = async (model: string | undefined) => {
       try {
-        return await $.agent.spawn({ prompt: reviewPrompt(t, skill, round, earlier, head), description, subagentType: 'general-purpose', ...(model === undefined ? {} : { model }) })
+        return await $.agent.spawn({ prompt: reviewPrompt(t, skill, round, earlier, head, change), description, subagentType: 'general-purpose', ...(model === undefined ? {} : { model }) })
       } catch (error) {
         return { deny: error instanceof Error ? error.message : String(error) }
       }
@@ -331,8 +389,12 @@ export async function startRound($: EngineInterface, t: Ticket, round: number, t
   const noBase = missingBases(skills)
   const without = noBase.length === 0 ? '' : ` This version of tick-it has no such base, so ${noBase.join(', ')} ${noBase.length === 1 ? 'reviews' : 'review'} by the repository's own rules alone.`
 
-  await log($, 'debug', 'round-started', { ticket: t.id, round, why: trigger, skills: started.map(r => r.skill).join(',') })
-  return `Round ${round}: ${started.map(r => r.skill).join(', ')} reviewing ${t.id} in this session.${without}`
+  const ran = new Set(started.map(r => r.skill))
+  const reasons = forChanges.filter(line => ran.has(line.slice(0, line.indexOf(' runs for'))))
+  const odd = skills.flatMap(({ folder, skill }) => (skill.unknownChanges === undefined ? [] : [`${folder} lists ${skill.unknownChanges.join(', ')} in changes, which ${skill.unknownChanges.length === 1 ? 'is' : 'are'} no area (${AREA_NAMES.join(', ')}, all, none) and no glob.`]))
+
+  await log($, 'debug', 'round-started', { ticket: t.id, round, why: trigger, skills: started.map(r => r.skill).join(','), ...(touched.length === 0 ? {} : { touches: touched.map(x => x.area).join(',') }) })
+  return `Round ${round}: ${started.map(r => r.skill).join(', ')} reviewing ${t.id} in this session.${[without.trim(), ...reasons, ...odd].filter(x => x !== '').map(x => ` ${x}`).join('')}`
 }
 
 /** The stewarding pane's r: the next round starts when the current turn ends, even after the rounds ran out or stewarding stopped. */

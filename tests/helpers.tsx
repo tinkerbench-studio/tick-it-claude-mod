@@ -102,7 +102,7 @@ export type Net = {
 /** The engine beneath the mod: a store, a repo whose diff is `diff.lines` lines, and quiet UI calls. */
 export const engine = (
   on: On,
-  diff: { lines: number; pr?: number; origin?: string | null; noCommit?: boolean; numstatZ?: string; failFiles?: boolean; stored?: Record<string, unknown>; refuse?: (model: string | undefined) => string | undefined; untracked?: Record<string, string>; binary?: Record<string, string>; gh?: (argv: string[]) => { exitCode: number; stdout: string; stderr: string } | undefined; pictures?: { key: string; name: string }[] | 'unreachable' | 'odd' },
+  diff: { lines: number; pr?: number; origin?: string | null; noCommit?: boolean; numstatZ?: string; failFiles?: boolean; stored?: Record<string, unknown>; refuse?: (model: string | undefined) => string | undefined; patch?: string; untracked?: Record<string, string>; binary?: Record<string, string>; gh?: (argv: string[]) => { exitCode: number; stdout: string; stderr: string } | undefined; pictures?: { key: string; name: string }[] | 'unreachable' | 'odd' },
   isPlaced = true,
   skills: Record<string, string> = {},
   net: Net = {},
@@ -197,7 +197,8 @@ export const engine = (
   on('clock.now', () => ({ value: (clock += 1000 + (net.skip ?? 0)) }))
   // The engine hands the paths over resolved against the working directory.
   // A base review skill is read from the plugin's own folder, wherever that is: the map names it from skills/review-agents/bases on.
-  const rel = (path: string) => (path.includes('.tick') ? path.slice(path.indexOf('.tick')) : path.includes(BASES) ? path.slice(path.indexOf(BASES)) : path)
+  // A secure-coding skill is read from the plugin's own folder too: the map names it from skills/secure- on.
+  const rel = (path: string) => (path.includes('.tick') ? path.slice(path.indexOf('.tick')) : path.includes(BASES) ? path.slice(path.indexOf(BASES)) : path.includes('skills/secure-') ? path.slice(path.indexOf('skills/secure-')) : path)
   on('fs.exists', (_$, e) => ({
     value: Object.keys(skills).some(path => path === rel(e.path) || path.startsWith(`${rel(e.path)}/`)),
   }))
@@ -270,7 +271,9 @@ export const engine = (
     if (cmd === 'git' && sub === 'diff' && e.argv.includes('-z') && diff.failFiles === true) throw new Error('git diff -z failed')
     const stdout =
       cmd === 'git' && sub === 'diff'
-        ? e.argv.includes('-z')
+        ? e.argv.includes('-U0')
+          ? (diff.patch ?? '')
+          : e.argv.includes('-z')
           ? (diff.numstatZ ?? `${diff.lines}\t0\tapi/a.ts\0`)
           : `${diff.lines}\t0\tapi/a.ts\n`
         : cmd === 'git' && sub === 'remote'
