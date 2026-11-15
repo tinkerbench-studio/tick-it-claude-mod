@@ -181,6 +181,10 @@ export const engine = (
         if (net.linkRefused) throw new Error('connection refused')
         return net.linkRejected ? refuse('No ticket TCK-143 in acme/web-app.') : answer({ pullRequests: [] })
       }
+      if (e.tool === 'start_session') {
+        const held = seen.server.find(t => t.key === a.key) as { notBefore?: string | null } | undefined
+        if (held?.notBefore != null && Date.parse(held.notBefore) > Date.now()) return refuse(`${String(a.key)} is held until ${held.notBefore}: it cannot be started before then.`)
+      }
       if (e.tool === 'start_session') return answer({ session: { id: 's_new1234567' }, local: { link: `claude-cli://open?q=work+on+${String(a.key)}` } })
       if (e.tool === 'add_attachment') return answer({ attachment: { id: 'att1', name: a.name, type: a.type } })
       if (e.tool === 'create_ticket') {
@@ -191,6 +195,7 @@ export const engine = (
       if (e.tool === 'update_ticket') {
         const ticket = seen.server.find(t => t.key === a.key)
         if (ticket === undefined) return refuse(`No ticket ${String(a.key)} in acme/web-app.`)
+        if (a.status === 'In progress' && (ticket as { refuseHold?: string }).refuseHold !== undefined) return refuse((ticket as { refuseHold: string }).refuseHold)
         if (a.status === 'Done' && diff.pr !== undefined) return refuse(`${String(a.key)}'s pull request #${diff.pr} is still open: it moves to Done when it merges.`)
         if (a.status === 'Done' && (typeof a.reason !== 'string' || a.reason.trim() === '')) return refuse(`${String(a.key)} has no merged pull request: give a reason to move it to Done.`)
         if (a.status !== undefined) ticket.status = String(a.status)
