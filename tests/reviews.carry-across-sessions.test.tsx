@@ -86,3 +86,9 @@ test('the skill’s newest run decides: a later blocking run on this head is rev
   expect(seen.spawned).toHaveLength(1)
   expect(seen.spawned[0]?.description).toContain('round 3')
 })
+
+test('a run the server recorded as not applicable (a reason string) counts as reviewed: no reviewer starts', async ($, on) => {
+  const seen = run(on, { timeline: [{ ...entry(1, 0), agents: [{ skill: 'principal', blocking: 0, optional: 0, verdicts: [], notApplicable: 'Nobody sees this change.' }] }] })
+  await done($)
+  expect(seen.spawned).toHaveLength(0)
+})
