@@ -281,7 +281,9 @@ Tick-it is an MCP server, and this mod lists it in `.claude-plugin/plugin.json` 
 
   ```sh
   claude plugin marketplace add tinkerbench-studio/marketplace
+  claude plugin marketplace update tinkerbench-studio
   claude plugin install tick-it@tinkerbench-studio
+  claude plugin update tick-it@tinkerbench-studio
   ```
 
   The plugin's own `tickit` server cannot connect there (the sandbox proxy answers `mcp.tick-it.dev` with 403, and the mod holds no token), so the mod falls back to the claude.ai connector, whose tools a cloud session lists as `mcp__Tick-It__*` (server name `Tick-It`). With the mod loaded, runs carry the real input, output and cache token counts; the start message tells a session without it to record runs itself.
