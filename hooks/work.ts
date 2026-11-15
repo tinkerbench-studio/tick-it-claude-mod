@@ -6,15 +6,16 @@ import type { ChangedFile } from './security-areas'
 import { STARTED_KEY, REPORT_EVERY_MS, REPORT_TOOL, SKILLS_DIR, EMPTY_TREE, UNLINKED_KEY, FILE_TYPES, MAX_ATTACH_BYTES, MAX_FILES, MAX_PATH, MAX_FILE_LINES } from './state'
 import { sendTickit, callTickit, repositoryHere } from './tickit'
 import type { Called } from './tickit'
-import { findCurrent, refreshBoard, changeTicket, showStatus } from './board'
-import { findSkills } from './reviews'
+import { findCurrent, changeTicket, showStatus, save, fromRemote, readTicket } from './board'
+import type { RemoteTicket } from './board'
+import { findSkills, setSteward } from './reviews'
 import { uiEvidenceRefusal } from './ui-check'
 import { log } from './log'
 
 // Declared in this file: the engine reads an atom only where it is written (a module cannot use one imported from state.ts).
 const tickets = atom({ plugin: 'tick-it', key: 'tickets' } as const, [])
 const current = atom({ plugin: 'tick-it', key: 'current' } as const, null)
-const boardError = atom({ plugin: 'tick-it', key: 'boardError' } as const, null)
+const steward = atom({ plugin: 'tick-it', key: 'steward' } as const, null)
 const diffLines = atom({ plugin: 'tick-it', key: 'diffLines' } as const, 0)
 /** The session Tick-it started this one as: set by its first message, reported to as the work goes on. */
 const startedSession = atom({ plugin: 'tick-it', key: 'started' } as const, null)
@@ -268,14 +269,11 @@ export const firstLine = (answer: string) =>
     .find(line => line !== '')
     ?.slice(0, 300)
 
+/** Takes a ticket whose key is known: it is read with get_ticket, never by reading the whole board (list_tickets is for the board command and pane). */
 export async function take($: EngineInterface, id: string): Promise<Ticket | string> {
   const wanted = id.toUpperCase()
-  if ((await read($, tickets)).find(one => one.id === wanted) === undefined) await refreshBoard($)
-  if ((await read($, tickets)).find(one => one.id === wanted) === undefined) {
-    // A board that could not be read says nothing about the ticket: give the reason, not "no ticket".
-    const problem = await read($, boardError)
-    return problem === null ? `No ticket ${id}. Try /tick-it board.` : `Could not read the board to find ${wanted}: ${problem}.`
-  }
+  const problem = await readTicket($, wanted)
+  if (problem !== undefined) return /\bno ticket\b/i.test(problem) ? `No ticket ${id}. Try /tick-it board.` : `Could not read ${wanted}: ${problem}.`
   // Tick-it answers the session it keeps for this: one it started, or one it made now. Reports go to it.
   const adopt = async (session: string) => {
     const repository = await repositoryHere($)
@@ -351,6 +349,7 @@ export async function finish($: EngineInterface, status: TicketStatus): Promise<
 export async function finishedByClaude($: EngineInterface, e: ToolCallInput, next: (e: ToolCallInput) => Promise<ToolCallResult>): Promise<ToolCallResult> {
   const input = e as { key?: unknown; status?: unknown }
   const t = await findCurrent($)
+  if (input.status === 'In review' && typeof input.key === 'string' && t === undefined) return fixAfterStop($, input.key.toUpperCase(), e, next)
   if (input.status !== 'In review' || typeof input.key !== 'string' || t === undefined || input.key.toUpperCase() !== t.id) return next(e)
   try {
     await recordPullRequest($, t.id)
@@ -370,4 +369,27 @@ export async function finishedByClaude($: EngineInterface, e: ToolCallInput, nex
     ...ran,
     context: [...(ran.context ?? []), skills === 0 ? `tick-it: ${t.id} is In review. There are no review skills in ${SKILLS_DIR}, so when this turn ends it goes to Done without review.` : `tick-it: ${t.id} is In review. When this turn ends tick-it runs its review agents; their blocking findings come back to you to fix.`],
   }
+}
+
+/**
+ * Claude moving a ticket to In review again after the mod stopped stewarding it
+ * itself (the round limit or the review budget): the fix it pushed is reviewed
+ * once, when the turn ends, and the outcome is reported. A stop the person
+ * pressed (no stoppedBy) is left alone, as is a stop after that one review (afterStop: a person is asked), as is any ticket not being stewarded.
+ */
+async function fixAfterStop($: EngineInterface, key: string, e: ToolCallInput, next: (e: ToolCallInput) => Promise<ToolCallResult>): Promise<ToolCallResult> {
+  const s = await read($, steward)
+  if (s === null || s.phase !== 'stopped' || s.stoppedBy !== 'mod' || s.afterStop === true || s.ticket !== key) return next(e)
+  // The same key in another repository is another ticket.
+  const given = (e as { repository?: unknown }).repository
+  if (typeof given === 'string' && given !== (await repositoryHere($))) return next(e)
+  const ran = await next(e)
+  if (!('result' in ran) || ran.isError === true) return ran
+  // The state may have changed while Tick-it answered (the stop button, r): only the stop the mod made is carried on.
+  const now = await read($, steward)
+  if (now === null || now.phase !== 'stopped' || now.stoppedBy !== 'mod' || now.ticket !== key) return ran
+  // The ticket is already In review with its changed lines and UI evidence from the first move: only its pull request is recorded again, as the fix may have opened one.
+  await recordPullRequest($, key).catch(() => undefined)
+  await setSteward($, { ticket: key, round: now.round, phase: 'fixing', maxRounds: Math.max(now.maxRounds, now.round + 1), ticking: false, afterStop: true, note: `Reviewing the fix made after stewarding stopped: round ${now.round + 1} starts when this turn ends.` })
+  return { ...ran, context: [...(ran.context ?? []), `tick-it: stewarding of ${key} had stopped. Its fix is reviewed once when this turn ends (round ${now.round + 1}); if that still has blocking findings it stops again and a person is asked.`] }
 }
