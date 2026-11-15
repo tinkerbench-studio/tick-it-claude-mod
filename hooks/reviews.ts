@@ -311,7 +311,7 @@ export async function startRound($: EngineInterface, t: Ticket, round: number, t
   }
   const limit = await roundLimit($, t.size, t.id)
   // The fix that followed a round blocked by the pull request alone, with no budget for a reviewer round: no review agent starts, the pull request is read again and settles the round.
-  if (trigger === 'after-fix' && (await read($, steward))?.pullRequestOnly === true && (await budgetStop($, t.id, round - 1)) !== undefined) {
+  if (trigger === 'after-fix' && (await read($, steward))?.pullRequestOnly === true && (await budgetStop($, t.id, await reviewedRounds($, t.id))) !== undefined) {
     // The stop button pressed while the spend was read: that round does not start.
     if ((await read($, steward))?.phase === 'stopped') {
       await update($, steward, v => (v === null ? v : { ...v, fixing: false }))
@@ -514,6 +514,11 @@ export async function budgetStop($: EngineInterface, ticket: string, rounds: num
   return undefined
 }
 
+/** The rounds of a ticket that ran reviewers: a round settled on the pull request alone costs nothing, so it is not part of the average cost of a round. */
+async function reviewedRounds($: EngineInterface, ticket: string): Promise<number> {
+  return new Set((await read($, reviews)).filter(r => r.ticket === ticket).map(r => r.round)).size
+}
+
 /**
  * Once every reviewer of the round has answered: done, a fix round, one more round past the limit, or stop.
  * With `withoutReviewers` no reviewer ran for this round (the budget had no room for one after a fix of the pull request alone): the round is settled on the pull request, so it is clean or it stops, and it asks for no further fix.
@@ -624,7 +629,7 @@ export async function settleRound($: EngineInterface, s: Steward, withoutReviewe
     $.ui.toast(`tick-it: ${t.id}'s pull request still has ${blocking.length} blocking findings after the fix and the review budget has no room for another round. Over to you.`)
     return
   }
-  const over = await budgetStop($, t.id, s.round)
+  const over = await budgetStop($, t.id, Math.max(await reviewedRounds($, t.id), 1))
   // Reviewers found nothing, so what blocks is the pull request's own (CI, base): fixing it needs no reviewer spend to confirm, as the pull request can be read again. The budget does not stop the round; Claude is asked for the fix, and with no room for a reviewer round after it, the pull request alone settles the round.
   const pullRequestOnly = reviewed.length === 0
   if (over !== undefined && !pullRequestOnly) {
@@ -642,7 +647,7 @@ export async function settleRound($: EngineInterface, s: Steward, withoutReviewe
   await log($, 'debug', 'round-settled', { ticket: t.id, round: s.round, outcome: pastLimit ? 'fix-then-last-round' : 'fix', blocking: blocking.length })
   // The budget has no room for a reviewer round after this fix: the pull request is read again instead, and settles the round.
   const readOnly = over !== undefined && pullRequestOnly
-  await setSteward($, { ...s, phase: 'fixing', ticking: false, ...(readOnly ? { pullRequestOnly: true } : {}), ...(pastLimit ? { maxRounds: s.round + 1, note: `Still blocking after ${s.round} rounds; round ${s.round + 1} goes past the limit.` } : {}) })
+  await setSteward($, { ...s, phase: 'fixing', ticking: false, ...(readOnly ? { pullRequestOnly: true } : {}), ...(pastLimit && !readOnly ? { maxRounds: s.round + 1, note: `Still blocking after ${s.round} rounds; round ${s.round + 1} goes past the limit.` } : {}) })
   const served = await servedConfig($)
   const afterFix = served !== null && served.ticket === t.id ? served.briefLines.afterFix : undefined
   await $.prompt.submit({
