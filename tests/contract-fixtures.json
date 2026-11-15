@@ -1,7 +1,7 @@
 {
   "about": "What the mod sends Tick-it and the fields of each answer it reads. Tick-it's CI checks every call against the tool's inputSchema and every answer against its outputSchema (docs/api-compatibility.md in tick-it). An answer lists only the fields the mod reads. Add a call or a field here when the mod starts using it.",
   "calls": [
-    { "tool": "get_mod_config", "args": { "repository": "acme/web-app", "key": "TCK-143", "modVersion": "0.34.0" } },
+    { "tool": "get_mod_config", "args": { "repository": "acme/web-app", "key": "TCK-143", "modVersion": "0.36.0" } },
     { "tool": "get_repository_settings", "args": { "repository": "acme/web-app" } },
     { "tool": "list_tickets", "args": { "repository": "acme/web-app" } },
     { "tool": "list_tickets", "args": { "repository": "acme/web-app", "cursor": "50" } },
@@ -15,7 +15,7 @@
     { "tool": "update_ticket", "args": { "repository": "acme/web-app", "key": "TCK-143", "status": "In progress", "assignee": "me" } },
     { "tool": "set_needs_human", "args": { "repository": "acme/web-app", "key": "TCK-143", "kind": "no-clean-round", "note": "1 blocking finding still open after 5 rounds" } },
     { "tool": "report_session", "args": { "repository": "acme/web-app", "session": "s_abc12345", "status": "working", "summary": "Building it" } },
-    { "tool": "record_runs", "args": { "repository": "acme/web-app", "session": "s_abc12345", "tickitSession": "s_abc12345", "runs": [{ "agentId": "s_abc12345-TCK-143-principal-r1", "ticket": "TCK-143", "kind": "review", "skill": "principal", "round": 1, "model": "claude-opus-5-5", "durationMs": 95000 }] } },
+    { "tool": "record_runs", "args": { "repository": "acme/web-app", "session": "s_abc12345", "tickitSession": "s_abc12345", "runs": [{ "agentId": "s_abc12345-TCK-143-principal-r1", "ticket": "TCK-143", "kind": "review", "skill": "principal", "round": 1, "headSha": "ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12", "model": "claude-opus-5-5", "durationMs": 95000 }] } },
     { "tool": "report_review_agents", "args": { "repository": "acme/web-app", "agents": [{ "skill": "principal", "model": "claude-opus-5-5", "sizes": ["S"], "paths": ["docs/**"] }] } },
     { "tool": "add_attachment", "args": { "repository": "acme/web-app", "ticket": "TCK-143", "name": "board.png", "type": "image/png", "content": "iVBORw0KGgo=" } },
     { "tool": "link_pull_request", "args": { "repository": "acme/web-app", "key": "TCK-143", "branch": "tck-143-persist-checkout-step", "number": 12 } }
@@ -25,7 +25,7 @@
     { "tool": "get_repository_settings", "answer": { "instructions": "", "autoMerge": true, "reviewRounds": { "S": 3 } } },
     { "tool": "list_tickets", "answer": { "tickets": [{ "key": "TCK-143", "title": "Persist checkout step", "epic": "One-page checkout", "epicId": "e-checkout", "size": "XS", "status": "Ready", "assignee": null }], "nextCursor": "50" } },
     { "tool": "list_milestones", "answer": { "milestones": [{ "title": "Launch", "dueOn": null, "epics": [{ "id": "e-checkout", "title": "One-page checkout", "tickets": 3, "done": 1 }], "tickets": 3, "done": 1 }] } },
-    { "tool": "get_ticket", "answer": { "ticket": { "key": "TCK-143", "title": "Persist checkout step", "epic": null, "size": "XS", "status": "Ready", "acceptance": ["Step stored"], "assignee": null, "reviewSpend": { "costUsd": 0.5, "budget": 3, "remaining": 2.5 } } } },
+    { "tool": "get_ticket", "answer": { "ticket": { "key": "TCK-143", "title": "Persist checkout step", "epic": null, "size": "XS", "status": "Ready", "acceptance": ["Step stored"], "assignee": null, "reviewSpend": { "costUsd": 0.5, "budget": 3, "remaining": 2.5 }, "reviewState": { "heldBack": "No review has been recorded" }, "queueHold": null } } },
     { "tool": "list_screenshots", "answer": { "screenshots": [{ "key": "acme/web-app/TCK-143/board-before-after.png", "name": "board-before-after.png" }] } },
     { "tool": "list_pull_requests", "answer": { "pullRequests": [{ "number": 12, "state": "open", "draft": false, "ci": "success", "behind": false, "mergeState": "mergeable", "ciInstructed": false }] } },
     { "tool": "start_session", "answer": { "session": { "id": "s_new1234567" } } },
