@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { Register } from 'claude-code'
 import type { DroppedRun, OutboxRun, PendingLink, ReviewRun, StartedSession, Ticket } from '../types'
 import { STORE_KEY, STARTED_KEY, START_LINE, BREAKDOWN_LINE, BREAKDOWN_KEY, REPORT_TOOL, REVIEWS_KEY, OUTBOX_KEY, DROPPED_KEY, UNLINKED_KEY, RECORD_TOOL, AGENTS_TOOL } from './state'
-import { callTickit, originHere, freshBriefOf } from './tickit'
+import { callTickit, originHere, checkoutBeside, freshBriefOf } from './tickit'
 import { refreshBoard, showStatus } from './board'
 import { reportsForItself, instructionsOf, take } from './work'
 import { reportAgents, flush } from './outbox'
@@ -117,8 +117,11 @@ export const registerSession: Register = on => {
     const [, id = '', ticket = '', repository = ''] = line
     const origin = await originHere($)
     if (origin !== null && origin !== repository) {
-      await log($, 'debug', 'start-not-taken', { ticket, why: 'other-repository' })
-      return next({ ...e, context: [...(e.context ?? []), `tick-it: this session is in ${origin ?? 'a folder whose origin is not on GitHub'}, not ${repository}, so it did not take ${ticket}.`] })
+      const checkout = await checkoutBeside($, repository)
+      await log($, 'debug', 'start-not-taken', { ticket, why: 'other-repository', ...(checkout === undefined ? {} : { checkout }) })
+      const declined = `tick-it: this session is in ${origin ?? 'a folder whose origin is not on GitHub'}, not ${repository}, so it did not take ${ticket}.`
+      const move = checkout === undefined ? '' : ` ${repository} is checked out at ${checkout}: work there and take ${ticket} with update_ticket (In progress, assignee me).`
+      return next({ ...e, context: [...(e.context ?? []), declined + move] })
     }
     // A folder with no origin works on the repository the first message names.
     const notes = origin === null ? [`tick-it: this folder has no origin remote, so it works on ${repository} as Tick-it asked.`] : []

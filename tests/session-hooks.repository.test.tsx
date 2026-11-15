@@ -12,6 +12,44 @@ test('a first message for another repository takes nothing, and says why', async
   expect(reports(seen)).toEqual([])
 })
 
+const OTHER = STARTED.replace('acme/web-app', 'acme/other')
+const wrongFolder = async (on: Parameters<typeof engine>[0], $: Parameters<typeof start>[0], siblings: Record<string, string> | 'unlistable') => {
+  const seen = engine(on, { lines: 0, siblings })
+  await start($)
+  const entered = await $.prompt.submit(typed(OTHER))
+  return { seen, context: 'context' in entered ? (entered.context?.join(' ') ?? '') : '' }
+}
+
+test('a start line for another repository names the checkout of it beside this one, and takes nothing', async ($, on) => {
+  const { seen, context } = await wrongFolder(on, $, { 'web-app': 'git@github.com:acme/web-app.git', other: 'https://github.com/acme/other\n' })
+  expect(context).toContain('did not take TCK-151. acme/other is checked out at /other: work there and take TCK-151 with update_ticket (In progress, assignee me).')
+  expect(seen.server.find(t => t.key === 'TCK-151')?.status).toBe('Ready')
+  expect(reports(seen)).toEqual([])
+})
+
+const AS_WAS = 'tick-it: this session is in acme/web-app, not acme/other, so it did not take TCK-151.'
+
+test('when no folder beside this one has the repository, the context line is as it was and nothing is taken', async ($, on) => {
+  const { seen, context } = await wrongFolder(on, $, { 'web-app': 'git@github.com:acme/web-app.git', x: 'git@github.com:acme/x.git' })
+  expect(context).toBe(AS_WAS)
+  expect(seen.server.find(t => t.key === 'TCK-151')?.status).toBe('Ready')
+})
+
+test('when the folders cannot be listed, the context line is as it was and nothing is taken', async ($, on) => {
+  const { seen, context } = await wrongFolder(on, $, 'unlistable')
+  expect(context).toBe(AS_WAS)
+  expect(seen.server.find(t => t.key === 'TCK-151')?.status).toBe('Ready')
+})
+
+test('the start-not-taken log entry names the checkout found', async ($, on) => {
+  const wrote: string[] = []
+  on('env.get', () => ({ value: 'debug' }))
+  on('fs.write', (_$, e) => (wrote.push(e.text), { value: undefined }))
+  await wrongFolder(on, $, { other: 'git@github.com:acme/other.git' })
+  expect(wrote.at(-1)).toContain('start-not-taken')
+  expect(wrote.at(-1)).toContain('/other')
+})
+
 test('a folder with no origin works on the repository the first message names, through to the review agents', async ($, on) => {
   const seen = engine(on, { lines: 4, origin: null }, true, { '.tick-it/skills/principal/SKILL.md': SKILLS['.tick-it/skills/principal/SKILL.md'] ?? '' })
   await start($)
