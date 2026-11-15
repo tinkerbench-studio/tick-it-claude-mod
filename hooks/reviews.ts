@@ -320,7 +320,10 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
   // The turn that ticks the acceptance checks of a round settled without reviewers ends in this start too: the head it finds is as reviewed as before.
   const afterTicking = trigger === 'after-fix' && ticking === true
   const recorded = first || afterTicking ? await recordedReviews($, t.id) : undefined
-  const round = !first || recorded === undefined ? fromRound : lastRecordedRound(recorded) + 1
+  // Runs this session has not yet got to Tick-it (the outbox holds them) are not in the timeline: never go back to a round number the session already used.
+  const ranHere = (await read($, reviews)).filter(r => r.ticket === t.id).reduce((most, r) => Math.max(most, r.round), 0)
+  const carried = recorded === undefined ? 0 : Math.max(lastRecordedRound(recorded), ranHere)
+  const round = !first || recorded === undefined ? fromRound : carried + 1
   const limit = await roundLimit($, t.size, t.id)
   // The fix that followed a round blocked by the pull request alone, with no budget for a reviewer round: no review agent starts, the pull request is read again and settles the round.
   if (trigger === 'after-fix' && (await read($, steward))?.pullRequestOnly === true && (await budgetStop($, t.id, await reviewedRounds($, t.id))) !== undefined) {
@@ -360,6 +363,8 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
   // Every applicable skill already reviewed this head with nothing blocking: no reviewer starts, and the round settles from the pull request and the acceptance ticks alone.
   // A command cannot submit a prompt, and a settle that finds a check unticked or the pull request failing submits one: from a command the round settles here only when it ends clean, and is reviewed as before otherwise.
   const fromCommand = trigger === 'done-command' || trigger === 'steward-command'
+  // Reviewers read the working tree against HEAD: edits made since a review at this head (uncommitted or untracked) have not been reviewed, so the head alone does not say it was.
+  const cleanTree = async () => (await $.process.run(['git', 'status', '--porcelain'])).stdout.trim() === ''
   const settlesClean = async () => {
     if (!fromCommand) return true
     const unticked = await untickedAcceptance($, t.id)
@@ -367,8 +372,8 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
     await refreshPullRequest($, t.id).catch(() => update($, pullRequestError, () => 'could not read the pull request'))
     return (await read($, pullRequestError)) === null && pullRequestFindings(await read($, pullRequest)).length === 0
   }
-  if (recorded !== undefined && head !== undefined && recorded.length > 0 && skills.every(({ folder }) => reviewedClean(recorded, folder, head)) && (await settlesClean())) {
-    const last = first ? lastRecordedRound(recorded) : fromRound - 1
+  if (recorded !== undefined && head !== undefined && recorded.length > 0 && skills.every(({ folder }) => reviewedClean(recorded, folder, head)) && (await cleanTree()) && (await settlesClean())) {
+    const last = first ? carried : fromRound - 1
     const steward: Steward = { ticket: t.id, round: last, phase: 'reviewing', maxRounds: Math.max(limit, last), ...(ticking === true ? { ticking } : {}) }
     await setSteward($, steward)
     await log($, 'debug', 'round-not-started', { ticket: t.id, round: last, why: 'head-already-reviewed' })

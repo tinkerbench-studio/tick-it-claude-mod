@@ -147,3 +147,18 @@ test('budgetStop with the timeline unreadable divides by this session’s own ro
   await $.turn.complete(finishTurn('agent-1', 'BLOCKING: still wrong'))
   expect(seen.ticketCalls.find(c => c.tool === 'set_needs_human')?.args).toMatchObject({ kind: 'no-clean-round' })
 })
+
+test('a head reviewed clean with uncommitted edits since is reviewed again: the commit alone does not say what was reviewed', async ($, on) => {
+  const seen = engine(on, { lines: 10, dirty: true }, true, PRINCIPAL, { timeline: [entry(1, 0, HEAD)] })
+  await done($)
+  expect(seen.spawned).toHaveLength(1)
+  expect(seen.spawned[0]?.description).toContain('round 2')
+})
+
+test('runs the outbox has not sent yet still count: a second start in the session never reuses a round number', async ($, on) => {
+  const seen = run(on, { timeline: [] })
+  await done($)
+  expect(seen.spawned[0]?.description).toContain('round 1')
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'steward TCK-143' })
+  expect(seen.spawned.at(-1)?.description).toContain('round 2')
+})
