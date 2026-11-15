@@ -22,6 +22,8 @@ export type Ticket = {
   blocks?: string[]
   labels?: string[]
   url?: string
+  /** Read whole (get_ticket or update_ticket); a slim board row has no description, acceptance, links or url. */
+  whole?: boolean
 }
 
 /** Token counts as the API reports them, summed over a review agent's run. */

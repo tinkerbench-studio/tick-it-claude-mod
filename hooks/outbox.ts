@@ -15,7 +15,7 @@ const dropped = atom({ plugin: 'tick-it', key: 'dropped' } as const, [])
 const unlinked = atom({ plugin: 'tick-it', key: 'unlinked' } as const, [])
 const startedSession = atom({ plugin: 'tick-it', key: 'started' } as const, null)
 
-/** What record_runs answers, in structuredContent or as JSON text. */
+/** What record_runs answers, as JSON text (a plugin is handed the content blocks only, but a structuredContent is read when there is one). */
 export type RecordAnswer = { accepted: string[]; rejected: { agentId: string; reason: string }[] }
 
 export const readAnswer = (result: { content: readonly { type: string; text?: string }[]; structuredContent?: unknown }): RecordAnswer | undefined => {

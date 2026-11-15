@@ -211,7 +211,7 @@ export async function save($: EngineInterface, list: Ticket[]) {
 }
 
 /** A ticket as Tick-it's tools spell it. */
-export type RemoteTicket = { key: string; title: string; epic: string | null; epicId?: string | null; size: TicketSize; status: TicketStatus; description?: string | null; acceptance: string[]; blockedBy?: string[]; blocks?: string[]; labels?: string[]; url?: string }
+export type RemoteTicket = { key: string; title: string; epic: string | null; epicId?: string | null; size: TicketSize; status: TicketStatus; description?: string | null; acceptance?: string[]; blockedBy?: string[]; blocks?: string[]; labels?: string[]; url?: string }
 export const fromRemote = (r: RemoteTicket): Ticket => ({
   id: r.key,
   title: r.title,
@@ -220,12 +220,32 @@ export const fromRemote = (r: RemoteTicket): Ticket => ({
   size: r.size,
   status: r.status,
   ...(r.description ? { description: r.description } : {}),
-  acceptance: r.acceptance,
+  acceptance: r.acceptance ?? [],
   blockedBy: r.blockedBy ?? [],
   blocks: r.blocks ?? [],
   ...(r.labels === undefined ? {} : { labels: r.labels }),
   ...(r.url === undefined ? {} : { url: r.url }),
+  // A slim board row has no acceptance: only a ticket read whole (get_ticket, update_ticket) has it.
+  ...(Array.isArray(r.acceptance) ? { whole: true } : {}),
 })
+
+/** A slim board row, keeping what a ticket already read whole holds that the row lacks (description, acceptance, links, url). */
+export const withKnown = (row: Ticket, known: Ticket | undefined): Ticket =>
+  known?.whole === true && !row.whole
+    ? { ...row, ...(known.description === undefined ? {} : { description: known.description }), acceptance: known.acceptance, blockedBy: known.blockedBy ?? [], blocks: known.blocks ?? [], ...(known.labels === undefined ? {} : { labels: known.labels }), ...(known.url === undefined ? {} : { url: known.url }), whole: true }
+    : row
+
+/** Reads the one ticket by its key with get_ticket (the core only) and puts it in the cache: its reason when Tick-it cannot say. */
+export async function readTicket($: EngineInterface, wanted: string): Promise<string | undefined> {
+  const repository = await repositoryHere($)
+  if (repository === undefined) return 'this folder has no GitHub origin remote, so tick-it does not know which repository it is'
+  const one = await callTickit($, 'get_ticket', { repository, key: wanted, include: [] })
+  if (!one.ok) return one.why
+  const remote = one.value.ticket as RemoteTicket | undefined
+  if (remote === undefined || remote.key?.toUpperCase() !== wanted) return `Tick-it's answer to get_ticket was not ${wanted}`
+  await save($, [...(await read($, tickets)).filter(t => t.id !== wanted), fromRemote(remote)])
+  return undefined
+}
 
 /** Pages list_tickets by nextCursor until it is null or absent; a failure on any page fails the whole read. */
 async function listAllTickets($: EngineInterface, repository: string): Promise<{ ok: true; value: RemoteTicket[] } | { ok: false; why: string }> {
@@ -233,7 +253,7 @@ async function listAllTickets($: EngineInterface, repository: string): Promise<{
   const seen = new Set<string>()
   let cursor: string | undefined
   for (;;) {
-    const page = await callTickit($, 'list_tickets', cursor === undefined ? { repository } : { repository, cursor })
+    const page = await callTickit($, 'list_tickets', cursor === undefined ? { repository, slim: true } : { repository, slim: true, cursor })
     if (!page.ok) return page
     all.push(...((page.value.tickets as RemoteTicket[] | undefined) ?? []))
     const next = page.value.nextCursor
@@ -254,7 +274,23 @@ export async function refreshBoard($: EngineInterface): Promise<void> {
   }
   const listed = await listAllTickets($, repository)
   if (listed.ok) {
-    await save($, listed.value.map(fromRemote))
+    const known = await read($, tickets)
+    // A slim row has no url, but every ticket's page is the same address with its own key: one a ticket read whole gave is the pattern.
+    let sample = known.find(t => t.url?.includes(t.id))
+    // With none read whole yet, one get_ticket (the core only) gives it.
+    if (sample === undefined && listed.value[0] !== undefined) {
+      const one = await callTickit($, 'get_ticket', { repository, key: listed.value[0].key, include: [] }).catch(() => undefined)
+      const remote = one?.ok === true ? (one.value.ticket as RemoteTicket | undefined) : undefined
+      if (remote?.url?.includes(remote.key)) sample = { ...fromRemote(remote), id: remote.key }
+    }
+    const urlOf = (key: string) => sample?.url?.replace(sample.id, key)
+    await save(
+      $,
+      listed.value.map(r => {
+        const row = withKnown(fromRemote(r), known.find(t => t.id === r.key))
+        return row.url === undefined && urlOf(r.key) !== undefined ? { ...row, url: urlOf(r.key) } : row
+      }),
+    )
     await update($, boardError, () => null)
     // The roadmap only adds a header: when it cannot be read the board stays as it was.
     const roadmap = await callTickit($, 'list_milestones', { repository })
@@ -402,7 +438,7 @@ export async function startSession($: EngineInterface, id: string): Promise<stri
 export async function statusOnTickit($: EngineInterface, id: string): Promise<TicketStatus | undefined> {
   const repository = await repositoryHere($)
   if (repository === undefined) return undefined
-  const got = await callTickit($, 'get_ticket', { repository, key: id }).catch(() => ({ ok: false as const, why: 'unreachable' }))
+  const got = await callTickit($, 'get_ticket', { repository, key: id, include: [] }).catch(() => ({ ok: false as const, why: 'unreachable' }))
   return got.ok ? ((got.value.ticket as RemoteTicket | undefined)?.status ?? undefined) : undefined
 }
 

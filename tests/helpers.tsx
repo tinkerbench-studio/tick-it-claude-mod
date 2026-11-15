@@ -65,6 +65,10 @@ export type Net = {
   connected?: boolean
   /** list_tickets fails (the board cannot be read) while the other tools answer. */
   listFails?: boolean
+  /** The named tool's reply is too large for Claude Code, which passes on its note in place of the answer. */
+  tooLarge?: 'list_tickets' | 'get_ticket'
+  /** get_ticket answers acceptanceItems, none ticked (a ticket's checks are then unticked). */
+  acceptanceItems?: boolean
   /** get_ticket answers with text that holds no result (not JSON, no structured content). */
   ticketNoResult?: boolean
   /** Only this server connects (a cloud session: the claude.ai connector, not the plugin's own). */
@@ -117,8 +121,11 @@ export const engine = (
 ): Seen => {
   const seen: Seen = { spawned: [], submitted: [], toasts: [], opened: [], recorded: [], server: SAMPLE(), ticketCalls: [], processes: [] }
   const answer = (value: Record<string, unknown>) => ({
-    value: { isError: false, content: [{ type: 'text', text: JSON.stringify(value) }], structuredContent: value },
+    // As $.mcp.call hands a plugin a reply: the content blocks only, never structuredContent.
+    value: { isError: false, content: [{ type: 'text', text: JSON.stringify(value) }] },
   })
+  // What Claude Code puts in place of a reply over 50,000 characters.
+  const tooLarge = () => ({ value: { isError: false, content: [{ type: 'text', text: '<persisted-output>\nOutput too large (51.4KB). Full output saved to: /tmp/x.txt\n</persisted-output>' }] } })
   const refuseOr = (instructions: string) => (instructions === 'unreachable' ? refuse('Tick-it is down') : answer({ instructions, canEdit: true }))
   const refuse = (text: string) => ({ value: { isError: true, content: [{ type: 'text', text }] } })
   on('session.id', () => ({ value: 'session-1' }))
@@ -139,14 +146,17 @@ export const engine = (
       seen.ticketCalls.push({ tool: e.tool, args: a, server: e.server })
       if (e.tool === 'get_mod_config') return net.modConfig === undefined ? refuse('No such tool') : net.modConfig === 'unreachable' ? refuseOr('unreachable') : answer(net.modConfig)
       if (a.repository !== 'acme/web-app') return refuse(`No tickets in ${String(a.repository)} yet. create_ticket adds the first one.`)
+      if (e.tool === net.tooLarge) return tooLarge()
       if (e.tool === 'list_tickets') {
         if (net.listFails === true) return refuse('Tick-it is down')
-        if (net.pageSize === undefined) return answer({ tickets: seen.server })
+        // A slim row is what the server's slim list sends: no description, acceptance, links or url.
+        const row = (t: Remote) => (a.slim === true ? { key: t.key, title: t.title, status: t.status, size: t.size, epic: t.epic, epicId: null, assignee: t.assignee } : t)
+        if (net.pageSize === undefined) return answer({ tickets: seen.server.map(row) })
         if (a.cursor !== undefined && a.cursor === net.failAt) return refuse('Tick-it is down')
         const from = a.cursor === undefined ? 0 : Number(a.cursor)
         const to = from + net.pageSize
         // The last page leaves nextCursor out; the pages before it name the next.
-        return answer({ tickets: seen.server.slice(from, to), ...(net.loop === true ? { nextCursor: '2' } : to < seen.server.length ? { nextCursor: String(to) } : {}) })
+        return answer({ tickets: seen.server.slice(from, to).map(row), ...(net.loop === true ? { nextCursor: '2' } : to < seen.server.length ? { nextCursor: String(to) } : {}) })
       }
       if (e.tool === 'list_screenshots') {
         if (diff.pictures === 'unreachable') return refuse('Tick-it is down')
@@ -157,7 +167,7 @@ export const engine = (
         if (seen.failTicketReads === true) return refuse('Tick-it is down')
         if (net.ticketNoResult === true) return { value: { isError: false, content: [{ type: 'text', text: 'Tick-it is busy, try again later. ' + 'x'.repeat(200) }, { type: 'image' }] } }
         const ticket = seen.server.find(t => t.key === a.key)
-        return ticket === undefined ? refuse(`No ticket ${String(a.key)} in acme/web-app.`) : answer({ ticket: net.reviewSpend === undefined ? ticket : { ...ticket, reviewSpend: net.reviewSpend } })
+        return ticket === undefined ? refuse(`No ticket ${String(a.key)} in acme/web-app.`) : answer({ ticket: { ...ticket, ...(net.acceptanceItems === true ? { acceptanceItems: ticket.acceptance.map((text, i) => ({ id: `c${i}`, text, checked: false, afterDeploy: false })) } : {}), ...(net.reviewSpend === undefined ? {} : { reviewSpend: net.reviewSpend }) } })
       }
       if (e.tool === 'get_ticket_timeline') return net.timeline === undefined || net.timeline === 'unreachable' ? refuse('Tick-it is down') : answer({ timeline: net.timeline })
       if (e.tool === 'list_pull_requests') {
@@ -200,7 +210,7 @@ export const engine = (
     const rejected = answered.rejected ?? []
     const accepted = net.silent ? [] : args.runs.map(r => String(r.agentId)).filter(id => !rejected.some(x => x.agentId === id))
     return {
-      value: answered.isError ? { isError: true, content: [{ type: 'text', text: answered.text ?? '' }] } : { isError: false, content: [{ type: 'text', text: JSON.stringify({ accepted, rejected }) }], structuredContent: { accepted, rejected } },
+      value: answered.isError ? { isError: true, content: [{ type: 'text', text: answered.text ?? '' }] } : { isError: false, content: [{ type: 'text', text: JSON.stringify({ accepted, rejected }) }] },
     }
   })
   let clock = 1_000

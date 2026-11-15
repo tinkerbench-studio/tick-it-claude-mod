@@ -76,6 +76,10 @@ export async function callTickit($: EngineInterface, tool: string, args: Record<
       // Not JSON: keep looking.
     }
   }
+  // Claude Code replaces a tool reply over 50,000 characters with a note (and may truncate one): the reply was never Tick-it's answer, so say so.
+  if (/persisted-output|truncated-output|Output too large/i.test(result.content.map(b => (b.type === 'text' ? (b.text ?? '') : '')).join(' '))) {
+    return { ok: false, why: `Tick-it's answer to ${tool} was too large for Claude Code to pass on whole` }
+  }
   return { ok: false, why: `Tick-it's answer to ${tool} had no result in it (${result.content.length} content blocks: ${result.content.map(b => `${b.type} ${b.type === 'text' ? (b.text ?? '').length : 0} chars`).join(', ') || 'none'}; the text starts: ${textOf(result).slice(0, 80) || 'empty'})` }
 }
 

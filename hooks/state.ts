@@ -1,7 +1,7 @@
 import type { TicketSize, TicketStatus } from '../types'
 
 // Tickets live in Tick-it, reached through its MCP server (TICKIT_SERVER in the
-// manifest, or the claude.ai connector, TICKIT_CONNECTORS, where that cannot connect). The board is read with list_tickets and cached in the mod's store,
+// manifest, or the claude.ai connector, TICKIT_CONNECTORS, where that cannot connect). The board is read slim with list_tickets and cached in the mod's store,
 // so it still shows when Tick-it cannot be reached; every move is made on the
 // server first and the cache follows what the server answered.
 
