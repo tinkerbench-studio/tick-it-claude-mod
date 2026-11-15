@@ -133,3 +133,17 @@ test('from a command, a head already reviewed clean with a failing pull request 
   await done($)
   expect(seen.spawned).toHaveLength(1)
 })
+
+test('with two applicable skills, one clean on this head and one with no run on it still starts a review', async ($, on) => {
+  const second = '---\nname: second\ndescription: another\n---\nLook.\n'
+  const seen = engine(on, { lines: 10 }, true, { ...PRINCIPAL, '.tick-it/skills/second/SKILL.md': second }, { timeline: [entry(1, 0, HEAD)] })
+  await done($)
+  expect(seen.spawned.length).toBeGreaterThan(0)
+})
+
+test('budgetStop with the timeline unreadable divides by this session’s own round', async ($, on) => {
+  const seen = run(on, { modConfig: served, reviewSpend: spend(2.4), timeline: 'unreachable' })
+  await done($)
+  await $.turn.complete(finishTurn('agent-1', 'BLOCKING: still wrong'))
+  expect(seen.ticketCalls.find(c => c.tool === 'set_needs_human')?.args).toMatchObject({ kind: 'no-clean-round' })
+})
