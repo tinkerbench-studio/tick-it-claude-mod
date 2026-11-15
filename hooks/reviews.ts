@@ -527,7 +527,7 @@ export async function budgetStop($: EngineInterface, ticket: string, rounds: num
 }
 
 /** A review round Tick-it has recorded for a ticket, from its timeline: each agent's skill, blocking count and (when Tick-it names it) the head commit it reviewed. */
-export type RecordedRound = { round: number; agents: { skill: string; blocking: number; headSha?: string; notApplicable?: boolean }[] }
+export type RecordedRound = { round: number; agents: { skill: string; blocking: number; headSha?: string }[] }
 
 /** The review rounds Tick-it has recorded for the ticket across every session (get_ticket_timeline, review entries); undefined when they cannot be read. */
 export async function recordedReviews($: EngineInterface, ticket: string): Promise<RecordedRound[] | undefined> {
