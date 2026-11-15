@@ -209,3 +209,14 @@ test('reviewPrompt and the round limit use the same words as the cloud procedure
     expect(asked.includes(phrase), `the mod's fix prompt (mod/hooks/reviews.ts) no longer says "${phrase}" for a limit of 4; the cloud procedure (apps/mcp/src/sessions.ts) says "4 rounds of review" and "round 5 ... goes past the limit", so change both together`).toBe(true)
   }
 })
+
+test('a recorded review run carries no epic title', async ($, on) => {
+  const seen = engine(on, { lines: 10 }, true, { '.tick-it/skills/principal/SKILL.md': SKILLS['.tick-it/skills/principal/SKILL.md'] ?? '' })
+  await start($)
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-143' })
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'done' })
+  await $.turn.complete(finishTurn('agent-1', 'VERDICT: clean'))
+  expect(seen.recorded.length).toBeGreaterThan(0)
+  expect(JSON.stringify(seen.recorded.map(r => r.args))).not.toContain('One-page checkout')
+  expect(JSON.stringify(seen.recorded.map(r => r.args))).not.toContain('"epic"')
+})

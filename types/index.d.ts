@@ -10,6 +10,8 @@ export type Ticket = {
   id: string
   title: string
   epic: string
+  /** The epic's id, as Tick-it names it; absent for a ticket with no epic. Epics are matched and named to Tick-it by this, never by title. */
+  epicId?: string
   size: TicketSize
   status: TicketStatus
   /** What the ticket is for, as markdown; absent when none was written. */
@@ -195,7 +197,7 @@ declare module 'claude-code' {
 export type MilestoneView = {
   title: string
   dueOn: string | null
-  epics: { title: string; tickets: number; done: number }[]
+  epics: { id?: string; title: string; tickets: number; done: number }[]
   tickets: number
   done: number
 }

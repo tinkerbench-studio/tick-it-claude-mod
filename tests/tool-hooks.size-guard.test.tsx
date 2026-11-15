@@ -22,7 +22,8 @@ test('an edit that would pass the budget is refused, a small one runs', async ($
   expect(JSON.stringify(big)).toContain('Backlog')
   expect(JSON.stringify(big)).toContain('Raise TCK-143 to S')
   expect(JSON.stringify(big)).toContain('Leave it')
-  expect(JSON.stringify(big)).toContain('in epic \\"One-page checkout\\"')
+  // create_ticket takes the epic by id, so the guard names it that way.
+  expect(JSON.stringify(big)).toContain('with epicId \\"e-checkout\\"')
   expect(JSON.stringify(big)).toContain('blockedBy [\\"TCK-143\\"]')
 })
 
@@ -82,4 +83,29 @@ test('the guard measures against the budget Tick-it serves, not the mod’s copy
   await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-143' })
   const write = (count: number) => $.tool.call({ tool: 'Write', file_path: '/repo/api/b.ts', content: Array.from({ length: count }, (_, i) => `line ${i}`).join('\n') })
   expect(JSON.stringify(await write(40))).toContain('XS budget of 120')
+})
+
+test('a ticket with no epic gets no epic in the new-ticket choice', async ($, on) => {
+  const seen = engine(on, { lines: 90 })
+  const t = seen.server.find(t => t.key === 'TCK-143')
+  expect(t).toBeDefined()
+  t!.epic = null
+  delete t!.epicId
+  await start($)
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-143' })
+  const big = await $.tool.call({ tool: 'Write', file_path: '/repo/api/b.ts', content: Array.from({ length: 40 }, (_, i) => `line ${i}`).join('\n') })
+  expect(JSON.stringify(big)).toContain('create_ticket with status Backlog')
+  expect(JSON.stringify(big)).not.toContain('in epic')
+})
+
+// The guard decides by the epic's id, not its title: a real epic that happens to be titled "Unsorted" is still named.
+test('a ticket in an epic titled Unsorted keeps its epic in the new-ticket choice', async ($, on) => {
+  const seen = engine(on, { lines: 90 })
+  const t = seen.server.find(t => t.key === 'TCK-143')
+  expect(t).toBeDefined()
+  t!.epic = 'Unsorted'
+  await start($)
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-143' })
+  const big = await $.tool.call({ tool: 'Write', file_path: '/repo/api/b.ts', content: Array.from({ length: 40 }, (_, i) => `line ${i}`).join('\n') })
+  expect(JSON.stringify(big)).toContain('create_ticket with epicId \\"e-checkout\\" (epic \\"Unsorted\\") with status Backlog')
 })

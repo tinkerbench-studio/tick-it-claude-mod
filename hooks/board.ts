@@ -32,12 +32,12 @@ const sessionLink = atom({ plugin: 'tick-it', key: 'sessionLink' } as const, nul
  */
 export const boardStops = (roadmap: MilestoneView[], list: Ticket[]): MilestoneView[] => {
   if (roadmap.length === 0) return []
-  const planned = new Set(roadmap.flatMap(m => m.epics.map(epic => epic.title)))
-  const outside = list.filter(t => !planned.has(t.epic))
+  const planned = new Set(roadmap.flatMap(m => m.epics.map(epic => epic.id)))
+  const outside = list.filter(t => t.epicId === undefined || !planned.has(t.epicId))
   if (outside.length === 0) return roadmap
-  const epics = [...new Set(outside.map(t => t.epic))].map(title => {
-    const its = outside.filter(t => t.epic === title)
-    return { title, tickets: its.length, done: its.filter(t => t.status === 'Done').length }
+  const epics = [...new Set(outside.map(t => t.epicId))].map(id => {
+    const its = outside.filter(t => t.epicId === id)
+    return { ...(id === undefined ? {} : { id }), title: its[0]!.epic, tickets: its.length, done: its.filter(t => t.status === 'Done').length }
   })
   const other: MilestoneView = { title: 'No milestone', dueOn: null, epics, tickets: outside.length, done: outside.filter(t => t.status === 'Done').length }
 
@@ -227,11 +227,12 @@ export async function save($: EngineInterface, list: Ticket[]) {
 }
 
 /** A ticket as Tick-it's tools spell it. */
-export type RemoteTicket = { key: string; title: string; epic: string | null; size: TicketSize; status: TicketStatus; description?: string | null; acceptance?: string[]; blockedBy?: string[]; blocks?: string[]; labels?: string[]; url?: string; notBefore?: string | null }
+export type RemoteTicket = { key: string; title: string; epic: string | null; epicId?: string | null; size: TicketSize; status: TicketStatus; description?: string | null; acceptance?: string[]; blockedBy?: string[]; blocks?: string[]; labels?: string[]; url?: string; notBefore?: string | null }
 export const fromRemote = (r: RemoteTicket): Ticket => ({
   id: r.key,
   title: r.title,
   epic: r.epic ?? 'Unsorted',
+  ...(r.epicId ? { epicId: r.epicId } : {}),
   size: r.size,
   status: r.status,
   ...(r.description ? { description: r.description } : {}),
@@ -354,7 +355,7 @@ export async function refreshPullRequest($: EngineInterface, id: string): Promis
 }
 
 /** The milestone whose epics hold the ticket's epic, if any. */
-export const milestoneOf = (roadmap: MilestoneView[], t: Ticket): string | undefined => roadmap.find(m => m.epics.some(epic => epic.title === t.epic))?.title
+export const milestoneOf = (roadmap: MilestoneView[], t: Ticket): string | undefined => roadmap.find(m => t.epicId !== undefined && m.epics.some(epic => epic.id === t.epicId))?.title
 
 /** "#12 draft · CI passing": the pull request as the pane words it. */
 export const pullRequestLine = (pr: PullRequestView): string => {
