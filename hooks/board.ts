@@ -226,15 +226,34 @@ export const fromRemote = (r: RemoteTicket): Ticket => ({
   ...(r.url === undefined ? {} : { url: r.url }),
 })
 
-/** Pages list_tickets by nextCursor until it is null or absent; a failure on any page fails the whole read. */
-async function listAllTickets($: EngineInterface, repository: string): Promise<{ ok: true; value: RemoteTicket[] } | { ok: false; why: string }> {
-  const all: RemoteTicket[] = []
+/** A ticket as list_tickets answers it with slim: true, without its description, acceptance, links, labels or url. */
+export type SlimTicket = Pick<RemoteTicket, 'key' | 'title' | 'epic' | 'size' | 'status'>
+
+/**
+ * A board ticket from a slim read. The details the slim read leaves out (description, acceptance, links, labels, url) are kept from the
+ * last time the ticket was read whole (taken, viewed or changed); a ticket never read whole has none until it is.
+ */
+export const fromSlim = (r: SlimTicket, known: Ticket | undefined): Ticket => ({
+  ...(known ?? { acceptance: [], blockedBy: [], blocks: [] }),
+  id: r.key,
+  title: r.title,
+  epic: r.epic ?? 'Unsorted',
+  size: r.size,
+  status: r.status,
+})
+
+/**
+ * Pages list_tickets by nextCursor until it is null or absent; a failure on any page fails the whole read. Each page is slim: Claude Code
+ * replaces a tool reply over 50,000 characters with a note that it was too large, and a page of 50 whole tickets passes that on a busy board.
+ */
+async function listAllTickets($: EngineInterface, repository: string): Promise<{ ok: true; value: SlimTicket[] } | { ok: false; why: string }> {
+  const all: SlimTicket[] = []
   const seen = new Set<string>()
   let cursor: string | undefined
   for (;;) {
-    const page = await callTickit($, 'list_tickets', cursor === undefined ? { repository } : { repository, cursor })
+    const page = await callTickit($, 'list_tickets', cursor === undefined ? { repository, slim: true } : { repository, slim: true, cursor })
     if (!page.ok) return page
-    all.push(...((page.value.tickets as RemoteTicket[] | undefined) ?? []))
+    all.push(...((page.value.tickets as SlimTicket[] | undefined) ?? []))
     const next = page.value.nextCursor
     if (typeof next !== 'string' || next === '') return { ok: true, value: all }
     // A cursor that comes round again would never end: the board is not whole, so the read fails.
@@ -253,7 +272,8 @@ export async function refreshBoard($: EngineInterface): Promise<void> {
   }
   const listed = await listAllTickets($, repository)
   if (listed.ok) {
-    await save($, listed.value.map(fromRemote))
+    const known = new Map((await read($, tickets)).map(t => [t.id, t]))
+    await save($, listed.value.map(r => fromSlim(r, known.get(r.key))))
     await update($, boardError, () => null)
     // The roadmap only adds a header: when it cannot be read the board stays as it was.
     const roadmap = await callTickit($, 'list_milestones', { repository })
@@ -401,7 +421,7 @@ export async function startSession($: EngineInterface, id: string): Promise<stri
 export async function statusOnTickit($: EngineInterface, id: string): Promise<TicketStatus | undefined> {
   const repository = await repositoryHere($)
   if (repository === undefined) return undefined
-  const got = await callTickit($, 'get_ticket', { repository, key: id }).catch(() => ({ ok: false as const, why: 'unreachable' }))
+  const got = await callTickit($, 'get_ticket', { repository, key: id, include: [] }).catch(() => ({ ok: false as const, why: 'unreachable' }))
   return got.ok ? ((got.value.ticket as RemoteTicket | undefined)?.status ?? undefined) : undefined
 }
 

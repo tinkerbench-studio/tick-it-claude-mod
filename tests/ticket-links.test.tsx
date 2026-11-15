@@ -21,7 +21,8 @@ test('a ticket written in a reply is drawn as a link, and pressing it opens the 
   const seen = engine(on, { lines: 0 })
   ;(seen.server[0] as { url?: string }).url = URL143
   await start($)
-  await $.command.run({ ...RUN, command: 'tick-it', args: 'board' })
+  // Its url comes from get_ticket: the board is read slim, and list_tickets carries no ticket's url.
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-143' })
   const ui = await $.ui.mount({ plugin: 'tick-it', surface: 'terminal', component: 'AssistantMessage', props: { text: 'Do TCK-143 first.', isFirstOfReply: true, isExpanded: true } } as never)
   const drawn = await ui.find({ type: 'Markdown' })
   expect(drawn?.props?.text).toContain(`[**Persist checkout step in session (TCK-143)**](${URL143})`)

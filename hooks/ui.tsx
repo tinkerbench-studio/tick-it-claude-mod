@@ -3,7 +3,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 import { PANE, TICKET_PANE, WARN_AT, groupsOf, COLOR } from './state'
 import { budgetOf, linkTickets, boardStops, pickMilestone, nextMilestone, milestoneLine, milestoneOf, findCurrent, pullRequestLine, startSession, fixCi, rerunFailed, openPullRequest } from './board'
-import { take } from './work'
+import { readOne, take } from './work'
 import { reviewAgain, stopStewarding, summarise, reviewLine, findingRows } from './reviews'
 
 // Declared in this file: the engine reads an atom only where it is written (a module cannot use one imported from state.ts).
@@ -25,6 +25,8 @@ const sessionLink = atom({ plugin: 'tick-it', key: 'sessionLink' } as const, nul
 const viewed = atom({ plugin: 'tick-it', key: 'viewed' } as const, null as string | null)
 
 const viewTicket = async ($: EngineInterface, id: string) => {
+  // The board is read slim: the ticket's description, acceptance and links come from get_ticket when it is opened. Unread, the pane shows what is cached.
+  await readOne($, id).catch(() => undefined)
   await update($, viewed, () => id)
   await $.ui.open({ id: TICKET_PANE, title: id })
 }

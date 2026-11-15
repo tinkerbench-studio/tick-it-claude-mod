@@ -269,15 +269,18 @@ export const firstLine = (answer: string) =>
     .find(line => line !== '')
     ?.slice(0, 300)
 
-/** Reads the one ticket by its key with get_ticket and puts it in the cache: its reason when Tick-it cannot say. */
-async function readOne($: EngineInterface, wanted: string): Promise<string | undefined> {
+/** Reads the one ticket by its key with get_ticket and puts it in the cache, details and all: its reason when Tick-it cannot say. */
+export async function readOne($: EngineInterface, wanted: string): Promise<string | undefined> {
   const repository = await repositoryHere($)
   if (repository === undefined) return 'this folder has no GitHub origin remote, so tick-it does not know which repository it is'
   const one = await callTickit($, 'get_ticket', { repository, key: wanted, include: [] })
   if (!one.ok) return one.why
   const remote = one.value.ticket as RemoteTicket | undefined
   if (remote === undefined || remote.key?.toUpperCase() !== wanted) return `Tick-it's answer to get_ticket was not ${wanted}`
-  await save($, [...(await read($, tickets)).filter(t => t.id !== wanted), fromRemote(remote)])
+  // In its place on the board, so reading one ticket does not reorder it; at the end when it was not on the board yet.
+  const board = await read($, tickets)
+  const read1 = fromRemote(remote)
+  await save($, board.some(t => t.id === wanted) ? board.map(t => (t.id === wanted ? read1 : t)) : [...board, read1])
   return undefined
 }
 
