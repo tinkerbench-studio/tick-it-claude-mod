@@ -153,7 +153,7 @@ export const engine = (
         const ticket = seen.server.find(t => t.key === a.key)
         return ticket === undefined ? refuse(`No ticket ${String(a.key)} in acme/web-app.`) : answer({ ticket: net.reviewSpend === undefined ? ticket : { ...ticket, reviewSpend: net.reviewSpend } })
       }
-      if (e.tool === 'get_ticket_timeline') return net.timeline === undefined || net.timeline === 'unreachable' ? refuse('Tick-it is down') : answer({ timeline: net.timeline, reviewSpend: null })
+      if (e.tool === 'get_ticket_timeline') return net.timeline === undefined || net.timeline === 'unreachable' ? refuse('Tick-it is down') : answer({ timeline: net.timeline })
       if (e.tool === 'list_pull_requests') {
         if (net.pullRequests === 'unreachable') return refuse('Tick-it is down')
         return answer({ pullRequests: net.pullRequests ?? [] })

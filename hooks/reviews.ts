@@ -311,8 +311,10 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
   }
   // The first round of a session (not the review of a fix) continues from the rounds Tick-it has recorded for the ticket, whichever session ran them. Unreadable, it is round 1 as before.
   const first = fromRound === 1 && trigger !== 'after-fix'
-  const recorded = first ? await recordedReviews($, t.id) : undefined
-  const round = recorded === undefined ? fromRound : lastRecordedRound(recorded) + 1
+  // The turn that ticks the acceptance checks of a round settled without reviewers ends in this start too: the head it finds is as reviewed as before.
+  const afterTicking = trigger === 'after-fix' && ticking === true
+  const recorded = first || afterTicking ? await recordedReviews($, t.id) : undefined
+  const round = !first || recorded === undefined ? fromRound : lastRecordedRound(recorded) + 1
   const limit = await roundLimit($, t.size, t.id)
   const earlierRuns = await read($, reviews)
   // A skill runs for the ticket's size, or, when it lists `changes`, for what the change touches whatever the size. The change is read only when a skill asks.
@@ -335,8 +337,17 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
   }
   const head = (await $.process.run(['git', 'rev-parse', 'HEAD'])).stdout.trim() || undefined
   // Every applicable skill already reviewed this head with nothing blocking: no reviewer starts, and the round settles from the pull request and the acceptance ticks alone.
-  if (recorded !== undefined && head !== undefined && recorded.length > 0 && skills.every(({ folder }) => reviewedClean(recorded, folder, head))) {
-    const last = lastRecordedRound(recorded)
+  // A command cannot submit a prompt, and a settle that finds a check unticked or the pull request failing submits one: from a command the round settles here only when it ends clean, and is reviewed as before otherwise.
+  const fromCommand = trigger === 'done-command' || trigger === 'steward-command'
+  const settlesClean = async () => {
+    if (!fromCommand) return true
+    const unticked = await untickedAcceptance($, t.id)
+    if (unticked === null || unticked.length > 0) return false
+    await refreshPullRequest($, t.id).catch(() => update($, pullRequestError, () => 'could not read the pull request'))
+    return (await read($, pullRequestError)) === null && pullRequestFindings(await read($, pullRequest)).length === 0
+  }
+  if (recorded !== undefined && head !== undefined && recorded.length > 0 && skills.every(({ folder }) => reviewedClean(recorded, folder, head)) && (await settlesClean())) {
+    const last = first ? lastRecordedRound(recorded) : fromRound - 1
     const steward: Steward = { ticket: t.id, round: last, phase: 'reviewing', maxRounds: Math.max(limit, last), ...(ticking === true ? { ticking } : {}) }
     await setSteward($, steward)
     await log($, 'debug', 'round-not-started', { ticket: t.id, round: last, why: 'head-already-reviewed' })
@@ -505,10 +516,10 @@ export async function budgetStop($: EngineInterface, ticket: string, rounds: num
   const spend = got?.ok === true ? (got.value.ticket as { reviewSpend?: { costUsd?: unknown; budget?: unknown; remaining?: unknown } | null } | undefined)?.reviewSpend : undefined
   if (spend === null || spend === undefined) return undefined
   const { costUsd, budget, remaining } = spend
+  if (typeof costUsd !== 'number' || typeof budget !== 'number' || typeof remaining !== 'number') return undefined
   // The spend covers every session's rounds, so it is divided by the rounds recorded for the ticket, not by this session's count alone.
   const recorded = await recordedReviews($, ticket)
-  const ran = recorded === undefined ? rounds : Math.max(rounds, new Set(recorded.map(r => r.round)).size)
-  if (typeof costUsd !== 'number' || typeof budget !== 'number' || typeof remaining !== 'number') return undefined
+  const ran = recorded === undefined ? rounds : Math.max(rounds, recorded.length)
   // Spend must be under the budget; and a round costing the average of those so far must fit in what remains.
   if (remaining <= 0) return { budget, costUsd, reached: true }
   if (ran >= 1 && costUsd / ran > remaining) return { budget, costUsd, reached: false }
@@ -528,21 +539,21 @@ export async function recordedReviews($: EngineInterface, ticket: string): Promi
   const rounds: RecordedRound[] = []
   for (const e of entries as { type?: unknown; round?: unknown; agents?: unknown }[]) {
     if (e.type !== 'review' || typeof e.round !== 'number' || !Array.isArray(e.agents)) continue
-    const agents = (e.agents as { skill?: unknown; blocking?: unknown; headSha?: unknown; notApplicable?: unknown }[]).flatMap(a =>
-      typeof a.skill === 'string' && typeof a.blocking === 'number' ? [{ skill: a.skill, blocking: a.blocking, ...(typeof a.headSha === 'string' ? { headSha: a.headSha } : {}), ...(typeof a.notApplicable === 'string' ? { notApplicable: true } : {}) }] : [],
+    const agents = (e.agents as { skill?: unknown; blocking?: unknown; headSha?: unknown }[]).flatMap(a =>
+      typeof a.skill === 'string' && typeof a.blocking === 'number' ? [{ skill: a.skill, blocking: a.blocking, ...(typeof a.headSha === 'string' ? { headSha: a.headSha } : {}) }] : [],
     )
     rounds.push({ round: e.round, agents })
   }
   return rounds
 }
 
-/** The highest round recorded for the ticket, 0 when none. */
-export const lastRecordedRound = (rounds: RecordedRound[]): number => rounds.reduce((most, r) => Math.max(most, r.round), 0)
+/** How many review rounds Tick-it has recorded for the ticket: one timeline entry per round per session, and round numbers repeat across sessions, so entries are counted, not the highest number. */
+export const lastRecordedRound = (rounds: RecordedRound[]): number => rounds.length
 
-/** Whether the skill's newest recorded run reviewed this head commit with no blocking finding (a run recorded as not applicable counts: it left nothing to review). */
+/** Whether the skill's newest recorded run (the last in the timeline, which is oldest first) saw this head commit with no blocking finding; a run recorded as not applicable counts when it names this head too. */
 export const reviewedClean = (rounds: RecordedRound[], skill: string, head: string): boolean => {
-  const newest = rounds.flatMap(r => r.agents.filter(a => a.skill === skill).map(a => ({ round: r.round, ...a }))).sort((a, b) => b.round - a.round)[0]
-  return newest !== undefined && newest.blocking === 0 && (newest.notApplicable === true || newest.headSha === head)
+  const newest = rounds.flatMap(r => r.agents.filter(a => a.skill === skill)).at(-1)
+  return newest !== undefined && newest.blocking === 0 && newest.headSha === head
 }
 
 /** Once every reviewer of the round has answered: done, a fix round, one more round past the limit, or stop. */

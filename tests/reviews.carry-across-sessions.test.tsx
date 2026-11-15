@@ -44,7 +44,7 @@ test('the recorded rounds cannot be read: round 1 and a review, as before', asyn
 })
 
 test('budgetStop divides the spend of every session by the rounds recorded: a round that fits is not stopped, and one that would overshoot is', async ($, on) => {
-  // $2.40 of $3 over 4 recorded rounds is $0.60 a round: it fits the $0.60 left. Counted as one round it would not ($2.40).
+  // $2.40 of $3 over the rounds in progress (the 3 recorded, then round 4) is $0.60 a round: it fits the $0.60 left. Counted as one round it would not ($2.40).
   const fits = run(on, { modConfig: served, reviewSpend: spend(2.4), timeline: [entry(1, 1), entry(2, 1), entry(3, 1)] })
   await done($)
   await $.turn.complete(finishTurn('agent-1', 'BLOCKING: still wrong'))
@@ -78,6 +78,7 @@ test('a clean round that names no head is not taken for this head: the round sta
   const seen = run(on, { timeline: [entry(1, 0)] })
   await done($)
   expect(seen.spawned).toHaveLength(1)
+  expect(seen.spawned[0]?.description).toContain('round 2')
 })
 
 test('the skill’s newest run decides: a later blocking run on this head is reviewed again', async ($, on) => {
@@ -87,8 +88,48 @@ test('the skill’s newest run decides: a later blocking run on this head is rev
   expect(seen.spawned[0]?.description).toContain('round 3')
 })
 
-test('a run the server recorded as not applicable (a reason string) counts as reviewed: no reviewer starts', async ($, on) => {
-  const seen = run(on, { timeline: [{ ...entry(1, 0), agents: [{ skill: 'principal', blocking: 0, optional: 0, verdicts: [], notApplicable: 'Nobody sees this change.' }] }] })
+test('a run recorded as not applicable counts as reviewed on this head only: no reviewer starts on it, and one on another head is reviewed', async ($, on) => {
+  const seen = run(on, { timeline: [{ ...entry(1, 0), agents: [{ skill: 'principal', blocking: 0, optional: 0, verdicts: [], notApplicable: 'Nobody sees this change.', headSha: HEAD }] }] })
   await done($)
   expect(seen.spawned).toHaveLength(0)
+})
+
+test('a not-applicable run on an earlier head does not skip the review of this one', async ($, on) => {
+  const seen = run(on, { timeline: [{ ...entry(1, 0), agents: [{ skill: 'principal', blocking: 0, optional: 0, verdicts: [], notApplicable: 'Nobody sees this change.', headSha: 'cafe' }] }] })
+  await done($)
+  expect(seen.spawned).toHaveLength(1)
+})
+
+test('round numbers repeat across sessions: the entries are counted, and the newest entry of a skill decides', async ($, on) => {
+  // As on TCK-29: three entries all numbered 1, so the next round is 4; the last one is clean on this head, an older blocking one does not count.
+  const seen = run(on, { timeline: [entry(1, 1, 'cafe'), entry(1, 1, 'f00d'), entry(1, 0, HEAD)] })
+  await done($)
+  expect(seen.spawned).toHaveLength(0)
+})
+
+test('with entries all numbered 1, the first round is the number of entries plus one', async ($, on) => {
+  const seen = run(on, { timeline: [entry(1, 1, 'cafe'), entry(1, 1, 'f00d'), entry(1, 1, 'beef')] })
+  await done($)
+  expect(seen.spawned[0]?.description).toContain('round 4')
+})
+
+test('budgetStop counts entries, not distinct round numbers: three entries numbered 1 fit $0.80 left of $3', async ($, on) => {
+  const seen = run(on, { modConfig: served, reviewSpend: spend(2.2), timeline: [entry(1, 1), entry(1, 1), entry(1, 1)] })
+  await done($)
+  await $.turn.complete(finishTurn('agent-1', 'BLOCKING: still wrong'))
+  expect(seen.ticketCalls.some(c => c.tool === 'set_needs_human')).toBe(false)
+})
+
+test('from a command, a head already reviewed clean with an unticked check is reviewed as before (a command cannot ask Claude to tick it)', async ($, on) => {
+  const seen = run(on, { timeline: [entry(1, 0, HEAD)] })
+  Object.assign(seen.server.find(t => t.key === 'TCK-143') ?? {}, { acceptanceItems: [{ id: 'c1', text: 'It saves', checked: false }] })
+  await done($)
+  expect(seen.spawned).toHaveLength(1)
+  expect(seen.spawned[0]?.description).toContain('round 2')
+})
+
+test('from a command, a head already reviewed clean with a failing pull request is reviewed as before', async ($, on) => {
+  const seen = run(on, { timeline: [entry(1, 0, HEAD)], pullRequests: [{ number: 7, state: 'open', draft: true, ci: 'failure' }] })
+  await done($)
+  expect(seen.spawned).toHaveLength(1)
 })
