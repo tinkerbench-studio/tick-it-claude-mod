@@ -76,3 +76,44 @@ test('the board pane shows the hold and the next ticket on a narrow terminal', a
   expect(next?.props?.wrap).toBe('truncate-end')
   await board.unmount()
 })
+
+const take = ($: Parameters<typeof start>[0], key: string) => $.command.run({ ...RUN, command: 'tick-it', args: `take ${key}` })
+
+test('/tick-it take refuses a ticket held until a future date, naming it, and writes nothing', async ($, on) => {
+  const seen = engine(on, { lines: 0 })
+  Object.assign(seen.server.find(t => t.key === 'TCK-149')!, { notBefore: FUTURE })
+  const before = { ...seen.server.find(t => t.key === 'TCK-149')! }
+  await start($)
+  const out = await take($, 'TCK-149')
+  expect(JSON.stringify(out)).toContain('TCK-149 is held until 1 Dec 2999')
+  const after = seen.server.find(t => t.key === 'TCK-149')!
+  expect(after.status).toBe(before.status)
+  expect(after.assignee).toBe(before.assignee)
+  expect(seen.ticketCalls.some(c => c.tool === 'update_ticket')).toBe(false)
+})
+
+test('/tick-it take takes a ticket whose date has passed, and one with no hold, as before', async ($, on) => {
+  const seen = engine(on, { lines: 0 })
+  Object.assign(seen.server.find(t => t.key === 'TCK-149')!, { notBefore: PAST })
+  await start($)
+  await take($, 'TCK-149')
+  expect(seen.server.find(t => t.key === 'TCK-149')).toMatchObject({ status: 'In progress', assignee: 'maddiecs84' })
+  await take($, 'TCK-147')
+  expect(seen.server.find(t => t.key === 'TCK-147')).toMatchObject({ status: 'In progress', assignee: 'maddiecs84' })
+})
+
+test("the pane's start shows the server's refusal of a held ticket unchanged and does not retry", async ($, on) => {
+  const seen = engine(on, { lines: 0 })
+  Object.assign(seen.server.find(t => t.key === 'TCK-149')!, { notBefore: FUTURE })
+  const before = { ...seen.server.find(t => t.key === 'TCK-149')! }
+  await start($)
+  const board = await $.ui.mount({ plugin: 'tick-it', surface: 'terminal', ...PANE })
+  await board.press({ key: 'open-TCK-149' })
+  await board.unmount()
+  const pane = await $.ui.mount({ plugin: 'tick-it', surface: 'terminal', component: 'Pane', requestId: 'tick-it-ticket', props: { title: 'TCK-149', isFocused: true, bodyColumns: 60, placement: 'dock', scroll: { offset: 0, bodyRows: 30 }, view: {} } } as const)
+  await pane.press({ key: 'start-session' })
+  expect(seen.toasts.at(-1)).toContain(`could not start a session on TCK-149: TCK-149 is held until ${FUTURE}: it cannot be started before then.`)
+  expect(seen.ticketCalls.filter(c => c.tool === 'start_session')).toHaveLength(1)
+  expect(seen.server.find(t => t.key === 'TCK-149')).toMatchObject({ status: before.status, assignee: before.assignee })
+  await pane.unmount()
+})

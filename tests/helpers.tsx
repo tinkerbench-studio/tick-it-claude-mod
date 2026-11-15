@@ -181,6 +181,10 @@ export const engine = (
         if (net.linkRefused) throw new Error('connection refused')
         return net.linkRejected ? refuse('No ticket TCK-143 in acme/web-app.') : answer({ pullRequests: [] })
       }
+      if (e.tool === 'start_session') {
+        const held = seen.server.find(t => t.key === a.key) as { notBefore?: string | null } | undefined
+        if (held?.notBefore != null && Date.parse(held.notBefore) > Date.now()) return refuse(`${String(a.key)} is held until ${held.notBefore}: it cannot be started before then.`)
+      }
       if (e.tool === 'start_session') return answer({ session: { id: 's_new1234567' }, local: { link: `claude-cli://open?q=work+on+${String(a.key)}` } })
       if (e.tool === 'add_attachment') return answer({ attachment: { id: 'att1', name: a.name, type: a.type } })
       if (e.tool === 'create_ticket') {
