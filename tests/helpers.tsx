@@ -114,7 +114,7 @@ export type Net = {
 /** The engine beneath the mod: a store, a repo whose diff is `diff.lines` lines, and quiet UI calls. */
 export const engine = (
   on: On,
-  diff: { lines: number; pr?: number; origin?: string | null; noCommit?: boolean; numstatZ?: string; failFiles?: boolean; changed?: string[] | null; failUntracked?: boolean; truncateNames?: boolean; bases?: string[]; failNames?: 'exit' | 'throw'; subdir?: string; stored?: Record<string, unknown>; refuse?: (model: string | undefined) => string | undefined; patch?: string; dirty?: boolean; untracked?: Record<string, string>; binary?: Record<string, string>; gh?: (argv: string[]) => { exitCode: number; stdout: string; stderr: string } | undefined; pictures?: { key: string; name: string }[] | 'unreachable' | 'odd' },
+  diff: { lines: number; pr?: number; origin?: string | null; noCommit?: boolean; numstatZ?: string; failFiles?: boolean; changed?: string[] | null; since?: string[] | null; failUntracked?: boolean; truncateNames?: boolean; bases?: string[]; failNames?: 'exit' | 'throw'; subdir?: string; stored?: Record<string, unknown>; refuse?: (model: string | undefined) => string | undefined; patch?: string; dirty?: boolean; untracked?: Record<string, string>; binary?: Record<string, string>; gh?: (argv: string[]) => { exitCode: number; stdout: string; stderr: string } | undefined; pictures?: { key: string; name: string }[] | 'unreachable' | 'odd' },
   isPlaced = true,
   skills: Record<string, string> = {},
   net: Net = {},
@@ -298,6 +298,8 @@ export const engine = (
     if (cmd === 'git' && sub === 'merge-base') return { value: { exitCode: diff.changed === undefined || diff.changed === null || (diff.bases !== undefined && !diff.bases.includes(e.argv[3] ?? '')) ? 1 : 0, stdout: `${'cd34'.repeat(10)}\n`, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     if (cmd === 'git' && sub === 'diff' && e.argv.includes('--name-only') && diff.failNames === 'exit') return { value: { exitCode: 128, stdout: '', stderr: 'fatal', isStdoutTruncated: false, isStderrTruncated: false } }
     if (cmd === 'git' && sub === 'diff' && e.argv.includes('--name-only') && diff.failNames === 'throw') throw new Error('git diff --name-only failed')
+    // Files changed since a review's head (the diff against it, not against the merge base): `since`, else every changed file, as after a real fix.
+    if (cmd === 'git' && sub === 'diff' && e.argv.includes('--name-only') && e.argv.includes('ab12'.repeat(10))) return { value: { exitCode: diff.since === null ? 128 : 0, stdout: (diff.since ?? diff.changed ?? ["x"]).map(f => `${f}\0`).join(''), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     if (cmd === 'git' && sub === 'diff' && e.argv.includes('--name-only')) return { value: { exitCode: 0, stdout: (diff.changed ?? []).map(f => `${f}\0`).join(''), stderr: '', isStdoutTruncated: diff.truncateNames === true, isStderrTruncated: false } }
     if (cmd === 'git' && sub === 'diff' && e.argv.includes('-z') && diff.failFiles === true) throw new Error('git diff -z failed')
     const stdout =

@@ -341,7 +341,16 @@ export async function changedSinceBase($: EngineInterface): Promise<string[] | n
 /** What began a round, as the log says it: the done command, the steward command, Claude's own move to In review, or the fix turn ending. */
 export type RoundTrigger = 'done-command' | 'steward-command' | 'moved-by-claude' | 'after-fix' | 'after-stop'
 
-/** Starts one review round: every skill that applies to the ticket's size and whose paths match a changed file, each as a subagent. */
+/** The files changed since a commit (the working tree against it, untracked files included), or null when they cannot be listed. */
+export async function changedSince($: EngineInterface, sha: string): Promise<string[] | null> {
+  const diff = await $.process.run(['git', 'diff', '--name-only', '--no-renames', '-z', sha]).catch(() => undefined)
+  if (diff === undefined || diff.exitCode !== 0 || diff.isStdoutTruncated) return null
+  const others = await $.process.run(['git', 'ls-files', '--others', '--exclude-standard', '--full-name', '-z', '--', ':/']).catch(() => undefined)
+  if (others === undefined || others.exitCode !== 0 || others.isStdoutTruncated) return null
+  return [...diff.stdout.split('\0'), ...others.stdout.split('\0')].filter(f => f !== '')
+}
+
+/** Starts one review round: every skill that applies to the ticket's size and whose paths match a changed file, each as a subagent (from round 2, only those with work left). */
 export async function startRound($: EngineInterface, t: Ticket, fromRound: number, ticking?: boolean, trigger: RoundTrigger = 'done-command'): Promise<string> {
   // The ticket may not have been taken in this session: the repository's settings are read afresh as its rounds begin, before the stop check below.
   if (fromRound === 1) {
@@ -397,8 +406,15 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
   // Once a skill has reviewed the ticket it reviews every later round: a fix that takes the change out of an area still has that round's findings to answer.
   const ranBefore = (folder: string) => earlierRuns.some(r => r.ticket === t.id && r.skill === folder && r.round < round)
   // A skill with blocking findings still open from an earlier round also runs, whatever its paths: a fix that takes the change out of its paths still has those findings to answer.
-  const skills = all.filter(({ folder, skill }) => (bySize(skill) && pathsMatch(skill)) || changesFor(skill.changes, touched, paths).length > 0 || (skill.changes !== undefined && ranBefore(folder)) || earlierBlockers(earlierRuns, t.id, folder, round).length > 0)
-  const skipped = sized.filter(f => !skills.includes(f))
+  const eligible = all.filter(({ folder, skill }) => (bySize(skill) && pathsMatch(skill)) || changesFor(skill.changes, touched, paths).length > 0 || (skill.changes !== undefined && ranBefore(folder)) || earlierBlockers(earlierRuns, t.id, folder, round).length > 0)
+  // From round 2 a reviewer runs only with work left: a blocking finding still open, or a changed file since the previous round that matches its paths (any file, for a reviewer with no paths).
+  // One that reviewed the ticket clean and finds none carries its clean verdict forward. A round 1 (a fresh steward run) runs every applicable reviewer; files that cannot be listed run them all too.
+  const previous = first ? undefined : earlierRuns.filter(r => r.ticket === t.id && r.round < round && r.headSha !== undefined).sort((a, b) => a.round - b.round || a.startedAt - b.startedAt).at(-1)
+  const since = previous?.headSha === undefined || eligible.length === 0 ? null : await changedSince($, previous.headSha).catch(() => null)
+  const reviewedBefore = (folder: string) => earlierRuns.some(r => r.ticket === t.id && r.skill === folder && r.round < round && r.status === 'done' && r.notApplicable === undefined)
+  const forwarded = eligible.filter(({ folder, skill }) => since !== null && reviewedBefore(folder) && earlierBlockers(earlierRuns, t.id, folder, round).length === 0 && !since.some(f => skill.paths === undefined || skill.paths.some(g => globMatches(g, f))))
+  const skills = eligible.filter(f => !forwarded.includes(f))
+  const skipped = all.filter(f => !skills.includes(f) && (sized.includes(f) || forwarded.includes(f)))
   if (skipped.length > 0) {
     // Recorded on the round as not applicable, with the reason; they hold nothing up.
     const session = await $.session.id()
@@ -413,10 +429,18 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
       startedAt: now,
       status: 'done',
       durationMs: 0,
-      notApplicable: `No changed file matches its paths (${(skill.paths ?? []).join(', ')}).`.slice(0, 300),
+      notApplicable: (forwarded.some(c => c.folder === folder) ? `Clean before and no changed file since the previous round matches its paths (${(skill.paths ?? []).join(', ') || 'every file'}): its clean verdict carries forward.` : `No changed file matches its paths (${(skill.paths ?? []).join(', ')}).`).slice(0, 300),
     }))
     await queue($, runs)
     await flush($).catch(() => undefined)
+  }
+  // Every reviewer forwarded a clean verdict forward and none has work left: the round settles from the pull request and the acceptance ticks, as when a head was already reviewed.
+  if (skills.length === 0 && forwarded.length > 0) {
+    const steward: Steward = { ticket: t.id, round, phase: 'reviewing', maxRounds: Math.max(limit, round), ...(ticking === true ? { ticking } : {}) }
+    await setSteward($, steward)
+    await log($, 'debug', 'round-not-started', { ticket: t.id, round, why: 'forwarded-forward' })
+    await settleRound($, steward, true)
+    return `Round ${round}: no reviewer has work left on ${t.id} (${forwarded.map(c => c.folder).join(', ')} carry their clean verdicts forward); settling from the pull request and the acceptance checks.`
   }
   if (skills.length === 0) {
     await log($, 'debug', 'round-not-started', { ticket: t.id, round, why: all.length === 0 ? 'no-skills' : sized.length === 0 ? 'no-skill-for-size' : 'no-skill-for-paths' })
