@@ -125,3 +125,18 @@ test('every verdict carried forward while CI is still pending after the fix: set
   expect(seen.spawned.filter(s => s.description.endsWith('round 2'))).toHaveLength(0)
   expect(seen.ticketCalls.some(c => c.tool === 'set_needs_human' && String(c.args.note).includes('budget has no room'))).toBe(false)
 })
+
+test('round 2: a reviewer whose round 1 run failed has no clean verdict to carry, so it runs again with no blocker and no changed file', async ($, on) => {
+  const seen = engine(on, { lines: 10, changed: CHANGED, since: [] }, true, SKILLS)
+  await start($)
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-143' })
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'done' })
+  for (const [i, s] of seen.spawned.entries()) {
+    const name = s.description.split(' ')[2]
+    await $.turn.complete(name === 'docs' ? { ...finishTurn(`agent-${i + 1}`, 'crashed'), reason: 'error' as never } : finishTurn(`agent-${i + 1}`, name === 'all' ? 'BLOCKING: all wrong' : 'VERDICT: clean'))
+  }
+  await $.turn.complete(finishTurn(undefined, 'Fixed.'))
+  // docs failed (nothing to carry forward) and all has a blocker open; code was clean and nothing changed.
+  expect(round2(seen)).toEqual(['all', 'docs'])
+  expect(carried(seen).map(r => r.skill)).toEqual(['code'])
+})
