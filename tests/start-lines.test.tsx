@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import { BREAKDOWN_LINE, START_LINE } from '../hooks/state'
-import { SKILLS, engine, finishTurn, start, typed, reports } from './helpers'
+import { RUN, SKILLS, engine, finishTurn, start, typed, reports } from './helpers'
 
 const LINE = 'Tick-it session s_abc12345: work on TCK-151 in acme/web-app.'
 /** The first message of a scheduled session: the line arrives indented inside a routine-fire-payload block. */
@@ -124,4 +124,16 @@ test('a start line whose ticket the mod could not take leaves the session to rep
   for (const tool of TOOLS) expect((await check($, tool)).decision).toBe('allow')
   await $.prompt.submit(typed(WRAPPED))
   for (const tool of TOOLS) expect((await check($, tool)).decision).toBe('deny')
+})
+
+test('a session whose start line failed and that then takes its ticket with /tick-it take keeps the deny reasons', async ($, on) => {
+  engine(on, { lines: 10 }, true, SKILLS)
+  on('tool.check', () => ({ decision: 'allow' as const }))
+  await start($)
+  await $.prompt.submit(typed('Tick-it session s_abc12345: work on TCK-999 in acme/web-app.'))
+  for (const tool of TOOLS) expect((await check($, tool)).decision).toBe('allow')
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-151' })
+  const denied = await check($, 'record_runs')
+  expect(denied.decision).toBe('deny')
+  expect('reason' in denied ? denied.reason : '').toBe('tick-it records review runs itself, from what each review agent spent.')
 })

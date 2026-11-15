@@ -74,7 +74,7 @@ export const registerSession: Register = on => {
   on('tool.check', async ($, e, next) => {
     const isTickit = /tick-?it/i.test(e.tool)
     // A session Tick-it started whose ticket the mod could not take: nothing is recorded or reported for it, so it reports for itself and these calls are its own.
-    if (isTickit && next.origin.plugin === 'engine' && (await read($, takeFailed)) !== null && [RECORD_TOOL, REPORT_TOOL, AGENTS_TOOL].some(t => e.tool.endsWith(`__${t}`))) {
+    if (isTickit && next.origin.plugin === 'engine' && (await read($, takeFailed)) !== null && (await read($, current)) === null && (await read($, startedSession)) === null && [RECORD_TOOL, REPORT_TOOL, AGENTS_TOOL].some(t => e.tool.endsWith(`__${t}`))) {
       await log($, 'warn', 'tool-allowed-untaken', { tool: e.tool })
       return next(e)
     }

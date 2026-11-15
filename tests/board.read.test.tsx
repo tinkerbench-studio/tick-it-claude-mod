@@ -99,3 +99,11 @@ test('a ticket is taken by reading just that ticket: the board is not read, so a
   expect(calls.some(c => c.tool === 'list_tickets')).toBe(false)
   expect(seen.server.find(t => t.key === 'TCK-143')?.status).toBe('In progress')
 })
+
+test('a get_ticket answer with no result names its content blocks and the start of its text', async ($, on) => {
+  const seen = engine(on, { lines: 0 }, false, {}, { ticketNoResult: true })
+  await start($)
+  const taken = await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-143' })
+  expect(taken.text).toContain('had no result in it (2 content blocks: text 234 chars, image 0 chars; the text starts: Tick-it is busy, try again later.')
+  expect(seen.server.find(t => t.key === 'TCK-143')?.status).not.toBe('In progress')
+})
