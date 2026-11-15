@@ -130,3 +130,30 @@ test('a fix made after a budget stop is the last review even with rounds left an
   expect(needsHuman(seen)).toHaveLength(2)
   expect(reports(seen).at(-1)).toMatchObject({ status: 'stopped' })
 })
+
+test('the move to In review after a mod stop records the pull request again', async ($, on) => {
+  const seen = engine(on, { lines: 10, pr: 42 }, true, PRINCIPAL, spent)
+  await start($)
+  await $.prompt.submit(typed(STARTED.replace('TCK-151', 'TCK-143')))
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'done' })
+  await $.turn.complete(finishTurn('agent-1', 'BLOCKING: still wrong'))
+  const before = seen.ticketCalls.filter(c => c.tool === 'link_pull_request').length
+  await claudeMovesToReview($)
+  const links = seen.ticketCalls.filter(c => c.tool === 'link_pull_request')
+  expect(links).toHaveLength(before + 1)
+  expect(links.at(-1)?.args).toMatchObject({ key: 'TCK-143', number: 42 })
+})
+
+test('s after the review of a fix made after a stop stays stopped: a later move to In review starts no round', async ($, on) => {
+  const seen = await stoppedByMod($, on)
+  await claudeMovesToReview($)
+  await $.turn.complete(finishTurn(undefined, 'Fixed it and pushed.'))
+  const ui = await $.ui.mount({ plugin: 'tick-it', surface: 'terminal', ...PANE })
+  // Pressed while round 2 reviews, then its reviewer answers: stopped stays stopped.
+  await ui.press({ key: 'stop-stewarding' })
+  await $.turn.complete(finishTurn('agent-2', 'BLOCKING: still wrong\nVERDICT: changes'))
+  await claudeMovesToReview($)
+  await $.turn.complete(finishTurn(undefined, 'Pushed again.'))
+  expect(seen.spawned).toHaveLength(2)
+  await ui.unmount()
+})
