@@ -13,6 +13,7 @@ const syncError = atom({ plugin: 'tick-it', key: 'syncError' } as const, null)
 const dropped = atom({ plugin: 'tick-it', key: 'dropped' } as const, [])
 /** link_pull_request calls Tick-it has not taken yet: sent again with the outbox. */
 const unlinked = atom({ plugin: 'tick-it', key: 'unlinked' } as const, [])
+const startedSession = atom({ plugin: 'tick-it', key: 'started' } as const, null)
 
 /** What record_runs answers, in structuredContent or as JSON text. */
 export type RecordAnswer = { accepted: string[]; rejected: { agentId: string; reason: string }[] }
@@ -85,8 +86,11 @@ export async function flush($: EngineInterface): Promise<string> {
     failure = 'this folder has no GitHub origin remote, so Tick-it would not know the repository'
   } else {
     const session = await $.session.id()
+    // The Tick-it session (s_…) the session took a ticket for: Tick-it's review hold matches a run on it, since a routine-started session's Claude Code id there is the claude.ai one. Left out when no ticket was taken.
+    const tickitSession = (await read($, startedSession))?.id
     const sent = await sendTickit($, RECORD_TOOL, place => ({
       session,
+      ...(tickitSession === undefined ? {} : { tickitSession }),
       // owner/name, as Tick-it knows the repository: not the remote's URL.
       repository,
       // Each review run carries its findings with their text, parsed from its BLOCKING and OPTIONAL lines.

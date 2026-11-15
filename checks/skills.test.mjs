@@ -189,3 +189,10 @@ test('the security base runs for what a change touches as well as for its size, 
   for (const area of AREAS) expect(readme).toContain(`| \`${area}\` |`)
   for (const area of AREAS) expect(readme).toContain(`\`tick-it:secure-${area}\``)
 })
+
+test('every skill that writes ticket text names another repository’s ticket as owner/name#KEY and its pull request as owner/name#n', () => {
+  for (const name of ['draft-ticket', 'import-github', 'plan-epic', 'periodic-retro', 'retro', 'revise-plan', 'review-agents']) {
+    const skill = read(`skills/${name}/SKILL.md`)
+    for (const words of ["name another repository's ticket as `owner/name#KEY` and its pull request as `owner/name#n`", 'never a bare key or `#n`', 'a bare one always means this repository']) expect(skill).toContain(words, `${name} no longer says "${words}"`)
+  }
+})

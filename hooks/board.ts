@@ -162,6 +162,9 @@ export const DONE_LINE =
 export const budgetLine = (rounds: number, budget: number) =>
   `The review budget for this ticket's size is $${budget}, with a ceiling of ${rounds} rounds (and the one further round): run another round while blocking findings are open, spend is under budget and rounds are under the ceiling. Before a further round, read the ticket's reviewSpend with get_ticket (costUsd, budget, remaining), and do not start a round whose cost, judged by the cost of the rounds so far, would clearly overshoot the remaining budget. If reviewSpend is null (you cannot see costs), go by the round ceiling alone and do not guess the spend. If the budget is reached with BLOCKING findings still open, do not start another round: call set_needs_human with kind no-clean-round and a note naming the budget and the BLOCKING findings still open, and leave the ticket In review. A fix already made is still reviewed once first.`
 
+/** How a session names another repository's ticket or pull request in text it writes: a bare key or #n always means the text's own repository (TCK-32). */
+export const OTHER_REPOSITORY_LINE = "In any text you write into a ticket or a pull request (a description, comment or note), name another repository's ticket as owner/name#KEY and its pull request as owner/name#n, never a bare key or #n: a bare one always means this repository, and repositories can share a prefix."
+
 export const brief = (t: Ticket, board: Ticket[] = [], instructions = '', files: AttachmentRef[] = [], memories: MemoryRef[] = [], from: Served | null = null, uiPaths: UiPaths = null, reviewBudget: number | null = null, reviewRounds = 0): string => {
   const budget = from?.sizeBudgets[t.size] ?? BUDGET[t.size]
   const lines = from !== null && from.ticket === t.id ? from.briefLines : null
@@ -182,6 +185,7 @@ export const brief = (t: Ticket, board: Ticket[] = [], instructions = '', files:
     ...(reviewBudget === null ? [] : [budgetLine(reviewRounds, reviewBudget)]),
     `When it is built and its checks pass, move ${t.id} to In review yourself with Tick-it's update_ticket, without waiting to be asked: tick-it then runs its review agents on it.`,
     ...(lines?.addToTicket ?? addToTicketLines(t.id)),
+    OTHER_REPOSITORY_LINE,
     lines?.branch ?? branchLine(t.id),
     lines?.done ?? DONE_LINE,
     ...memoryLines(memories),
