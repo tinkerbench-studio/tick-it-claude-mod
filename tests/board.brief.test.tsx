@@ -278,3 +278,8 @@ test('the brief names the security areas and the skill to load before writing co
   for (const area of ['authentication', 'access-control', 'database', 'infrastructure', 'secrets', 'input', 'web', 'dependencies', 'agents', 'personal-data']) expect(text).toContain(area)
   expect(text).toContain('A security reviewer runs on a ticket of any size whose change touches one of them')
 })
+
+test('the brief tells a session to write another repository\'s ticket as owner/name#KEY and its pull request as owner/name#n', () => {
+  const t = { id: 'TCK-2', title: 'Two', epic: 'E', size: 'XS' as const, status: 'Ready' as const, acceptance: ['a'] }
+  expect(brief(t)).toContain("name another repository's ticket as owner/name#KEY and its pull request as owner/name#n, never a bare key or #n")
+})
