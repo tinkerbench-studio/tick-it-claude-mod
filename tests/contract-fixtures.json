@@ -1,7 +1,7 @@
 {
   "about": "What the mod sends Tick-it and the fields of each answer it reads. Tick-it's CI checks every call against the tool's inputSchema and every answer against its outputSchema (docs/api-compatibility.md in tick-it). An answer lists only the fields the mod reads. Add a call or a field here when the mod starts using it.",
   "calls": [
-    { "tool": "get_mod_config", "args": { "repository": "acme/web-app", "key": "TCK-143", "modVersion": "0.32.0" } },
+    { "tool": "get_mod_config", "args": { "repository": "acme/web-app", "key": "TCK-143", "modVersion": "0.34.0" } },
     { "tool": "get_repository_settings", "args": { "repository": "acme/web-app" } },
     { "tool": "list_tickets", "args": { "repository": "acme/web-app" } },
     { "tool": "list_tickets", "args": { "repository": "acme/web-app", "cursor": "50" } },
@@ -15,7 +15,7 @@
     { "tool": "update_ticket", "args": { "repository": "acme/web-app", "key": "TCK-143", "status": "In progress", "assignee": "me" } },
     { "tool": "set_needs_human", "args": { "repository": "acme/web-app", "key": "TCK-143", "kind": "no-clean-round", "note": "1 blocking finding still open after 5 rounds" } },
     { "tool": "report_session", "args": { "repository": "acme/web-app", "session": "s_abc12345", "status": "working", "summary": "Building it" } },
-    { "tool": "record_runs", "args": { "repository": "acme/web-app", "session": "s_abc12345", "runs": [{ "agentId": "s_abc12345-TCK-143-principal-r1", "ticket": "TCK-143", "kind": "review", "skill": "principal", "round": 1, "model": "claude-opus-5-5", "durationMs": 95000 }] } },
+    { "tool": "record_runs", "args": { "repository": "acme/web-app", "session": "s_abc12345", "tickitSession": "s_abc12345", "runs": [{ "agentId": "s_abc12345-TCK-143-principal-r1", "ticket": "TCK-143", "kind": "review", "skill": "principal", "round": 1, "model": "claude-opus-5-5", "durationMs": 95000 }] } },
     { "tool": "report_review_agents", "args": { "repository": "acme/web-app", "agents": [{ "skill": "principal", "model": "claude-opus-5-5", "sizes": ["S"], "paths": ["docs/**"] }] } },
     { "tool": "add_attachment", "args": { "repository": "acme/web-app", "ticket": "TCK-143", "name": "board.png", "type": "image/png", "content": "iVBORw0KGgo=" } },
     { "tool": "link_pull_request", "args": { "repository": "acme/web-app", "key": "TCK-143", "branch": "tck-143-persist-checkout-step", "number": 12 } }

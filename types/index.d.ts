@@ -173,6 +173,8 @@ declare module 'claude-code' {
       syncError: string | null
       /** Runs Tick-it rejected, newest last. */
       dropped: DroppedRun[]
+      /** The security areas Claude has been pointed at for a ticket's edits, so each is named once. */
+      securityNudged: { ticket: string; areas: string[] }
     }
   }
 }

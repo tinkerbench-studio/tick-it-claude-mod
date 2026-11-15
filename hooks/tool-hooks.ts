@@ -1,7 +1,8 @@
-import { atom, read } from 'claude-code'
-import type { Register } from 'claude-code'
+import { atom, read, update } from 'claude-code'
+import type { EngineInterface, Register } from 'claude-code'
 import type { TicketSize } from '../types'
 import { SIZES } from './state'
+import { areaNudge, touchedAreas } from './security-areas'
 import { repositoryHere, freshBriefOf } from './tickit'
 import { budgetOf, changedLines, nextSize, findCurrent, save, showStatus } from './board'
 import { readText, measureDiff, refreshDiff, take, finishedByClaude } from './work'
@@ -9,6 +10,25 @@ import { readText, measureDiff, refreshDiff, take, finishedByClaude } from './wo
 // Declared in this file: the engine reads an atom only where it is written (a module cannot use one imported from state.ts).
 const tickets = atom({ plugin: 'tick-it', key: 'tickets' } as const, [])
 const current = atom({ plugin: 'tick-it', key: 'current' } as const, null)
+
+/** The security areas Claude has been pointed at for the ticket being worked on: each is named once. */
+const nudged = atom({ plugin: 'tick-it', key: 'securityNudged' } as const, { ticket: '', areas: [] } as { ticket: string; areas: string[] })
+
+/** The nudge for an edit that lands in a security area not yet named for this ticket, or undefined. */
+async function nudgeFor($: EngineInterface, ticket: string, file: string, text: string): Promise<string | undefined> {
+  // The areas read a path within the repository: a folder above it named "auth" says nothing about the file.
+  const top = await $.process.run(['git', 'rev-parse', '--show-toplevel'])
+  const root = top.exitCode === 0 ? top.stdout.trim() : ''
+  const path = root !== '' && file.startsWith(`${root}/`) ? file.slice(root.length + 1) : file
+  const held = await read($, nudged)
+  const told = held.ticket === ticket ? held.areas : []
+  const fresh = touchedAreas([{ path, lines: text }])
+    .map(t => t.area)
+    .filter(area => !told.includes(area))
+  if (fresh.length === 0) return undefined
+  await update($, nudged, () => ({ ticket, areas: [...told, ...fresh] }))
+  return areaNudge(fresh)
+}
 
 export const registerTools: Register = on => {
   // The size budget: refuse an edit that would take the diff past the ticket's
@@ -39,8 +59,10 @@ export const registerTools: Register = on => {
     }
     const ran = await next(e)
     await refreshDiff($)
+    // The first edit of the ticket that lands in a security area names the skill to follow there: once per area, so the reviewer finds less.
+    const nudge = await nudgeFor($, t.id, e.file_path, e.tool === 'Edit' ? `${e.old_string}\n${e.new_string}` : e.content).catch(() => undefined)
 
-    return ran
+    return nudge === undefined || !('result' in ran) || ran.isError === true ? ran : { ...ran, context: [...(ran.context ?? []), nudge] }
   }).catch(($, e, next) => next(e))
 
   // Claude moving a ticket itself with update_ticket: taking it (In progress,

@@ -26,3 +26,5 @@ Write the periodic retrospective for the repository this session is in: `git rem
 6. Reply with the suggestions in short.
 
 Do not change code or tickets while writing it, as the retro skill does not. A suggestion becomes work only when someone asks for it. Take no ticket, open no pull request, and call no `update_ticket`.
+
+In any text you write into a ticket (a description, acceptance check, comment or note), name another repository's ticket as `owner/name#KEY` and its pull request as `owner/name#n`, never a bare key or `#n`: a bare one always means this repository, and repositories can share a prefix.

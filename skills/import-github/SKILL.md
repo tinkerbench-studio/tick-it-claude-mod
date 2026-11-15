@@ -19,3 +19,5 @@ A one-off copy of this repository's GitHub issues into Tick-it. Tick-it does not
 4. **Show the person the plan first**: a table of issue, what it becomes (ticket or epic of n), size and epic. Ask before importing; change it as they say.
 5. **Import once**, after the person agrees. First make each new epic with `create_epic` (the owner goes there; `import_tickets` never makes an epic and takes no `owner`), then call Tick-it's `import_tickets` tool with every issue in one call, giving each ticket the `epicId` of its epic (an existing one from `get_epic` or `list_tickets`, or the one `create_epic` returned), never an epic title. Issues imported before are skipped and named in its answer.
 6. Reply with what was imported and skipped. The tickets are in the Backlog: people move them to Ready on the epic's page in the Tick-it web app, or with `update_ticket`.
+
+In any text you write into a ticket (a description, acceptance check, comment or note), name another repository's ticket as `owner/name#KEY` and its pull request as `owner/name#n`, never a bare key or `#n`: a bare one always means this repository, and repositories can share a prefix.
