@@ -147,3 +147,17 @@ test('round 2: a reviewer whose last run counted a blocking finding is not carri
   expect(round2(seen)).toContain('docs')
   expect(carried(seen).map(r => r.skill)).not.toContain('docs')
 })
+
+test('round 3 after a round 2 that carried every verdict forward: a file changed since then runs the reviewers a changed file reaches, and carries docs forward', async ($, on) => {
+  const pr = { number: 12, state: 'open', draft: false, ci: 'failure', behind: false }
+  const diff = { lines: 10, changed: CHANGED, since: [] as string[] }
+  const seen = await roundOne($, on, diff, {}, { pullRequests: [pr] })
+  // Round 2: CI still failing after the first fix, nothing changed, every verdict carried forward.
+  await $.turn.complete(finishTurn(undefined, 'Tried a CI fix.'))
+  expect(seen.spawned.filter(s => s.description.endsWith('round 2'))).toHaveLength(0)
+  // The next fix changes a hooks file: round 3 runs code (its paths match) and all (no paths: any changed file); docs stays carried forward.
+  diff.since = ['hooks/c.ts']
+  await $.turn.complete(finishTurn(undefined, 'Fixed it.'))
+  const round3 = seen.spawned.filter(s => s.description.endsWith('round 3')).map(s => s.description.split(' ')[2]).sort()
+  expect(round3).toEqual(['all', 'code'])
+})
