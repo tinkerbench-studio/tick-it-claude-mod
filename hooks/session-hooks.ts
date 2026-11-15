@@ -20,7 +20,7 @@ const outbox = atom({ plugin: 'tick-it', key: 'outbox' } as const, [])
 const dropped = atom({ plugin: 'tick-it', key: 'dropped' } as const, [])
 /** link_pull_request calls Tick-it has not taken yet: sent again with the outbox. */
 const unlinked = atom({ plugin: 'tick-it', key: 'unlinked' } as const, [])
-/** The Tick-it session id of a start line whose ticket the mod could not take or that names another repository: that session reports for itself. */
+/** The Tick-it session id of a start line whose ticket the mod could not take: that session reports for itself. */
 const takeFailed = atom({ plugin: 'tick-it', key: 'takeFailed' } as const, null)
 
 export const registerSession: Register = on => {
@@ -73,7 +73,7 @@ export const registerSession: Register = on => {
   // rest of Tick-it's tools (tickets, epics, costs) stay the model's to use.
   on('tool.check', async ($, e, next) => {
     const isTickit = /tick-?it/i.test(e.tool)
-    // A session Tick-it started whose ticket the mod could not take: nothing is recorded or reported for it, so it reports for itself and these calls are its own.
+    // A session Tick-it started whose ticket the mod could not take (the take was refused, or the start line named another repository): nothing is recorded or reported for it, so it reports for itself and these calls are its own.
     if (isTickit && next.origin.plugin === 'engine' && (await read($, takeFailed)) !== null && (await read($, current)) === null && (await read($, startedSession)) === null && [RECORD_TOOL, REPORT_TOOL, AGENTS_TOOL].some(t => e.tool.endsWith(`__${t}`))) {
       await log($, 'warn', 'tool-allowed-untaken', { tool: e.tool })
       return next(e)
@@ -118,9 +118,9 @@ export const registerSession: Register = on => {
     const origin = await originHere($)
     if (origin !== null && origin !== repository) {
       await log($, 'debug', 'start-not-taken', { ticket, why: 'other-repository' })
-      // Nothing is taken, so the session records and reports for itself, as after a refused take.
+      // As with a refused take, the mod records and reports nothing for this session, so its own calls are let through.
       await update($, takeFailed, () => id)
-      return next({ ...e, context: [...(e.context ?? []), `tick-it: this session is in ${origin ?? 'a folder whose origin is not on GitHub'}, not ${repository}, so it did not take ${ticket}: it records and reports for itself.`] })
+      return next({ ...e, context: [...(e.context ?? []), `tick-it: this session is in ${origin ?? 'a folder whose origin is not on GitHub'}, not ${repository}, so it did not take ${ticket}. The mod records and reports nothing for it: record its runs and report the session yourself, as the message says for a session without the mod.`] })
     }
     // A folder with no origin works on the repository the first message names.
     const notes = origin === null ? [`tick-it: this folder has no origin remote, so it works on ${repository} as Tick-it asked.`] : []

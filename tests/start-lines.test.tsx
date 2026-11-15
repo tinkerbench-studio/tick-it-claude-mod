@@ -126,6 +126,19 @@ test('a start line whose ticket the mod could not take leaves the session to rep
   for (const tool of TOOLS) expect((await check($, tool)).decision).toBe('deny')
 })
 
+test('a start line for another repository leaves the session to record and report for itself, and says so: its calls are allowed, nothing is taken, and taking a ticket later denies them again', async ($, on) => {
+  const seen = engine(on, { lines: 10 }, true, SKILLS)
+  on('tool.check', () => ({ decision: 'allow' as const }))
+  await start($)
+  const entered = await $.prompt.submit(typed(LINE.replace('acme/web-app', 'acme/other')))
+  expect('context' in entered ? entered.context?.join(' ') : '').toContain('so it did not take TCK-151. The mod records and reports nothing for it: record its runs and report the session yourself')
+  for (const tool of TOOLS) expect((await check($, tool)).decision).toBe('allow')
+  expect(seen.server.find(t => t.key === 'TCK-151')?.status).toBe('Ready')
+  expect(reports(seen)).toEqual([])
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-151' })
+  for (const tool of TOOLS) expect((await check($, tool)).decision).toBe('deny')
+})
+
 test('a session whose start line failed and that then takes its ticket with /tick-it take keeps the deny reasons', async ($, on) => {
   engine(on, { lines: 10 }, true, SKILLS)
   on('tool.check', () => ({ decision: 'allow' as const }))
