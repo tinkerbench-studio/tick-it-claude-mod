@@ -150,7 +150,7 @@ export const engine = (
       if (e.tool === 'list_tickets') {
         if (net.listFails === true) return refuse('Tick-it is down')
         // A slim row is what the server's slim list sends: no description, acceptance, links or url.
-        const row = (t: Remote) => (a.slim === true ? { key: t.key, title: t.title, status: t.status, size: t.size, epic: t.epic, epicId: null, assignee: t.assignee } : t)
+        const row = (t: Remote) => (a.slim === true ? { key: t.key, title: t.title, status: t.status, size: t.size, epic: t.epic, epicId: t.epicId ?? null, assignee: t.assignee } : t)
         if (net.pageSize === undefined) return answer({ tickets: seen.server.map(row) })
         if (a.cursor !== undefined && a.cursor === net.failAt) return refuse('Tick-it is down')
         const from = a.cursor === undefined ? 0 : Number(a.cursor)
