@@ -67,6 +67,8 @@ export type Net = {
   listFails?: boolean
   /** The named tool's reply is too large for Claude Code, which passes on its note in place of the answer. */
   tooLarge?: 'list_tickets' | 'get_ticket'
+  /** get_ticket answers acceptanceItems, none ticked (a ticket's checks are then unticked). */
+  acceptanceItems?: boolean
   /** get_ticket answers with text that holds no result (not JSON, no structured content). */
   ticketNoResult?: boolean
   /** Only this server connects (a cloud session: the claude.ai connector, not the plugin's own). */
@@ -165,7 +167,7 @@ export const engine = (
         if (seen.failTicketReads === true) return refuse('Tick-it is down')
         if (net.ticketNoResult === true) return { value: { isError: false, content: [{ type: 'text', text: 'Tick-it is busy, try again later. ' + 'x'.repeat(200) }, { type: 'image' }] } }
         const ticket = seen.server.find(t => t.key === a.key)
-        return ticket === undefined ? refuse(`No ticket ${String(a.key)} in acme/web-app.`) : answer({ ticket: net.reviewSpend === undefined ? ticket : { ...ticket, reviewSpend: net.reviewSpend } })
+        return ticket === undefined ? refuse(`No ticket ${String(a.key)} in acme/web-app.`) : answer({ ticket: { ...ticket, ...(net.acceptanceItems === true ? { acceptanceItems: ticket.acceptance.map((text, i) => ({ id: `c${i}`, text, checked: false, afterDeploy: false })) } : {}), ...(net.reviewSpend === undefined ? {} : { reviewSpend: net.reviewSpend }) } })
       }
       if (e.tool === 'get_ticket_timeline') return net.timeline === undefined || net.timeline === 'unreachable' ? refuse('Tick-it is down') : answer({ timeline: net.timeline })
       if (e.tool === 'list_pull_requests') {
@@ -208,7 +210,7 @@ export const engine = (
     const rejected = answered.rejected ?? []
     const accepted = net.silent ? [] : args.runs.map(r => String(r.agentId)).filter(id => !rejected.some(x => x.agentId === id))
     return {
-      value: answered.isError ? { isError: true, content: [{ type: 'text', text: answered.text ?? '' }] } : { isError: false, content: [{ type: 'text', text: JSON.stringify({ accepted, rejected }) }], structuredContent: { accepted, rejected } },
+      value: answered.isError ? { isError: true, content: [{ type: 'text', text: answered.text ?? '' }] } : { isError: false, content: [{ type: 'text', text: JSON.stringify({ accepted, rejected }) }] },
     }
   })
   let clock = 1_000

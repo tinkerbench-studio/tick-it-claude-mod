@@ -275,7 +275,13 @@ export async function refreshBoard($: EngineInterface): Promise<void> {
   if (listed.ok) {
     const known = await read($, tickets)
     // A slim row has no url, but every ticket's page is the same address with its own key: one a ticket read whole gave is the pattern.
-    const sample = known.find(t => t.url?.includes(t.id))
+    let sample = known.find(t => t.url?.includes(t.id))
+    // With none read whole yet, one get_ticket (the core only) gives it.
+    if (sample === undefined && listed.value[0] !== undefined) {
+      const one = await callTickit($, 'get_ticket', { repository, key: listed.value[0].key, include: [] }).catch(() => undefined)
+      const remote = one?.ok === true ? (one.value.ticket as RemoteTicket | undefined) : undefined
+      if (remote?.url?.includes(remote.key)) sample = { ...fromRemote(remote), id: remote.key }
+    }
     const urlOf = (key: string) => sample?.url?.replace(sample.id, key)
     await save(
       $,

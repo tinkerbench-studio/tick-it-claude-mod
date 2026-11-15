@@ -25,8 +25,8 @@ const sessionLink = atom({ plugin: 'tick-it', key: 'sessionLink' } as const, nul
 const viewed = atom({ plugin: 'tick-it', key: 'viewed' } as const, null as string | null)
 
 const viewTicket = async ($: EngineInterface, id: string) => {
-  // A ticket only on the board is a slim row: it is read whole when opened. If Tick-it cannot say, the row is shown as it is.
-  if ((await read($, tickets)).find(t => t.id === id)?.whole !== true) await readTicket($, id).catch(() => undefined)
+  // A slim row has no description, acceptance or links, and a ticket read whole may have changed since: it is read again when opened. If Tick-it cannot say, the cached ticket is shown as it is.
+  await readTicket($, id).catch(() => undefined)
   await update($, viewed, () => id)
   await $.ui.open({ id: TICKET_PANE, title: id })
 }

@@ -154,7 +154,7 @@ test('with get_ticket unreachable the steward goes by the round limit alone', as
 // ---- every get_ticket names the parts it reads ---------------------------------------
 
 test('every get_ticket the hooks send names the parts it reads: the status, the unticked checks, the held-back reason and the review spend ask for the core only', async ($, on) => {
-  const net: Net = { modConfig: served({ reviewRounds: 3, reviewBudget: 3 }), reviewSpend: spend(1), timeline: [] }
+  const net: Net = { modConfig: served({ reviewRounds: 3, reviewBudget: 3 }), reviewSpend: spend(1), timeline: [], acceptanceItems: true }
   const seen = await roundOne($, on, net)
   await $.turn.complete(finishTurn(undefined, 'Fixed.'))
   await $.turn.complete(finishTurn('agent-2', 'OPTIONAL: a nit\nVERDICT: clean'))
@@ -164,4 +164,6 @@ test('every get_ticket the hooks send names the parts it reads: the status, the 
   // Only the attachments and memories of a taken ticket are more than the core.
   for (const c of reads.filter(c => (c.args.include as string[]).length > 0)) expect(c.args.include).toEqual(['attachments', 'memories'])
   expect(reads.filter(c => (c.args.include as string[]).length === 0).length).toBeGreaterThan(1)
+  // The unticked checks were read (the fake gives acceptanceItems, none ticked) and asked for with the core only.
+  expect(seen.submitted.join('\n')).toContain('Step stored in session on each transition')
 })
