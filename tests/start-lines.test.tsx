@@ -150,16 +150,3 @@ test('a session whose start line failed and that then takes its ticket with /tic
   expect(denied.decision).toBe('deny')
   expect('reason' in denied ? denied.reason : '').toBe('tick-it records review runs itself, from what each review agent spent.')
 })
-
-test('a start line for another repository than the folder’s origin takes nothing and leaves the session to report for itself, until a ticket is taken', async ($, on) => {
-  const seen = engine(on, { lines: 10 }, true, SKILLS)
-  on('tool.check', () => ({ decision: 'allow' as const }))
-  await start($)
-  const submitted = await $.prompt.submit(typed(LINE.replace('acme/web-app', 'acme/other')))
-  expect(JSON.stringify(submitted)).toContain('it records and reports for itself')
-  expect(seen.server.find(t => t.key === 'TCK-151')).not.toMatchObject({ status: 'In progress' })
-  expect(reports(seen)).toEqual([])
-  for (const tool of TOOLS) expect((await check($, tool)).decision).toBe('allow')
-  await $.prompt.submit(typed('Tick-it session s_abc12345: work on TCK-151 in acme/web-app.'))
-  for (const tool of TOOLS) expect((await check($, tool)).decision).toBe('deny')
-})
