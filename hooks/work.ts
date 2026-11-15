@@ -304,6 +304,23 @@ export async function take($: EngineInterface, id: string): Promise<Ticket | str
   return (await read($, tickets)).find(one => one.id === wanted) ?? `No ticket ${id}.`
 }
 
+/** Takes a ticket into the session without moving it (a continue line): it is read with get_ticket, and its status and assignee stay as they are. */
+export async function resume($: EngineInterface, id: string): Promise<Ticket | string> {
+  const wanted = id.toUpperCase()
+  const problem = await readTicket($, wanted)
+  if (problem !== undefined) return /\bno ticket\b/i.test(problem) ? `No ticket ${id}. Try /tick-it board.` : `Could not read ${wanted}: ${problem}.`
+  const was = await read($, current)
+  await update($, current, () => wanted)
+  await update($, pullRequest, () => null)
+  await update($, pullRequestError, () => null)
+  if (was !== wanted) {
+    const head = await $.process.run(['git', 'rev-parse', 'HEAD'])
+    await update($, baseCommit, () => (head.exitCode === 0 && /^[0-9a-f]{40}$/.test(head.stdout.trim()) ? head.stdout.trim() : null))
+  }
+  await refreshDiff($)
+  return (await read($, tickets)).find(one => one.id === wanted) ?? `No ticket ${id}.`
+}
+
 /** The per-file lines sent with a move to review; nothing when there are none, so the areas stay as they were. */
 export async function changedFiles($: EngineInterface, status: TicketStatus) {
   const files = status === 'In review' ? await measureFiles($) : []

@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { Register } from 'claude-code'
 import type { ReviewUsage, WorkRun } from '../types'
 import { BREAKDOWN_SUGGESTION, MAX_FINDINGS } from './state'
-import { findCurrent, refreshPullRequest, statusOnTickit } from './board'
+import { findCurrent, refreshPullRequest, statusOnTickit, showStatus } from './board'
 import { refreshDiff, report, recordPullRequest, firstLine, finish } from './work'
 import { withoutStopMarks, costOf, openVerdictLines, readFindings, readVerdicts, parseFinding, saveReviews, setSteward, startRound, settleRound } from './reviews'
 import { queue, flush } from './outbox'
@@ -11,6 +11,7 @@ import { queue, flush } from './outbox'
 const tickets = atom({ plugin: 'tick-it', key: 'tickets' } as const, [])
 const current = atom({ plugin: 'tick-it', key: 'current' } as const, null)
 /** The session Tick-it started this one as: set by its first message, reported to as the work goes on. */
+const baseCommit = atom({ plugin: 'tick-it', key: 'baseCommit' } as const, null)
 const startedSession = atom({ plugin: 'tick-it', key: 'started' } as const, null)
 const pullRequestError = atom({ plugin: 'tick-it', key: 'pullRequestError' } as const, null)
 const reviews = atom({ plugin: 'tick-it', key: 'reviews' } as const, [])
@@ -64,15 +65,27 @@ export const registerTurn: Register = on => {
       // Claude may have moved the ticket to In review in a way the tool.call
       // hook did not see: Tick-it says, and it is /tick-it done all the same.
       let toReview = finished
+      // What Tick-it said the ticket's status is, when it said: a continue session is done only on a status it confirmed.
+      let onTickit: Awaited<ReturnType<typeof statusOnTickit>>
       try {
-        if (toReview === null && building !== undefined && (await statusOnTickit($, building.id)) === 'In review') {
+        if (toReview === null && building !== undefined) onTickit = await statusOnTickit($, building.id)
+        if (toReview === null && building !== undefined && onTickit === 'In review') {
           await recordPullRequest($, building.id)
-          const moved = await finish($, 'In review')
-          // Refused (a UI change with no pictures): Claude is told what is missing with its next turn.
-          const stillTaken = (await read($, current)) !== null
-          if (stillTaken && moved.includes(' changes the UI') && (await read($, lastUiRefusal)) !== moved) {
-            await update($, lastUiRefusal, () => moved)
-            await update($, pendingInstructions, pending => [...pending, `tick-it: ${moved}`])
+          // A continue session's ticket is already In review: its review starts without an update_ticket, which would overwrite the ticket's changed lines with this session's own.
+          const continued = (await read($, startedSession))?.continued === true
+          let stillTaken = false
+          if (continued) {
+            await update($, current, () => null)
+            await update($, baseCommit, () => null)
+            await showStatus($)
+          } else {
+            const moved = await finish($, 'In review')
+            // Refused (a UI change with no pictures): Claude is told what is missing with its next turn.
+            stillTaken = (await read($, current)) !== null
+            if (stillTaken && moved.includes(' changes the UI') && (await read($, lastUiRefusal)) !== moved) {
+              await update($, lastUiRefusal, () => moved)
+              await update($, pendingInstructions, pending => [...pending, `tick-it: ${moved}`])
+            }
           }
           if (!stillTaken) {
             toReview = building.id
@@ -85,7 +98,10 @@ export const registerTurn: Register = on => {
       const session = await read($, startedSession)
       if (session !== null && toReview === null && building?.id === session.ticket) {
         await refreshDiff($).catch(() => undefined)
-        await report($, 'working', firstLine(e.answer))
+        // A continue session's ticket is not moved to review here (it is Ready to merge, say): its turn is the work, so it is done.
+        // Only on a status Tick-it confirmed that is not In review: a failed read, or a review that could not start, leaves it working.
+        const done = session.continued === true && onTickit !== undefined && onTickit !== 'In review'
+        await report($, done ? 'done' : 'working', firstLine(e.answer), done)
       }
       if (toReview !== null) {
         await update($, reviewNext, () => null)

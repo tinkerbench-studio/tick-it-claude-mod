@@ -1,10 +1,10 @@
 import { atom, read, update } from 'claude-code'
 import type { Register } from 'claude-code'
 import type { DroppedRun, OutboxRun, PendingLink, ReviewRun, StartedSession, Ticket } from '../types'
-import { STORE_KEY, STARTED_KEY, START_LINE, BREAKDOWN_LINE, BREAKDOWN_KEY, REPORT_TOOL, REVIEWS_KEY, OUTBOX_KEY, DROPPED_KEY, UNLINKED_KEY, RECORD_TOOL, AGENTS_TOOL } from './state'
+import { STORE_KEY, STARTED_KEY, START_LINE, CONTINUE_LINE, BREAKDOWN_LINE, BREAKDOWN_KEY, REPORT_TOOL, REVIEWS_KEY, OUTBOX_KEY, DROPPED_KEY, UNLINKED_KEY, RECORD_TOOL, AGENTS_TOOL } from './state'
 import { callTickit, originHere, checkoutBeside, freshBriefOf } from './tickit'
 import { refreshBoard, showStatus } from './board'
-import { reportsForItself, instructionsOf, take } from './work'
+import { reportsForItself, instructionsOf, take, resume } from './work'
 import { reportAgents, flush } from './outbox'
 import { log } from './log'
 
@@ -101,7 +101,9 @@ export const registerSession: Register = on => {
   // ticket. Take the ticket, hand Claude its brief with the message, and tell
   // Tick-it the session is working.
   on('prompt.submit', async ($, e, next) => {
-    const line = START_LINE.exec(e.text)
+    const started = START_LINE.exec(e.text)
+    const line = started ?? CONTINUE_LINE.exec(e.text)
+    const continuing = started === null && line !== null
     await log($, 'debug', 'start-line', { matched: line !== null, command: e.command !== undefined })
     if (line === null && e.command === undefined) {
       // A breakdown session: the mod takes no ticket and reports nothing for it, so that session reports for itself. A message that starts a build is never one, and the first one to name a session arms it, once.
@@ -132,7 +134,7 @@ export const registerSession: Register = on => {
       const claudeSession = await $.session.id()
       await update($, startedSession, () => ({ id, repository, ticket: ticket.toUpperCase(), status: 'working' as const, reportedAt: 0, claudeSession }))
     }
-    const t = await take($, ticket)
+    const t = continuing ? await resume($, ticket) : await take($, ticket)
     if (typeof t === 'string') {
       await log($, 'warn', 'start-not-taken', { ticket, session: id, why: 'take-refused' })
       await update($, startedSession, () => previous)
@@ -141,7 +143,7 @@ export const registerSession: Register = on => {
     }
     await update($, takeFailed, () => null)
     await log($, 'debug', 'ticket-taken', { ticket: t.id, session: id, claudeSession: await $.session.id() })
-    const s: StartedSession = { id, repository, ticket: t.id, status: 'working', reportedAt: 0, claudeSession: await $.session.id() }
+    const s: StartedSession = { id, repository, ticket: t.id, status: 'working', reportedAt: 0, claudeSession: await $.session.id(), ...(continuing ? { continued: true } : {}) }
     await update($, startedSession, () => s)
     await $.store.set(STARTED_KEY, s)
     const sent = await callTickit($, REPORT_TOOL, {
@@ -149,7 +151,7 @@ export const registerSession: Register = on => {
       session: id,
       status: 'working',
       claudeSessionId: await $.session.id(),
-      summary: `Took ${t.id}.`,
+      summary: continuing ? `Continuing ${t.id}.` : `Took ${t.id}.`,
     }).catch(() => ({ ok: false as const, why: 'unreachable' }))
     if (sent.ok) {
       const reported = { ...s, reportedAt: await $.clock.now() }
