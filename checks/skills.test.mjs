@@ -52,7 +52,7 @@ test('skills pass epic and milestone ids, never titles, for an existing epic or 
   const revise = read('skills/revise-plan/SKILL.md')
   for (const words of ['<epic title or id>', 'Find the epic\'s id once', '`list_tickets`, `list_comments`, `get_epic`, `resolve_comment` and `create_ticket` all take `epicId`']) expect(revise).toContain(words, `revise-plan no longer says "${words}"`)
   const draft = read('skills/draft-ticket/SKILL.md')
-  for (const words of ['`epicId`', 'a new epic by its title as `epic`']) expect(draft).toContain(words, `draft-ticket no longer says "${words}"`)
+  for (const words of ['`epicId`', '`create_epic`', 'never a new epic title or an owner']) expect(draft).toContain(words, `draft-ticket no longer says "${words}"`)
   for (const name of ['plan-epic', 'retro', 'revise-plan', 'draft-ticket']) {
     const text = read(`skills/${name}/SKILL.md`)
     assert.ok(!/retroFinding: \{ epic:|`milestone` in place of `epic`|with that title|`list_attachments` with that title|with the `id` of each epic/.test(text), `${name} still passes a title`)
