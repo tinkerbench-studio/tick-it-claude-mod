@@ -199,10 +199,11 @@ test('a continue session starts the review of the ticket already In review when 
   await $.turn.complete(finishTurn(undefined, 'Merged main.'))
   expect(seen.spawned.map(a => a.description)).toEqual(['tick-it review: principal on TCK-151, round 1'])
   await $.turn.complete(finishTurn('agent-1', 'VERDICT: clean'))
-  expect(reports(seen).map(r => r.status)).toEqual(['working', 'reviewing', 'reviewing', 'reviewing', 'done'])
+  expect(reports(seen).map(r => r.status)).toEqual(['working', 'reviewing', 'reviewing', 'done'])
   const reviewRun = seen.recorded.flatMap(r => r.args.runs.map(run => ({ ...run, tickitSession: (r.args as { tickitSession?: string }).tickitSession }))).find(run => run.skill === 'principal')
   expect(reviewRun).toMatchObject({ ticket: 'TCK-151', skill: 'principal', round: 1, tickitSession: 's_abc12345', headSha: 'ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12' })
-  expect(seen.ticketCalls.filter(c => c.tool === 'update_ticket').every(c => (c.args as { status?: string }).status !== 'In progress')).toBe(true)
+  // Only the clean round's move to Done: no write of In review (and its changed lines) or In progress.
+  expect(seen.ticketCalls.filter(c => c.tool === 'update_ticket').map(c => (c.args as { status?: string }).status)).toEqual(['Done'])
 })
 
 test('a continue line for another repository takes nothing and leaves the session to record and report for itself', async ($, on) => {
