@@ -2,7 +2,7 @@ import type { MilestoneView, TicketStatus } from '../types'
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 import { PANE, TICKET_PANE, WARN_AT, groupsOf, COLOR } from './state'
-import { budgetOf, linkTickets, boardStops, pickMilestone, nextMilestone, milestoneLine, milestoneOf, findCurrent, pullRequestLine, startSession, fixCi, rerunFailed, openPullRequest } from './board'
+import { budgetOf, linkTickets, boardStops, pickMilestone, nextMilestone, milestoneLine, milestoneOf, findCurrent, readTicket, pullRequestLine, startSession, fixCi, rerunFailed, openPullRequest } from './board'
 import { take } from './work'
 import { reviewAgain, stopStewarding, summarise, reviewLine, findingRows } from './reviews'
 
@@ -25,6 +25,8 @@ const sessionLink = atom({ plugin: 'tick-it', key: 'sessionLink' } as const, nul
 const viewed = atom({ plugin: 'tick-it', key: 'viewed' } as const, null as string | null)
 
 const viewTicket = async ($: EngineInterface, id: string) => {
+  // A slim row has no description, acceptance or links, and a ticket read whole may have changed since: it is read again when opened. If Tick-it cannot say, the cached ticket is shown as it is.
+  await readTicket($, id).catch(() => undefined)
   await update($, viewed, () => id)
   await $.ui.open({ id: TICKET_PANE, title: id })
 }

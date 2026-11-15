@@ -6,7 +6,7 @@ import type { ChangedFile } from './security-areas'
 import { STARTED_KEY, REPORT_EVERY_MS, REPORT_TOOL, SKILLS_DIR, EMPTY_TREE, UNLINKED_KEY, FILE_TYPES, MAX_ATTACH_BYTES, MAX_FILES, MAX_PATH, MAX_FILE_LINES } from './state'
 import { sendTickit, callTickit, repositoryHere } from './tickit'
 import type { Called } from './tickit'
-import { findCurrent, changeTicket, showStatus, save, fromRemote } from './board'
+import { findCurrent, changeTicket, showStatus, save, fromRemote, readTicket } from './board'
 import type { RemoteTicket } from './board'
 import { findSkills, setSteward } from './reviews'
 import { uiEvidenceRefusal } from './ui-check'
@@ -269,22 +269,10 @@ export const firstLine = (answer: string) =>
     .find(line => line !== '')
     ?.slice(0, 300)
 
-/** Reads the one ticket by its key with get_ticket and puts it in the cache: its reason when Tick-it cannot say. */
-async function readOne($: EngineInterface, wanted: string): Promise<string | undefined> {
-  const repository = await repositoryHere($)
-  if (repository === undefined) return 'this folder has no GitHub origin remote, so tick-it does not know which repository it is'
-  const one = await callTickit($, 'get_ticket', { repository, key: wanted, include: [] })
-  if (!one.ok) return one.why
-  const remote = one.value.ticket as RemoteTicket | undefined
-  if (remote === undefined || remote.key?.toUpperCase() !== wanted) return `Tick-it's answer to get_ticket was not ${wanted}`
-  await save($, [...(await read($, tickets)).filter(t => t.id !== wanted), fromRemote(remote)])
-  return undefined
-}
-
 /** Takes a ticket whose key is known: it is read with get_ticket, never by reading the whole board (list_tickets is for the board command and pane). */
 export async function take($: EngineInterface, id: string): Promise<Ticket | string> {
   const wanted = id.toUpperCase()
-  const problem = await readOne($, wanted)
+  const problem = await readTicket($, wanted)
   if (problem !== undefined) return /\bno ticket\b/i.test(problem) ? `No ticket ${id}. Try /tick-it board.` : `Could not read ${wanted}: ${problem}.`
   // Tick-it answers the session it keeps for this: one it started, or one it made now. Reports go to it.
   const adopt = async (session: string) => {

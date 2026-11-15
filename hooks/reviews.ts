@@ -486,7 +486,7 @@ export async function stopStewarding($: EngineInterface): Promise<string> {
 export async function untickedAcceptance($: EngineInterface, id: string): Promise<string[] | null> {
   const repository = await repositoryHere($)
   if (repository === undefined) return null
-  const got = await callTickit($, 'get_ticket', { repository, key: id })
+  const got = await callTickit($, 'get_ticket', { repository, key: id, include: [] })
   if (!got.ok) return null
   const items = (got.value.ticket as { acceptanceItems?: { text: string; checked: boolean; afterDeploy?: boolean }[] } | undefined)?.acceptanceItems ?? []
   // A criterion flagged after-deploy cannot be shown before the deploy, so it is not asked for.
@@ -497,7 +497,7 @@ export async function untickedAcceptance($: EngineInterface, id: string): Promis
 export async function heldBackReason($: EngineInterface, id: string): Promise<string | undefined> {
   const repository = await repositoryHere($)
   if (repository === undefined) return undefined
-  const got = await callTickit($, 'get_ticket', { repository, key: id }).catch(() => undefined)
+  const got = await callTickit($, 'get_ticket', { repository, key: id, include: [] }).catch(() => undefined)
   if (got === undefined || !got.ok) return undefined
   // Tick-it answers both as strings: reviewState.heldBack the reason a clean ticket is held back, queueHold the reason it waits out of the merge queue.
   const ticket = got.value.ticket as { reviewState?: { heldBack?: unknown }; queueHold?: unknown } | undefined
@@ -541,7 +541,7 @@ export async function budgetStop($: EngineInterface, ticket: string, rounds: num
   if ((await reviewBudgetOf($, ticket)) === null) return undefined
   const repository = await repositoryHere($)
   if (repository === undefined) return undefined
-  const got = await callTickit($, 'get_ticket', { repository, key: ticket }).catch(() => undefined)
+  const got = await callTickit($, 'get_ticket', { repository, key: ticket, include: [] }).catch(() => undefined)
   const spend = got?.ok === true ? (got.value.ticket as { reviewSpend?: { costUsd?: unknown; budget?: unknown; remaining?: unknown } | null } | undefined)?.reviewSpend : undefined
   if (spend === null || spend === undefined) return undefined
   const { costUsd, budget, remaining } = spend

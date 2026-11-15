@@ -1,7 +1,7 @@
 import type { TicketSize, TicketStatus } from '../types'
 
 // Tickets live in Tick-it, reached through its MCP server (TICKIT_SERVER in the
-// manifest, or the claude.ai connector, TICKIT_CONNECTORS, where that cannot connect). The board is read with list_tickets and cached in the mod's store,
+// manifest, or the claude.ai connector, TICKIT_CONNECTORS, where that cannot connect). The board is read slim with list_tickets and cached in the mod's store,
 // so it still shows when Tick-it cannot be reached; every move is made on the
 // server first and the cache follows what the server answered.
 
@@ -108,7 +108,7 @@ export const MAX_FINDINGS = 200
 // ---- Tick-it, the server -----------------------------------------------------
 
 /** This mod's version, sent with get_mod_config (the server requires it). Kept equal to `version` in .claude-plugin/plugin.json: checks/contract-fixtures.test.mjs fails when they differ. */
-export const MOD_VERSION = '0.38.2'
+export const MOD_VERSION = '0.39.0'
 
 /** The server's key in this mod's manifest (.claude-plugin/plugin.json). */
 export const TICKIT_SERVER = 'tickit'
