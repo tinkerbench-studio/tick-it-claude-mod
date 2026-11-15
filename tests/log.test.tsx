@@ -157,7 +157,7 @@ for (const reject of [false, true]) {
 
 test('after a clean round the mod reads the ticket once and warns held-back-after-clean with Tick-it\'s reason when it is still held back', async ($, on) => {
   const seen = engine(on, { lines: 10 }, true, principal)
-  Object.assign(seen.server.find(t => t.key === 'TCK-143') ?? {}, { reviewState: { heldBack: true, reason: 'No review has been recorded' } })
+  Object.assign(seen.server.find(t => t.key === 'TCK-143') ?? {}, { reviewState: { heldBack: 'No review has been recorded' } })
   const log = logging(on, { TICK_IT_LOG: 'warn' })
   await start($)
   await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-143' })
@@ -185,7 +185,7 @@ test('heldBack and queueHold as Tick-it sends them, plain strings, are the reaso
 
 test('a queue hold is its reason too', async ($, on) => {
   const seen = engine(on, { lines: 10 }, true, principal)
-  Object.assign(seen.server.find(t => t.key === 'TCK-143') ?? {}, { queueHold: { reason: 'Waiting on TCK-9' } })
+  Object.assign(seen.server.find(t => t.key === 'TCK-143') ?? {}, { queueHold: 'Waiting on TCK-9' })
   const log = logging(on, { TICK_IT_LOG: 'warn' })
   await start($)
   await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-143' })

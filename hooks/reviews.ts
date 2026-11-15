@@ -446,14 +446,10 @@ export async function heldBackReason($: EngineInterface, id: string): Promise<st
   if (repository === undefined) return undefined
   const got = await callTickit($, 'get_ticket', { repository, key: id }).catch(() => undefined)
   if (got === undefined || !got.ok) return undefined
-  const ticket = got.value.ticket as { reviewState?: { heldBack?: unknown; reason?: unknown }; queueHold?: unknown } | undefined
-  const textOfHold = (v: unknown): string | undefined => (typeof v === 'string' && v !== '' ? v : typeof v === 'object' && v !== null ? textOfHold((v as { reason?: unknown }).reason) : undefined)
-  const on = (v: unknown) => v !== undefined && v !== null && v !== false
-  const held = ticket?.reviewState?.heldBack
-  const hold = ticket?.queueHold
-  const reason = (on(held) ? (textOfHold(held) ?? textOfHold(ticket?.reviewState?.reason)) : undefined) ?? (on(hold) ? textOfHold(hold) : undefined)
-  if (reason !== undefined) return reason.trim().replace(/[^A-Za-z0-9_.:#/,-]+/g, '-').slice(0, 100)
-  return on(held) || on(hold) ? 'unknown' : undefined
+  // Tick-it answers both as strings: reviewState.heldBack the reason a clean ticket is held back, queueHold the reason it waits out of the merge queue.
+  const ticket = got.value.ticket as { reviewState?: { heldBack?: unknown }; queueHold?: unknown } | undefined
+  const reason = [ticket?.reviewState?.heldBack, ticket?.queueHold].find((v): v is string => typeof v === 'string' && v.trim() !== '')
+  return reason?.trim().replace(/[^A-Za-z0-9_.:#/,-]+/g, '-').slice(0, 100)
 }
 
 /**
