@@ -403,7 +403,7 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
   const changed = listing ? await changedContent($) : []
   const touched = touchedAreas(changed)
   const paths = changed.map(f => f.path)
-  // Once a skill has reviewed the ticket it reviews every later round: a fix that takes the change out of an area still has that round's findings to answer.
+  // Once a skill has reviewed the ticket it stays eligible for every later round: a fix that takes the change out of an area still has that round's findings to answer. From round 2 `forwarded` below then carries a clean one forward unless it has an open blocker or a changed file matches its paths (`changes` areas do not count as work left).
   const ranBefore = (folder: string) => earlierRuns.some(r => r.ticket === t.id && r.skill === folder && r.round < round)
   // A skill with blocking findings still open from an earlier round also runs, whatever its paths: a fix that takes the change out of its paths still has those findings to answer.
   const eligible = all.filter(({ folder, skill }) => (bySize(skill) && pathsMatch(skill)) || changesFor(skill.changes, touched, paths).length > 0 || (skill.changes !== undefined && ranBefore(folder)) || earlierBlockers(earlierRuns, t.id, folder, round).length > 0)
