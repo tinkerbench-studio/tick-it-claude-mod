@@ -119,5 +119,99 @@ test('a log line carries no token, ticket text, comment, file content or environ
   expect(log.wrote.every(w => w.path === '/var/log/tick-it.log')).toBe(true)
   const ticket = seen.server.find(t => t.key === 'TCK-151')
   for (const forbidden of [secret, 'ghp_', 'SECRET', 'FILE-CONTENT', 'BODY-OF-SKILL', 'Saved card', ticket?.title ?? 'x', ...(ticket?.acceptance ?? []), '/var/log']) expect(text).not.toContain(forbidden)
-  for (const line of log.lines()) expect(line).toMatch(/^\d{4}-\d\d-\d\dT[\d:.]+Z (error|warn|info|debug) [a-z-]+( [a-z]+=[A-Za-z0-9_.:#/,<>-]+)*$/)
+  for (const line of log.lines()) expect(line).toMatch(/^\d{4}-\d\d-\d\dT[\d:.]+Z (error|warn|info|debug) [a-z-]+( [A-Za-z]+=[A-Za-z0-9_.:#/,<>-]+)*$/)
+})
+
+const principal = { '.tick-it/skills/principal/SKILL.md': SKILLS['.tick-it/skills/principal/SKILL.md'] ?? '' }
+
+test('at debug: ticket-taken and report carry the Claude Code session id beside the Tick-it one', async ($, on) => {
+  engine(on, { lines: 10 }, true, SKILLS)
+  const log = logging(on, { TICK_IT_LOG: 'debug' })
+  await start($)
+  await $.prompt.submit(typed(STARTED))
+  const text = log.lines().join('\n')
+  expect(text).toContain('ticket-taken ticket=TCK-151 session=s_abc12345 claudeSession=session-1')
+  expect(text).toContain('report ticket=TCK-151 session=s_abc12345 claudeSessionId=session-1 status=working sent=true')
+  // A later report logs both ids too.
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'done' })
+  expect(log.lines().filter(l => l.includes(' report ticket=TCK-151 session=s_abc12345 claudeSession=session-1 status=')).length).toBeGreaterThan(0)
+})
+
+for (const reject of [false, true]) {
+  test(`at debug: outbox-send logs the session sent and each run with its agentId, skill, round, headSha and whether Tick-it took it (${reject ? 'rejected' : 'accepted'}), and no token`, async ($, on) => {
+    const net: Net = reject ? { answer: args => ({ rejected: args.runs.map(r => ({ agentId: String(r.agentId), reason: 'model: not a model' })) }) } : {}
+    engine(on, { lines: 10 }, true, principal, net)
+    const log = logging(on, { TICK_IT_LOG: 'debug', TICK_IT_TOKEN: 'ghp_SECRET', Authorization: 'Bearer ghp_SECRET' })
+    await start($)
+    await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-143' })
+    await $.command.run({ ...RUN, command: 'tick-it', args: 'done' })
+    await $.turn.complete(finishTurn('agent-1', 'VERDICT: clean'))
+    const lines = log.lines().filter(l => l.includes(' debug outbox-send '))
+    expect(lines.length).toBeGreaterThan(0)
+    const review = lines.find(l => l.includes('skill=principal')) ?? ''
+    expect(review).toMatch(/outbox-send claudeSession=session-1 tickitSession=(?!none)\S+ agentId=\S+ skill=principal round=1 headSha=(ab12){10} result=/)
+    expect(review).toContain(reject ? 'result=rejected' : 'result=accepted')
+    for (const l of lines) expect(l).not.toMatch(/authorization|token|bearer|ghp_/i)
+  })
+}
+
+test('after a clean round the mod reads the ticket once and warns held-back-after-clean with Tick-it\'s reason when it is still held back', async ($, on) => {
+  const seen = engine(on, { lines: 10 }, true, principal)
+  Object.assign(seen.server.find(t => t.key === 'TCK-143') ?? {}, { reviewState: { heldBack: 'No review has been recorded' } })
+  const log = logging(on, { TICK_IT_LOG: 'warn' })
+  await start($)
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-143' })
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'done' })
+  const reads = () => seen.ticketCalls.filter(c => c.tool === 'get_ticket' && c.args.key === 'TCK-143').length
+  const before = reads()
+  await $.turn.complete(finishTurn('agent-1', 'VERDICT: clean'))
+  const warns = log.lines().filter(l => l.includes('held-back-after-clean'))
+  expect(warns).toHaveLength(1)
+  expect(warns[0]).toContain(' warn held-back-after-clean ticket=TCK-143 round=1 reason=No-review-has-been-recorded')
+  // The acceptance read and the one hold read: the hold is read once.
+  expect(reads() - before).toBe(2)
+})
+
+test('heldBack and queueHold as Tick-it sends them, plain strings, are the reason', async ($, on) => {
+  const seen = engine(on, { lines: 10 }, true, principal)
+  Object.assign(seen.server.find(t => t.key === 'TCK-143') ?? {}, { reviewState: { heldBack: 'No review has been recorded' } })
+  const log = logging(on, { TICK_IT_LOG: 'warn' })
+  await start($)
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-143' })
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'done' })
+  await $.turn.complete(finishTurn('agent-1', 'VERDICT: clean'))
+  expect(log.lines().join('\n')).toContain('held-back-after-clean ticket=TCK-143 round=1 reason=No-review-has-been-recorded')
+})
+
+test('a queue hold is its reason too', async ($, on) => {
+  const seen = engine(on, { lines: 10 }, true, principal)
+  Object.assign(seen.server.find(t => t.key === 'TCK-143') ?? {}, { queueHold: 'Waiting on TCK-9' })
+  const log = logging(on, { TICK_IT_LOG: 'warn' })
+  await start($)
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-143' })
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'done' })
+  await $.turn.complete(finishTurn('agent-1', 'VERDICT: clean'))
+  expect(log.lines().join('\n')).toContain('held-back-after-clean ticket=TCK-143 round=1 reason=Waiting-on-TCK-9')
+})
+
+test('a ticket that is not held back logs nothing extra after a clean round', async ($, on) => {
+  const free = engine(on, { lines: 10 }, true, principal)
+  Object.assign(free.server.find(t => t.key === 'TCK-143') ?? {}, { reviewState: { heldBack: false }, queueHold: null })
+  const quiet = logging(on, { TICK_IT_LOG: 'debug' })
+  await start($)
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-143' })
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'done' })
+  await $.turn.complete(finishTurn('agent-1', 'VERDICT: clean'))
+  expect(quiet.lines().join('\n')).toContain('round-settled ticket=TCK-143 round=1 outcome=clean')
+  expect(quiet.lines().join('\n')).not.toContain('held-back-after-clean')
+})
+
+test('at debug: a build turn has no commit of its own, so its outbox-send line says headSha=none', async ($, on) => {
+  engine(on, { lines: 10 }, true, principal)
+  const log = logging(on, { TICK_IT_LOG: 'debug' })
+  await start($)
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-143' })
+  await $.turn.complete(finishTurn(undefined, 'Built it.'))
+  const build = log.lines().find(l => l.includes(' debug outbox-send ') && l.includes('skill=build')) ?? ''
+  expect(build).toMatch(/outbox-send claudeSession=session-1 tickitSession=\S+ agentId=\S+ skill=build round=none headSha=none result=accepted/)
 })

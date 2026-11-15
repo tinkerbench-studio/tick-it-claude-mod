@@ -203,7 +203,7 @@ export async function report($: EngineInterface, status: StartedSession['status'
     changedLines: await read($, diffLines),
     ...(summary === undefined ? {} : { summary: summary.slice(0, 500) }),
   }).catch(() => ({ ok: false as const, why: 'unreachable' }))
-  await log($, sent.ok ? 'info' : 'warn', 'report', { ticket: s.ticket, status, sent: sent.ok })
+  await log($, sent.ok ? 'info' : 'warn', 'report', { ticket: s.ticket, session: s.id, claudeSession: s.claudeSession, status, sent: sent.ok })
   const next = { ...s, status, reportedAt: sent.ok ? now : s.reportedAt }
   await update($, startedSession, () => next)
   await $.store.set(STARTED_KEY, next)
