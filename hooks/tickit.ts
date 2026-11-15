@@ -76,7 +76,7 @@ export async function callTickit($: EngineInterface, tool: string, args: Record<
       // Not JSON: keep looking.
     }
   }
-  return { ok: false, why: `Tick-it's answer to ${tool} had no result in it` }
+  return { ok: false, why: `Tick-it's answer to ${tool} had no result in it (${result.content.length} content blocks: ${result.content.map(b => `${b.type} ${b.type === 'text' ? (b.text ?? '').length : 0} chars`).join(', ') || 'none'}; the text starts: ${textOf(result).slice(0, 80) || 'empty'})` }
 }
 
 /** The repository this session works in, as owner/name, from its origin remote. */
