@@ -140,3 +140,10 @@ test('round 2: a reviewer whose round 1 run failed has no clean verdict to carry
   expect(round2(seen)).toEqual(['all', 'docs'])
   expect(carried(seen).map(r => r.skill)).toEqual(['code'])
 })
+
+test('round 2: a reviewer whose last run counted a blocking finding is not carried forward as clean, even when no open item was kept for it', async ($, on) => {
+  const seen = await roundOne($, on, { lines: 10, changed: CHANGED, since: [] }, { docs: 'BLOCKING:' })
+  await $.turn.complete(finishTurn(undefined, 'Fixed.'))
+  expect(round2(seen)).toContain('docs')
+  expect(carried(seen).map(r => r.skill)).not.toContain('docs')
+})

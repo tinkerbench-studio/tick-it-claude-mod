@@ -413,7 +413,11 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
   const previous = first ? undefined : earlierRuns.filter(r => r.ticket === t.id && r.round < round && r.headSha !== undefined).sort((a, b) => a.round - b.round || a.startedAt - b.startedAt).at(-1)
   const since = previous?.headSha === undefined || eligible.length === 0 ? null : await changedSince($, previous.headSha).catch(() => null)
   // Carry forward only from a skill whose newest real run finished (a failed or stopped one reviewed nothing); its open blockers are checked apart, through earlierBlockers.
-  const reviewedBefore = (folder: string) => earlierRuns.filter(r => r.ticket === t.id && r.skill === folder && r.round < round && r.notApplicable === undefined).sort((a, b) => a.round - b.round || a.startedAt - b.startedAt).at(-1)?.status === 'done'
+  const reviewedBefore = (folder: string) => {
+    const last = earlierRuns.filter(r => r.ticket === t.id && r.skill === folder && r.round < round && r.notApplicable === undefined).sort((a, b) => a.round - b.round || a.startedAt - b.startedAt).at(-1)
+    // A finding the run counted but left no open item for (a bare BLOCKING: line) is no clean verdict either.
+    return last?.status === 'done' && (last.blocking ?? 0) === 0
+  }
   const forwarded = eligible.filter(({ folder, skill }) => since !== null && reviewedBefore(folder) && earlierBlockers(earlierRuns, t.id, folder, round).length === 0 && !since.some(f => skill.paths === undefined || skill.paths.some(g => globMatches(g, f))))
   const skills = eligible.filter(f => !forwarded.includes(f))
   const skipped = all.filter(f => !skills.includes(f) && (sized.includes(f) || forwarded.includes(f)))
