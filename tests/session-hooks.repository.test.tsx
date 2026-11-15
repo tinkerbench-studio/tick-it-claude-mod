@@ -27,7 +27,7 @@ test('a start line for another repository names the checkout of it beside this o
   expect(reports(seen)).toEqual([])
 })
 
-const AS_WAS = 'tick-it: this session is in acme/web-app, not acme/other, so it did not take TCK-151.'
+const AS_WAS = 'tick-it: this session is in acme/web-app, not acme/other, so it did not take TCK-151. The mod records and reports nothing for it: record its runs and report the session yourself, as the message says for a session without the mod.'
 
 test('when no folder beside this one has the repository, the context line is as it was and nothing is taken', async ($, on) => {
   const { seen, context } = await wrongFolder(on, $, { 'web-app': 'git@github.com:acme/web-app.git', x: 'git@github.com:acme/x.git' })
