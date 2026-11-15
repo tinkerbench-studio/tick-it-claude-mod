@@ -90,6 +90,25 @@ export async function originHere($: EngineInterface): Promise<string | null | un
   return remote.exitCode === 0 ? repositoryOf(remote.stdout) : null
 }
 
+/** A folder beside this repository's top level whose origin is `repository`, as its path; undefined when there is none or the folders cannot be listed. */
+export async function checkoutBeside($: EngineInterface, repository: string): Promise<string | undefined> {
+  try {
+    const top = (await $.process.run(['git', 'rev-parse', '--show-toplevel'])).stdout.trim()
+    const parent = top.slice(0, top.lastIndexOf('/')) || '/'
+    if (top === '') return undefined
+    for (const entry of await $.fs.list(parent)) {
+      if (entry.kind === 'file') continue
+      const path = `${parent === '/' ? '' : parent}/${entry.name}`
+      if (path === top) continue
+      const remote = await $.process.run(['git', '-C', path, 'remote', 'get-url', 'origin'])
+      if (remote.exitCode === 0 && repositoryOf(remote.stdout) === repository) return path
+    }
+  } catch {
+    // The folders cannot be listed: the decline stands as it was.
+  }
+  return undefined
+}
+
 /**
  * The Tick-it repository this folder is: its GitHub origin, or, in a folder
  * with no origin at all (a new project not yet pushed), the repository of the
