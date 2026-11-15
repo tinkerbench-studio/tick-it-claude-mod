@@ -322,8 +322,8 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
   const recorded = first || afterTicking ? await recordedReviews($, t.id) : undefined
   // Runs this session has not yet got to Tick-it (the outbox holds them) are not in the timeline: never go back to a round number the session already used.
   const ranHere = (await read($, reviews)).filter(r => r.ticket === t.id).reduce((most, r) => Math.max(most, r.round), 0)
-  const carried = recorded === undefined ? 0 : Math.max(lastRecordedRound(recorded), ranHere)
-  const round = !first || recorded === undefined ? fromRound : carried + 1
+  const carried = Math.max(recorded === undefined ? 0 : lastRecordedRound(recorded), ranHere)
+  const round = first ? carried + 1 : fromRound
   const limit = await roundLimit($, t.size, t.id)
   // The fix that followed a round blocked by the pull request alone, with no budget for a reviewer round: no review agent starts, the pull request is read again and settles the round.
   if (trigger === 'after-fix' && (await read($, steward))?.pullRequestOnly === true && (await budgetStop($, t.id, await reviewedRounds($, t.id))) !== undefined) {
@@ -364,7 +364,10 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
   // A command cannot submit a prompt, and a settle that finds a check unticked or the pull request failing submits one: from a command the round settles here only when it ends clean, and is reviewed as before otherwise.
   const fromCommand = trigger === 'done-command' || trigger === 'steward-command'
   // Reviewers read the working tree against HEAD: edits made since a review at this head (uncommitted or untracked) have not been reviewed, so the head alone does not say it was.
-  const cleanTree = async () => (await $.process.run(['git', 'status', '--porcelain'])).stdout.trim() === ''
+  const cleanTree = async () => {
+    const status = await $.process.run(['git', 'status', '--porcelain'])
+    return status.exitCode === 0 && status.stdout.trim() === ''
+  }
   const settlesClean = async () => {
     if (!fromCommand) return true
     const unticked = await untickedAcceptance($, t.id)

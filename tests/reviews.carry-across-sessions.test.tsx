@@ -162,3 +162,11 @@ test('runs the outbox has not sent yet still count: a second start in the sessio
   await $.command.run({ ...RUN, command: 'tick-it', args: 'steward TCK-143' })
   expect(seen.spawned.at(-1)?.description).toContain('round 2')
 })
+
+test('with the timeline unreadable too, a second start in the session still never reuses a round number', async ($, on) => {
+  const seen = run(on, { timeline: 'unreachable' })
+  await done($)
+  expect(seen.spawned[0]?.description).toContain('round 1')
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'steward TCK-143' })
+  expect(seen.spawned.at(-1)?.description).toContain('round 2')
+})
