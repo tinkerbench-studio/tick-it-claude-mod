@@ -139,6 +139,8 @@ export type Steward = {
   fixing?: boolean
   /** Claude has been asked, in this round's turn, to tick the acceptance checks it has met: a clean round that still has one unticked asks a person. */
   ticking?: boolean
+  /** The round's only blocking findings were the pull request's own and the review budget has no room for a reviewer round: after the fix the pull request is read again and settles the round. */
+  pullRequestOnly?: boolean
 }
 
 declare module 'claude-code' {
