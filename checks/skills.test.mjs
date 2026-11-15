@@ -99,12 +99,13 @@ test('the README’s skill section describes reading other repositories', () => 
   for (const words of ['every repository the epic covers', 'docs/other-repositories.md', 'names one repository']) expect(readme).toContain(words, `README no longer says "${words}"`)
 })
 
-test('draft-ticket, plan-epic and review-agents tell the person when the legacy merge-checks file is still there, without repeating the upgrade steps', () => {
+test('draft-ticket, plan-epic and review-agents tell the person when the legacy merge-checks file is still there: still read for compatibility, config.json preferred', () => {
   for (const name of ['draft-ticket', 'plan-epic', 'review-agents']) {
     const skill = read(`skills/${name}/SKILL.md`)
-    for (const words of ['`.tick-it/merge-checks.json` exists', 'no longer read', '`docs/config.md#upgrade` in tinkerbench-studio/tick-it']) expect(skill).toContain(words, `${name} no longer says "${words}"`)
+    for (const words of ['`.tick-it/merge-checks.json` exists', 'still reads it for compatibility', '`.tick-it/config.json` with `{ "mergeChecks": [...] }` is the preferred file', '`docs/config.md#upgrade` in tinkerbench-studio/tick-it']) expect(skill).toContain(words, `${name} no longer says "${words}"`)
     assert.equal(skill.split('merge-checks.json').length - 1, 1, `${name} should name the legacy file once`)
-    assert.ok(!skill.includes('mergeChecks'), `${name} repeats the upgrade steps`)
+    assert.ok(!skill.includes('no longer read'), `${name} says the legacy file is no longer read`)
+    assert.ok(!/ignored/.test(skill.split('merge-checks.json')[1].slice(0, 300)), `${name} says the legacy file is ignored`)
   }
 })
 
