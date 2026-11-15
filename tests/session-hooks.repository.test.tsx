@@ -7,7 +7,7 @@ test('a first message for another repository takes nothing, and says why', async
   const seen = engine(on, { lines: 0 })
   await start($)
   const entered = await $.prompt.submit(typed(STARTED.replace('acme/web-app', 'acme/other')))
-  expect('context' in entered ? entered.context?.join(' ') : '').toContain('this session is in acme/web-app, not acme/other, so it did not take TCK-151.')
+  expect('context' in entered ? entered.context?.join(' ') : '').toContain('this session is in acme/web-app, not acme/other, so it did not take TCK-151: it records and reports for itself.')
   expect(seen.server.find(t => t.key === 'TCK-151')?.status).toBe('Ready')
   expect(reports(seen)).toEqual([])
 })
@@ -41,7 +41,7 @@ test('a folder whose origin is not on GitHub takes nothing', async ($, on) => {
   const seen = engine(on, { lines: 0, origin: 'git@gitlab.com:acme/web-app.git\n' })
   await start($)
   const entered = await $.prompt.submit(typed(STARTED))
-  expect('context' in entered ? entered.context?.join(' ') : '').toContain('a folder whose origin is not on GitHub, not acme/web-app, so it did not take TCK-151.')
+  expect('context' in entered ? entered.context?.join(' ') : '').toContain('a folder whose origin is not on GitHub, not acme/web-app, so it did not take TCK-151: it records and reports for itself.')
   expect(seen.server.find(t => t.key === 'TCK-151')?.status).toBe('Ready')
 })
 

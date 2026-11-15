@@ -20,7 +20,7 @@ const outbox = atom({ plugin: 'tick-it', key: 'outbox' } as const, [])
 const dropped = atom({ plugin: 'tick-it', key: 'dropped' } as const, [])
 /** link_pull_request calls Tick-it has not taken yet: sent again with the outbox. */
 const unlinked = atom({ plugin: 'tick-it', key: 'unlinked' } as const, [])
-/** The Tick-it session id of a start line whose ticket the mod could not take: that session reports for itself. */
+/** The Tick-it session id of a start line whose ticket the mod could not take or that names another repository: that session reports for itself. */
 const takeFailed = atom({ plugin: 'tick-it', key: 'takeFailed' } as const, null)
 
 export const registerSession: Register = on => {
@@ -118,7 +118,9 @@ export const registerSession: Register = on => {
     const origin = await originHere($)
     if (origin !== null && origin !== repository) {
       await log($, 'debug', 'start-not-taken', { ticket, why: 'other-repository' })
-      return next({ ...e, context: [...(e.context ?? []), `tick-it: this session is in ${origin ?? 'a folder whose origin is not on GitHub'}, not ${repository}, so it did not take ${ticket}.`] })
+      // Nothing is taken, so the session records and reports for itself, as after a refused take.
+      await update($, takeFailed, () => id)
+      return next({ ...e, context: [...(e.context ?? []), `tick-it: this session is in ${origin ?? 'a folder whose origin is not on GitHub'}, not ${repository}, so it did not take ${ticket}: it records and reports for itself.`] })
     }
     // A folder with no origin works on the repository the first message names.
     const notes = origin === null ? [`tick-it: this folder has no origin remote, so it works on ${repository} as Tick-it asked.`] : []
