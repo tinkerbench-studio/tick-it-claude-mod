@@ -163,6 +163,12 @@ test('a continue line is found plain, indented and in a routine-fire-payload blo
   expect(START_LINE.test(CONTINUE)).toBe(false)
 })
 
+const REASONS: Record<(typeof TOOLS)[number], string> = {
+  record_runs: 'tick-it records review runs itself, from what each review agent spent.',
+  report_review_agents: 'tick-it reports the repository’s review agents itself, from its .tick-it/skills.',
+  report_session: 'tick-it reports the session’s progress itself.',
+}
+
 for (const [name, text] of [['plain', CONTINUE], ['indented', `    ${CONTINUE}`], ['in a routine-fire-payload block', WRAPPED_CONTINUE]] as const) {
   test(`a continue line ${name} takes the ticket without moving it, reports working to its session, and keeps the session's own calls the mod's`, async ($, on) => {
     const seen = engine(on, { lines: 0 }, true, SKILLS)
@@ -178,6 +184,7 @@ for (const [name, text] of [['plain', CONTINUE], ['indented', `    ${CONTINUE}`]
     for (const tool of TOOLS) {
       const denied = await check($, tool)
       expect(denied.decision).toBe('deny')
+      expect('reason' in denied ? denied.reason : '').toBe(REASONS[tool])
       expect('reason' in denied ? denied.reason : '').not.toContain('did not take a ticket')
     }
   })
@@ -193,6 +200,8 @@ test('a continue session starts the review of the ticket already In review when 
   expect(seen.spawned.map(a => a.description)).toEqual(['tick-it review: principal on TCK-151, round 1'])
   await $.turn.complete(finishTurn('agent-1', 'VERDICT: clean'))
   expect(reports(seen).map(r => r.status)).toEqual(['working', 'reviewing', 'reviewing', 'reviewing', 'done'])
+  const reviewRun = seen.recorded.flatMap(r => r.args.runs.map(run => ({ ...run, tickitSession: (r.args as { tickitSession?: string }).tickitSession }))).find(run => run.skill === 'principal')
+  expect(reviewRun).toMatchObject({ ticket: 'TCK-151', skill: 'principal', round: 1, tickitSession: 's_abc12345', headSha: 'ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12' })
   expect(seen.ticketCalls.filter(c => c.tool === 'update_ticket').every(c => (c.args as { status?: string }).status !== 'In progress')).toBe(true)
 })
 
@@ -204,4 +213,24 @@ test('a continue line for another repository takes nothing and leaves the sessio
   expect('context' in entered ? entered.context?.join(' ') : '').toContain('so it did not take TCK-151. The mod records and reports nothing for it')
   for (const tool of TOOLS) expect((await check($, tool)).decision).toBe('allow')
   expect(reports(seen)).toEqual([])
+})
+
+test('a continue session on a ticket that is Ready to merge reports working, then done when its turn ends, and the ticket is not moved', async ($, on) => {
+  const seen = engine(on, { lines: 0 })
+  const ticket = seen.server.find(t => t.key === 'TCK-151')
+  if (ticket !== undefined) ticket.status = 'Ready to merge'
+  await start($)
+  await $.prompt.submit(typed(CONTINUE))
+  await $.turn.complete(finishTurn(undefined, 'Merged main in.'))
+  expect(reports(seen).map(r => r.status)).toEqual(['working', 'done'])
+  expect(seen.ticketCalls.filter(c => c.tool === 'update_ticket')).toEqual([])
+  expect(seen.server.find(t => t.key === 'TCK-151')?.status).toBe('Ready to merge')
+})
+
+test('a message with a start line and a continue line is a start line', async ($, on) => {
+  const seen = engine(on, { lines: 0 })
+  await start($)
+  await $.prompt.submit(typed(`${LINE}\n${CONTINUE.replace('s_abc12345', 's_other123')}`))
+  expect(seen.server.find(t => t.key === 'TCK-151')).toMatchObject({ status: 'In progress' })
+  expect(reports(seen).map(r => r.session)).toEqual(['s_abc12345'])
 })

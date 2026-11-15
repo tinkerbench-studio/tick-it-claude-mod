@@ -101,8 +101,9 @@ export const registerSession: Register = on => {
   // ticket. Take the ticket, hand Claude its brief with the message, and tell
   // Tick-it the session is working.
   on('prompt.submit', async ($, e, next) => {
-    const line = START_LINE.exec(e.text) ?? CONTINUE_LINE.exec(e.text)
-    const continuing = line !== null && START_LINE.exec(e.text) === null
+    const started = START_LINE.exec(e.text)
+    const line = started ?? CONTINUE_LINE.exec(e.text)
+    const continuing = started === null && line !== null
     await log($, 'debug', 'start-line', { matched: line !== null, command: e.command !== undefined })
     if (line === null && e.command === undefined) {
       // A breakdown session: the mod takes no ticket and reports nothing for it, so that session reports for itself. A message that starts a build is never one, and the first one to name a session arms it, once.
@@ -142,7 +143,7 @@ export const registerSession: Register = on => {
     }
     await update($, takeFailed, () => null)
     await log($, 'debug', 'ticket-taken', { ticket: t.id, session: id, claudeSession: await $.session.id() })
-    const s: StartedSession = { id, repository, ticket: t.id, status: 'working', reportedAt: 0, claudeSession: await $.session.id() }
+    const s: StartedSession = { id, repository, ticket: t.id, status: 'working', reportedAt: 0, claudeSession: await $.session.id(), ...(continuing ? { continued: true } : {}) }
     await update($, startedSession, () => s)
     await $.store.set(STARTED_KEY, s)
     const sent = await callTickit($, REPORT_TOOL, {

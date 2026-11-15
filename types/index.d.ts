@@ -133,6 +133,8 @@ export type StartedSession = {
   reportedAt: number
   /** The Claude Code session it belongs to: a later session in the same folder does not pick it up. */
   claudeSession?: string
+  /** Started by a continue line: the ticket was already In review or Ready to merge and is not moved, so the session is done when its turn ends with the ticket not In review. */
+  continued?: boolean
 }
 
 /** Where the stewarding of one ticket stands. */

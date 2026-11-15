@@ -85,7 +85,8 @@ export const registerTurn: Register = on => {
       const session = await read($, startedSession)
       if (session !== null && toReview === null && building?.id === session.ticket) {
         await refreshDiff($).catch(() => undefined)
-        await report($, 'working', firstLine(e.answer))
+        // A continue session's ticket is not moved to review here (it is Ready to merge, say): its turn is the work, so it is done.
+        await report($, session.continued === true ? 'done' : 'working', firstLine(e.answer), session.continued === true)
       }
       if (toReview !== null) {
         await update($, reviewNext, () => null)
