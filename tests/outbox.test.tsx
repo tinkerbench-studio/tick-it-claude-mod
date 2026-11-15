@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { RUN, SKILLS, engine, finishTurn, start, reports } from './helpers'
+import { RUN, SKILLS, engine, finishTurn, start, reports, STARTED, typed } from './helpers'
 import type { Net } from './helpers'
 
 test("each finished review run goes to Tick-it's MCP server as it lands, so a cloud session loses nothing when it ends", async ($, on) => {
@@ -15,6 +15,8 @@ test("each finished review run goes to Tick-it's MCP server as it lands, so a cl
   const [call] = seen.recorded
   expect(call?.server).toBe('plugin:tick-it:tickit')
   expect(call?.args.session).toBe('session-1')
+  // Taking the ticket, Tick-it kept a session for it: its id goes beside the Claude Code one.
+  expect(call?.args.tickitSession).toBe('s_taken12345')
   expect(call?.args.repository).toBe('acme/web-app')
   expect(call?.args.runs).toEqual([
     expect.objectContaining({
@@ -82,6 +84,29 @@ test('a run Tick-it does not answer for stays waiting', async ($, on) => {
   await $.turn.complete(finishTurn('agent-1', 'VERDICT: clean'))
   const report = await $.command.run({ ...RUN, command: 'tick-it', args: 'reviews' })
   expect(report.text).toContain('1 review run waiting to send to Tick-it: Tick-it did not answer for 1 run.')
+})
+
+test('a session Tick-it started sends its s_… id as tickitSession beside the Claude Code id, so the review hold can match the runs', async ($, on) => {
+  const seen = engine(on, { lines: 10 }, true, SKILLS)
+  await start($)
+  await $.prompt.submit(typed(STARTED))
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'done' })
+  await $.turn.complete(finishTurn('agent-1', 'VERDICT: clean'))
+  const call = seen.recorded.at(-1)
+  expect(call?.args.session).toBe('session-1')
+  expect(call?.args.tickitSession).toBe('s_abc12345')
+})
+
+test('a session that took a ticket with no Tick-it session sends only the Claude Code id', async ($, on) => {
+  const net: Net = { noSession: true }
+  const seen = engine(on, { lines: 10 }, true, SKILLS, net)
+  await start($)
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-143' })
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'done' })
+  await $.turn.complete(finishTurn('agent-1', 'VERDICT: clean'))
+  const call = seen.recorded.at(-1)
+  expect(call?.args.session).toBe('session-1')
+  expect(call?.args).not.toHaveProperty('tickitSession')
 })
 
 test('a cloud session where tickit will not connect falls back to the claude.ai connector', async ($, on) => {
