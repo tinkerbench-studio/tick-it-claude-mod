@@ -39,3 +39,12 @@ test('the get_mod_config answer records notice, which the mod reads and shows', 
   assert.ok('notice' in answer, 'notice is missing from the get_mod_config answer')
   assert.match(source, /v\.notice/)
 })
+
+test('the board is read slim and get_ticket names the parts it reads (a reply over 50,000 characters never reaches the mod)', () => {
+  const lists = fixtures.calls.filter(c => c.tool === 'list_tickets')
+  assert.ok(lists.length > 0)
+  for (const c of lists) assert.equal(c.args.slim, true, 'list_tickets must be called with slim: true')
+  const gets = fixtures.calls.filter(c => c.tool === 'get_ticket')
+  assert.ok(gets.some(c => Array.isArray(c.args.include) && c.args.include.length === 0), 'get_ticket include: [] is not recorded')
+  for (const c of gets) assert.ok(Array.isArray(c.args.include), 'every get_ticket call records include')
+})
