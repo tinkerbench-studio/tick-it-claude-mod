@@ -5,6 +5,7 @@ import { SIZES, REVIEWS_KEY, SKILLS_DIR, OLD_SKILLS_DIR, BASES_DIR, KEEP_REVIEWS
 import { callTickit, fetchInstructions, fetchModConfig, hasModLimits, repositoryHere, reviewBudgetOf, roundLimit } from './tickit'
 import { setStatus, showStatus, refreshPullRequest, servedConfig } from './board'
 import { report, changedContent } from './work'
+import { queue, flush } from './outbox'
 import { AREA_SKILL_DIR, AREA_NAMES, areaSkill, changesFor, parseChanges, touchedAreas, touchedLine, unknownChanges } from './security-areas'
 import type { Changes, Touched } from './security-areas'
 import { log } from './log'
@@ -295,10 +296,52 @@ export async function setSteward($: EngineInterface, next: Steward | null) {
   }
 }
 
+const BACKSLASH = String.fromCharCode(92)
+const PLAIN = 'abcdefghijklmnopqrstuvwxyz0123456789_-/'
+
+/** A path glob as a regular expression, read as Tick-it reads it (globPattern in its areas.ts): a glob matches at any depth unless it starts with a slash, which reads it from the top of the repository; a double star and slash crosses folders, a double star with no slash after it matches anything, and a single star or a question mark stays in one folder. */
+export const globMatches = (glob: string, path: string): boolean => {
+  const anchored = glob.startsWith('/')
+  const body = anchored ? glob.slice(1) : glob
+  let source = ''
+  for (let i = 0; i < body.length; i++) {
+    const c = body.charAt(i)
+    if (c === '*') {
+      if (body[i + 1] === '*') {
+        i++
+        if (body[i + 1] === '/') {
+          i++
+          source += '(?:.*/)?'
+        } else source += '.*'
+      } else source += '[^/]*'
+    } else if (c === '?') source += '[^/]'
+    else source += PLAIN.includes(c.toLowerCase()) ? c : BACKSLASH + c
+  }
+  return new RegExp('^' + (anchored ? '' : '(?:.*/)?') + source + '$').test(path)
+}
+
+/** The files the branch changed against its merge base with the remote's default branch (the working tree, untracked files included), or null when they cannot be listed. */
+export async function changedSinceBase($: EngineInterface): Promise<string[] | null> {
+  for (const base of ['origin/HEAD', 'origin/main', 'origin/master']) {
+    const mb = await $.process.run(['git', 'merge-base', 'HEAD', base]).catch(() => undefined)
+    const sha = mb?.exitCode === 0 ? mb.stdout.trim() : ''
+    if (!/^[0-9a-f]{40}$/.test(sha)) continue
+    const diff = await $.process.run(['git', 'diff', '--name-only', '--no-renames', '-z', sha]).catch(() => undefined)
+    if (diff === undefined || diff.exitCode !== 0 || diff.isStdoutTruncated) return null
+    // --full-name gives root-relative paths, as git diff does, and the :/ pathspec lists the whole repository, not only the session folder, so a folder below the root matches the same globs.
+    // The working tree against the merge base, as the reviewers and the size budget see the change: uncommitted edits and untracked files count too.
+    const others = await $.process.run(['git', 'ls-files', '--others', '--exclude-standard', '--full-name', '-z', '--', ':/']).catch(() => undefined)
+    // An untracked listing that failed or was cut short is a listing that cannot be had in full.
+    if (others === undefined || others.exitCode !== 0 || others.isStdoutTruncated) return null
+    return [...diff.stdout.split('\0'), ...others.stdout.split('\0')].filter(f => f !== '')
+  }
+  return null
+}
+
 /** What began a round, as the log says it: the done command, the steward command, Claude's own move to In review, or the fix turn ending. */
 export type RoundTrigger = 'done-command' | 'steward-command' | 'moved-by-claude' | 'after-fix' | 'after-stop'
 
-/** Starts one review round: every skill that applies to the ticket's size, each as a subagent. */
+/** Starts one review round: every skill that applies to the ticket's size and whose paths match a changed file, each as a subagent. */
 export async function startRound($: EngineInterface, t: Ticket, fromRound: number, ticking?: boolean, trigger: RoundTrigger = 'done-command'): Promise<string> {
   // The ticket may not have been taken in this session: the repository's settings are read afresh as its rounds begin, before the stop check below.
   if (fromRound === 1) {
@@ -341,21 +384,46 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
     return `Round ${round}: no reviewer started for ${t.id} (the review budget has no room); the pull request is read again.`
   }
   const earlierRuns = await read($, reviews)
-  // A skill runs for the ticket's size, or, when it lists `changes`, for what the change touches whatever the size. The change is read only when a skill asks.
+  const bySize = (skill: ReviewSkill) => skill.sizes === undefined || skill.sizes.includes(t.size)
+  const sized = all.filter(({ skill }) => bySize(skill))
+  // A reviewer of the size runs only when a changed file matches its paths; when the files cannot be listed, every reviewer of the size runs.
+  const changedPaths = sized.some(({ skill }) => skill.paths !== undefined) ? await changedSinceBase($).catch(() => null) : null
+  const pathsMatch = (skill: ReviewSkill) => skill.paths === undefined || changedPaths === null || changedPaths.some(f => (skill.paths ?? []).some(g => globMatches(g, f)))
+  // A skill also runs, when it lists `changes`, for what the change touches whatever the size. The change is read only when a skill asks.
   const listing = all.some(({ skill }) => skill.changes !== undefined)
   const changed = listing ? await changedContent($) : []
   const touched = touchedAreas(changed)
   const paths = changed.map(f => f.path)
-  const bySize = (skill: ReviewSkill) => skill.sizes === undefined || skill.sizes.includes(t.size)
   // Once a skill has reviewed the ticket it reviews every later round: a fix that takes the change out of an area still has that round's findings to answer.
   const ranBefore = (folder: string) => earlierRuns.some(r => r.ticket === t.id && r.skill === folder && r.round < round)
-  const skills = all.filter(({ folder, skill }) => bySize(skill) || changesFor(skill.changes, touched, paths).length > 0 || (skill.changes !== undefined && ranBefore(folder)))
+  // A skill with blocking findings still open from an earlier round also runs, whatever its paths: a fix that takes the change out of its paths still has those findings to answer.
+  const skills = all.filter(({ folder, skill }) => (bySize(skill) && pathsMatch(skill)) || changesFor(skill.changes, touched, paths).length > 0 || (skill.changes !== undefined && ranBefore(folder)) || earlierBlockers(earlierRuns, t.id, folder, round).length > 0)
+  const skipped = sized.filter(f => !skills.includes(f))
+  if (skipped.length > 0) {
+    // Recorded on the round as not applicable, with the reason; they hold nothing up.
+    const session = await $.session.id()
+    const now = await $.clock.now()
+    const runs: ReviewRun[] = skipped.map(({ folder, skill }) => ({
+      agentId: `${session}-${t.id}-${folder}-r${round}`,
+      ticket: t.id,
+      epic: t.epic,
+      round,
+      skill: folder,
+      model: skill.model ?? 'none',
+      startedAt: now,
+      status: 'done',
+      durationMs: 0,
+      notApplicable: `No changed file matches its paths (${(skill.paths ?? []).join(', ')}).`.slice(0, 300),
+    }))
+    await queue($, runs)
+    await flush($).catch(() => undefined)
+  }
   if (skills.length === 0) {
-    await log($, 'debug', 'round-not-started', { ticket: t.id, round, why: all.length === 0 ? 'no-skills' : 'no-skill-for-size' })
+    await log($, 'debug', 'round-not-started', { ticket: t.id, round, why: all.length === 0 ? 'no-skills' : sized.length === 0 ? 'no-skill-for-size' : 'no-skill-for-paths' })
     const untouched = listing ? ', and its change touches nothing that runs one whatever the size' : ''
-    const none = all.length === 0 ? `No review skills in ${SKILLS_DIR}.` : `None of the review skills in ${SKILLS_DIR} (${all.map(f => f.folder).join(', ')}) review a ticket of size ${t.size}${untouched}.`
+    const none = all.length === 0 ? `No review skills in ${SKILLS_DIR}.` : sized.length === 0 ? `None of the review skills in ${SKILLS_DIR} (${all.map(f => f.folder).join(', ')}) review a ticket of size ${t.size}${untouched}.` : `No changed file matches the paths of the review skills for size ${t.size} (${sized.map(f => f.folder).join(', ')})${untouched}.`
     await setSteward($, { ticket: t.id, round, phase: 'done', maxRounds: limit, note: none })
-    const why = await setStatus($, t.id, 'Done', 'Done without review: no review skill applies to this ticket.')
+    const why = await setStatus($, t.id, 'Done', sized.length === 0 ? 'Done without review: no review skill applies to this ticket.' : 'Done without review: no changed file matches the paths of any review skill that applies to this ticket.')
     if (why !== undefined) return `${none} Tick-it did not take ${t.id} to Done: ${why}.`
     return `${none} ${t.id} is Done without review.${all.length === 0 ? ' /tick-it:review-agents sets some up.' : ''}`
   }
