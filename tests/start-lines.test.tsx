@@ -82,26 +82,21 @@ test('moving the ticket of an indented-line session to review starts its review 
 const TOOLS = ['record_runs', 'report_session', 'report_review_agents'] as const
 const check = ($: Parameters<Parameters<typeof test>[1]>[0], tool: string) => $.tool.check({ tool: `mcp__plugin_tick-it_tickit__${tool}`, input: { session: 's_abc12345', runs: [] } })
 
-test('a denied record_runs, report_session or agents report while no ticket is current says the mod took no ticket', async ($, on) => {
+test('record_runs, report_session and agents reports are allowed while no ticket is taken: the session reports for itself', async ($, on) => {
   engine(on, { lines: 10 }, true, SKILLS)
   on('tool.check', () => ({ decision: 'allow' as const }))
   await start($)
-  for (const tool of TOOLS) {
-    const denied = await check($, tool)
-    expect(denied.decision).toBe('deny')
-    expect('reason' in denied ? denied.reason : '').toContain('The mod did not take a ticket in this session')
-  }
+  for (const tool of TOOLS) expect((await check($, tool)).decision).toBe('allow')
 })
 
-test('a start line that does not match leaves the ticket untaken, and a session that took one keeps the plain deny reasons', async ($, on) => {
+test('a start line that does not match leaves the ticket untaken and its calls allowed, and a session that took one keeps the deny reasons', async ($, on) => {
   const seen = engine(on, { lines: 10 }, true, SKILLS)
   on('tool.check', () => ({ decision: 'allow' as const }))
   await start($)
   await $.prompt.submit(typed(`The first line reads: ${LINE}`))
   expect(seen.server.find(t => t.key === 'TCK-151')).not.toMatchObject({ status: 'In progress' })
   expect(reports(seen)).toEqual([])
-  const untaken = await check($, 'record_runs')
-  expect('reason' in untaken ? untaken.reason : '').toContain('did not take a ticket')
+  expect((await check($, 'record_runs')).decision).toBe('allow')
 
   await $.prompt.submit(typed(WRAPPED))
   const reasons: Record<string, string> = {

@@ -6,7 +6,8 @@ import type { ChangedFile } from './security-areas'
 import { STARTED_KEY, REPORT_EVERY_MS, REPORT_TOOL, SKILLS_DIR, EMPTY_TREE, UNLINKED_KEY, FILE_TYPES, MAX_ATTACH_BYTES, MAX_FILES, MAX_PATH, MAX_FILE_LINES } from './state'
 import { sendTickit, callTickit, repositoryHere } from './tickit'
 import type { Called } from './tickit'
-import { findCurrent, refreshBoard, changeTicket, showStatus } from './board'
+import { findCurrent, refreshBoard, changeTicket, showStatus, save, fromRemote } from './board'
+import type { RemoteTicket } from './board'
 import { findSkills, setSteward } from './reviews'
 import { uiEvidenceRefusal } from './ui-check'
 import { log } from './log'
@@ -269,9 +270,23 @@ export const firstLine = (answer: string) =>
     .find(line => line !== '')
     ?.slice(0, 300)
 
+/**
+ * A board that could not be read whole (a failed or oversized list_tickets) must not stop a session from taking
+ * the one ticket it was started for: read just that ticket with get_ticket and add it to the cache.
+ */
+async function readOne($: EngineInterface, wanted: string): Promise<void> {
+  const repository = await repositoryHere($)
+  if (repository === undefined) return
+  const one = await callTickit($, 'get_ticket', { repository, key: wanted, include: [] })
+  const remote = one.ok ? (one.value.ticket as RemoteTicket | undefined) : undefined
+  if (remote === undefined || remote.key?.toUpperCase() !== wanted) return
+  await save($, [...(await read($, tickets)).filter(t => t.id !== wanted), fromRemote(remote)])
+}
+
 export async function take($: EngineInterface, id: string): Promise<Ticket | string> {
   const wanted = id.toUpperCase()
   if ((await read($, tickets)).find(one => one.id === wanted) === undefined) await refreshBoard($)
+  if ((await read($, tickets)).find(one => one.id === wanted) === undefined) await readOne($, wanted)
   if ((await read($, tickets)).find(one => one.id === wanted) === undefined) {
     // A board that could not be read says nothing about the ticket: give the reason, not "no ticket".
     const problem = await read($, boardError)

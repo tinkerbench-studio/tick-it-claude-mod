@@ -86,3 +86,13 @@ test('a ticket missing from the last board read is not called "no ticket" when t
   net.connected = true
   expect((await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-999' })).text).toBe('No ticket TCK-999. Try /tick-it board.')
 })
+
+test('a board that cannot be read does not stop a ticket from being taken: it is read alone with get_ticket', async ($, on) => {
+  const net: Net = { listFails: true }
+  const seen = engine(on, { lines: 0 }, false, {}, net)
+  await start($)
+  const taken = await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-143' })
+  expect(taken.text).not.toContain('Could not read the board')
+  expect(seen.ticketCalls.some(c => c.tool === 'get_ticket' && (c.args as { key?: string }).key === 'TCK-143')).toBe(true)
+  expect(seen.server.find(t => t.key === 'TCK-143')?.status).toBe('In progress')
+})

@@ -71,12 +71,15 @@ export const registerSession: Register = on => {
   // rest of Tick-it's tools (tickets, epics, costs) stay the model's to use.
   on('tool.check', async ($, e, next) => {
     const isTickit = /tick-?it/i.test(e.tool)
-    // With no ticket taken the mod records and reports nothing, so say that: the model must not assume reviews are being recorded.
-    const untaken = async () => ((await read($, current)) === null && (await read($, startedSession)) === null ? ' The mod did not take a ticket in this session, so nothing is being recorded or reported for it: take the ticket with /tick-it take, or follow the brief without the mod.' : '')
+    // With no ticket taken the mod records and reports nothing, so the session reports for itself: its calls are allowed (a mod that failed to take the ticket must not leave the session unable to finish).
+    const untakenSession = (await read($, current)) === null && (await read($, startedSession)) === null
+    if (untakenSession && isTickit && next.origin.plugin === 'engine' && [RECORD_TOOL, REPORT_TOOL, AGENTS_TOOL].some(t => e.tool.endsWith(`__${t}`))) {
+      await log($, 'warn', 'tool-allowed-untaken', { tool: e.tool })
+      return next(e)
+    }
     const denied = async (why: string, reason: string) => {
-      const none = await untaken()
-      await log($, 'debug', 'tool-denied', { tool: e.tool, why, ...(none === '' ? {} : { ticket: 'none' }) })
-      return { decision: 'deny' as const, reason: reason + none }
+      await log($, 'debug', 'tool-denied', { tool: e.tool, why })
+      return { decision: 'deny' as const, reason }
     }
     if (isTickit && e.tool.endsWith(`__${RECORD_TOOL}`) && next.origin.plugin === 'engine') {
       return denied('runs-are-the-mods', 'tick-it records review runs itself, from what each review agent spent.')

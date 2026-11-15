@@ -63,6 +63,8 @@ export type Seen = {
  */
 export type Net = {
   connected?: boolean
+  /** list_tickets fails (the board cannot be read) while the other tools answer. */
+  listFails?: boolean
   /** Only this server connects (a cloud session: the claude.ai connector, not the plugin's own). */
   only?: string
   answer?: (args: Seen['recorded'][number]['args'], call: number) => 'unreachable' | { isError?: boolean; text?: string; rejected?: { agentId: string; reason: string }[] }
@@ -136,6 +138,7 @@ export const engine = (
       if (e.tool === 'get_mod_config') return net.modConfig === undefined ? refuse('No such tool') : net.modConfig === 'unreachable' ? refuseOr('unreachable') : answer(net.modConfig)
       if (a.repository !== 'acme/web-app') return refuse(`No tickets in ${String(a.repository)} yet. create_ticket adds the first one.`)
       if (e.tool === 'list_tickets') {
+        if (net.listFails === true) return refuse('Tick-it is down')
         if (net.pageSize === undefined) return answer({ tickets: seen.server })
         if (a.cursor !== undefined && a.cursor === net.failAt) return refuse('Tick-it is down')
         const from = a.cursor === undefined ? 0 : Number(a.cursor)
