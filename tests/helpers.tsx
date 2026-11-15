@@ -29,6 +29,8 @@ export const RUN = { origin: { kind: 'composer' }, presentation: { isFullscreen:
 
 export const COMPOSE = { model: 'm', promptModel: 'm', surfaces: ['terminal'], tools: [], outputStyle: null, traits: [] } as const
 
+const BASES = 'skills/review-agents/bases'
+
 export const SKILLS: Record<string, string> = {
   '.tick-it/skills/principal/SKILL.md': '---\nname: principal\ndescription: Second principal engineer\nmodel: claude-opus-5-5\n---\nCheck the tests prove each decision.',
   '.tick-it/skills/security/SKILL.md': '---\nname: security\ndescription: Security review\nmodel: claude-sonnet-5-5\n---\nLook for injection and leaked secrets.',
@@ -72,6 +74,8 @@ export type Net = {
   reviewRounds?: Record<string, number>
   /** What get_mod_config answers; 'unreachable' makes the call fail, and absent leaves it unanswered (the mod keeps its own copies). */
   modConfig?: Record<string, unknown> | 'unreachable'
+  /** The reviewSpend get_ticket answers with (null when costs cannot be seen); absent leaves it out of the ticket. */
+  reviewSpend?: Record<string, unknown> | null
   /** The config of get_repository_settings (one entry per base branch with its design section); absent when not answered. */
   config?: unknown[]
   /** The repository's autoMerge setting, as get_repository_settings answers it. */
@@ -143,7 +147,7 @@ export const engine = (
       if (e.tool === 'get_ticket') {
         if (seen.failTicketReads === true) return refuse('Tick-it is down')
         const ticket = seen.server.find(t => t.key === a.key)
-        return ticket === undefined ? refuse(`No ticket ${String(a.key)} in acme/web-app.`) : answer({ ticket })
+        return ticket === undefined ? refuse(`No ticket ${String(a.key)} in acme/web-app.`) : answer({ ticket: net.reviewSpend === undefined ? ticket : { ...ticket, reviewSpend: net.reviewSpend } })
       }
       if (e.tool === 'list_pull_requests') {
         if (net.pullRequests === 'unreachable') return refuse('Tick-it is down')
@@ -192,7 +196,8 @@ export const engine = (
   mock.store(on, diff.stored)
   on('clock.now', () => ({ value: (clock += 1000 + (net.skip ?? 0)) }))
   // The engine hands the paths over resolved against the working directory.
-  const rel = (path: string) => (path.includes('.tick') ? path.slice(path.indexOf('.tick')) : path)
+  // A base review skill is read from the plugin's own folder, wherever that is: the map names it from skills/review-agents/bases on.
+  const rel = (path: string) => (path.includes('.tick') ? path.slice(path.indexOf('.tick')) : path.includes(BASES) ? path.slice(path.indexOf(BASES)) : path)
   on('fs.exists', (_$, e) => ({
     value: Object.keys(skills).some(path => path === rel(e.path) || path.startsWith(`${rel(e.path)}/`)),
   }))

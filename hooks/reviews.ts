@@ -1,8 +1,8 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 import type { PullRequestView, ReviewRun, ReviewUsage, Steward, Ticket, TicketSize } from '../types'
-import { SIZES, REVIEWS_KEY, SKILLS_DIR, OLD_SKILLS_DIR, KEEP_REVIEWS, MAX_FINDING_TEXT, PRICES } from './state'
-import { callTickit, fetchInstructions, repositoryHere, roundLimit } from './tickit'
+import { SIZES, REVIEWS_KEY, SKILLS_DIR, OLD_SKILLS_DIR, BASES_DIR, KEEP_REVIEWS, MAX_FINDING_TEXT, PRICES } from './state'
+import { callTickit, fetchInstructions, fetchModConfig, hasModLimits, repositoryHere, reviewBudgetOf, roundLimit } from './tickit'
 import { setStatus, showStatus, refreshPullRequest, servedConfig } from './board'
 import { report } from './work'
 import { log } from './log'
@@ -25,7 +25,21 @@ const pullRequestError = atom({ plugin: 'tick-it', key: 'pullRequestError' } as 
 // and tokens come from its turn.complete; the cost is worked out from them.
 
 /** A review skill found in the repository. */
-export type ReviewSkill = { name: string; description: string; model?: string; sizes?: TicketSize[]; paths?: string[]; body: string }
+export type ReviewSkill = {
+  name: string
+  description: string
+  model?: string
+  sizes?: TicketSize[]
+  paths?: string[]
+  body: string
+  /** The base review skill of the plugin it adds its rules to (front matter `base`). */
+  base?: string
+  /** That base's body, once found; left out when the plugin has no base of that name. */
+  baseBody?: string
+}
+
+/** A base is named by its folder under BASES_DIR: lower-case letters, digits and hyphens only, so a name can never leave that folder. */
+const BASE_NAME = /^[a-z0-9][a-z0-9-]*$/
 
 /** What the usage costs at API list prices, or undefined for a model with no price here. */
 export const costOf = (model: string, u: ReviewUsage): number | undefined => {
@@ -70,8 +84,25 @@ export const parseSkill = (folder: string, text: string): ReviewSkill => {
     sizes: sizes !== undefined && sizes.length > 0 ? sizes : undefined,
     paths: paths !== undefined && paths.length > 0 ? paths : undefined,
     body: (match?.[2] ?? text).trim(),
+    ...(fields.get('base') ? { base: fields.get('base') } : {}),
   }
 }
+
+/**
+ * A repository's skill on its base: the base's body goes before the skill's own rules, and the description, model and
+ * sizes the skill leaves out are the base's. Its name and paths stay its own.
+ */
+export const withBase = (skill: ReviewSkill, base: ReviewSkill): ReviewSkill => ({
+  ...skill,
+  description: skill.description || base.description,
+  model: skill.model ?? base.model,
+  sizes: skill.sizes ?? base.sizes,
+  baseBody: base.body,
+})
+
+/** The skills whose base this version of the plugin does not have: they review by their own rules alone, and the round says so. */
+export const missingBases = (skills: { folder: string; skill: ReviewSkill }[]): string[] =>
+  skills.filter(({ skill }) => skill.base !== undefined && skill.baseBody === undefined).map(({ folder, skill }) => `${folder} (base ${JSON.stringify(skill.base)})`)
 
 /** The BLOCKING and OPTIONAL lines of a reviewer's report. */
 export const readFindings = (answer: string) => {
@@ -152,11 +183,35 @@ export async function findSkills($: EngineInterface): Promise<{ folder: string; 
     const path = `${dir}/${entry.name}/SKILL.md`
     if (!(await $.fs.exists(path))) continue
     const text = await $.fs.read(path)
-    if (typeof text === 'string') found.push({ folder: entry.name, skill: parseSkill(entry.name, text) })
+    if (typeof text !== 'string') continue
+    const skill = parseSkill(entry.name, text)
+    found.push({ folder: entry.name, skill: await readBase($, skill) })
   }
 
   return found.sort((a, b) => a.folder.localeCompare(b.folder))
 }
+
+/** The skill with its base read from the plugin's own folder; unchanged when it names none, or one the plugin does not have. */
+async function readBase($: EngineInterface, skill: ReviewSkill): Promise<ReviewSkill> {
+  if (skill.base === undefined || !BASE_NAME.test(skill.base)) return skill
+  const path = `${$.plugin.root}/${BASES_DIR}/${skill.base}/SKILL.md`
+  if (!(await $.fs.exists(path))) return skill
+  const text = await $.fs.read(path)
+
+  return typeof text === 'string' && text.trim() !== '' ? withBase(skill, parseSkill(skill.base, text)) : skill
+}
+
+/** What the reviewer follows: the skill's own body, or its base and then the repository's rules on top. */
+export const skillLines = (skill: ReviewSkill): string[] =>
+  skill.baseBody === undefined
+    ? [`Follow this review skill (${SKILLS_DIR}/${skill.name}):`, skill.body]
+    : [
+        `Follow this review skill (${SKILLS_DIR}/${skill.name}). It adds this repository's rules to tick-it's "${skill.base}" base. The base:`,
+        skill.baseBody,
+        '',
+        "This repository's own rules. They add to the base, and where the two differ these are the ones to follow:",
+        skill.body === '' ? '(none)' : skill.body,
+      ]
 
 export const reviewPrompt = (t: Ticket, skill: ReviewSkill, round: number, earlier: Earlier[] = [], head?: string): string =>
   [
@@ -165,8 +220,7 @@ export const reviewPrompt = (t: Ticket, skill: ReviewSkill, round: number, earli
     ...t.acceptance.map(a => `- ${a}`),
     `Review the change in the working tree against HEAD (git diff HEAD and the untracked files). Do not change any file.`,
     '',
-    `Follow this review skill (${SKILLS_DIR}/${skill.name}):`,
-    skill.body,
+    ...skillLines(skill),
     '',
     ...(earlier.length === 0
       ? []
@@ -201,7 +255,11 @@ export type RoundTrigger = 'done-command' | 'steward-command' | 'moved-by-claude
 /** Starts one review round: every skill that applies to the ticket's size, each as a subagent. */
 export async function startRound($: EngineInterface, t: Ticket, round: number, ticking?: boolean, trigger: RoundTrigger = 'done-command'): Promise<string> {
   // The ticket may not have been taken in this session: the repository's settings are read afresh as its rounds begin, before the stop check below.
-  if (round === 1) await fetchInstructions($).catch(() => undefined)
+  if (round === 1) {
+    await fetchInstructions($).catch(() => undefined)
+    // Its own rounds and budget, from get_mod_config, when taking the ticket here did not already read them.
+    if (!(await hasModLimits($, t.id))) await fetchModConfig($, t.id).catch(() => undefined)
+  }
   const before = (await read($, steward))?.phase
   const all = await findSkills($)
   // The stop button pressed while the skills were read: that round does not start.
@@ -211,7 +269,7 @@ export async function startRound($: EngineInterface, t: Ticket, round: number, t
     await log($, 'debug', 'round-not-started', { ticket: t.id, round, why: 'stopped' })
     return `Stopped; round ${round} of ${t.id} did not start.`
   }
-  const limit = await roundLimit($, t.size)
+  const limit = await roundLimit($, t.size, t.id)
   const skills = all.filter(({ skill }) => skill.sizes === undefined || skill.sizes.includes(t.size))
   if (skills.length === 0) {
     await log($, 'debug', 'round-not-started', { ticket: t.id, round, why: all.length === 0 ? 'no-skills' : 'no-skill-for-size' })
@@ -270,8 +328,11 @@ export async function startRound($: EngineInterface, t: Ticket, round: number, t
     return `${why} (${t.id})`
   }
 
+  const noBase = missingBases(skills)
+  const without = noBase.length === 0 ? '' : ` This version of tick-it has no such base, so ${noBase.join(', ')} ${noBase.length === 1 ? 'reviews' : 'review'} by the repository's own rules alone.`
+
   await log($, 'debug', 'round-started', { ticket: t.id, round, why: trigger, skills: started.map(r => r.skill).join(',') })
-  return `Round ${round}: ${started.map(r => r.skill).join(', ')} reviewing ${t.id} in this session.`
+  return `Round ${round}: ${started.map(r => r.skill).join(', ')} reviewing ${t.id} in this session.${without}`
 }
 
 /** The stewarding pane's r: the next round starts when the current turn ends, even after the rounds ran out or stewarding stopped. */
@@ -343,6 +404,26 @@ async function autoMergeOn($: EngineInterface, repository: string): Promise<bool
   return got?.ok === true && got.value.autoMerge === true
 }
 
+/**
+ * Whether the review budget stops the next round: the ticket's reviewSpend (get_ticket: costUsd, budget, remaining) says the budget is reached, or the
+ * average cost of the rounds so far is more than what remains. Undefined, so the round limit alone decides, when the ticket has no budget (get_mod_config),
+ * when Tick-it cannot be read, or when reviewSpend is null (costs cannot be seen) or names no budget.
+ */
+export async function budgetStop($: EngineInterface, ticket: string, rounds: number): Promise<{ budget: number; costUsd: number; reached: boolean } | undefined> {
+  if ((await reviewBudgetOf($, ticket)) === null) return undefined
+  const repository = await repositoryHere($)
+  if (repository === undefined) return undefined
+  const got = await callTickit($, 'get_ticket', { repository, key: ticket }).catch(() => undefined)
+  const spend = got?.ok === true ? (got.value.ticket as { reviewSpend?: { costUsd?: unknown; budget?: unknown; remaining?: unknown } | null } | undefined)?.reviewSpend : undefined
+  if (spend === null || spend === undefined) return undefined
+  const { costUsd, budget, remaining } = spend
+  if (typeof costUsd !== 'number' || typeof budget !== 'number' || typeof remaining !== 'number') return undefined
+  // Spend must be under the budget; and a round costing the average of those so far must fit in what remains.
+  if (remaining <= 0) return { budget, costUsd, reached: true }
+  if (rounds >= 1 && costUsd / rounds > remaining) return { budget, costUsd, reached: false }
+  return undefined
+}
+
 /** Once every reviewer of the round has answered: done, a fix round, one more round past the limit, or stop. */
 export async function settleRound($: EngineInterface, s: Steward) {
   const runs = (await read($, reviews)).filter(r => r.ticket === s.ticket && r.round === s.round)
@@ -409,7 +490,7 @@ export async function settleRound($: EngineInterface, s: Steward) {
     $.ui.toast(why === undefined ? `tick-it: ${t.id} is Done. Round ${s.round} reviews were clean (${spent}).` : waitsForMerge ? `tick-it: round ${s.round} reviews of ${t.id} were clean (${spent}). ${why}` : `tick-it: round ${s.round} reviews of ${t.id} were clean (${spent}), but Tick-it did not take it to Done: ${why}. /tick-it steward ${t.id} to try again.`)
     return
   }
-  const limit = await roundLimit($, t.size)
+  const limit = await roundLimit($, t.size, t.id)
   if (s.round > limit) {
     if (!(await stillReviewing())) return
     await log($, 'debug', 'round-settled', { ticket: t.id, round: s.round, outcome: 'stopped-past-limit', blocking: blocking.length })
@@ -421,6 +502,18 @@ export async function settleRound($: EngineInterface, s: Steward) {
     return
   }
   if (!(await stillReviewing())) return
+  // Another round (the review of a fix) starts only while spend is under the budget and the next round is not expected to overshoot what is left. A fix asked for here is always reviewed, so the check is made before asking for one.
+  const over = await budgetStop($, t.id, s.round)
+  if (over !== undefined) {
+    if (!(await stillReviewing())) return
+    await log($, 'debug', 'round-settled', { ticket: t.id, round: s.round, outcome: 'stopped-at-budget', blocking: blocking.length })
+    const note = `Review budget $${over.budget} ${over.reached ? 'reached' : `would be overshot by round ${s.round + 1}`} (${usd.format(over.costUsd)} spent over ${s.round} round${s.round === 1 ? '' : 's'}), ${blocking.length} blocking finding${blocking.length === 1 ? '' : 's'} still open, no clean round.`
+    await setSteward($, { ...s, phase: 'stopped', note })
+    const repository = await repositoryHere($)
+    if (repository !== undefined) await callTickit($, 'set_needs_human', { repository, key: t.id, kind: 'no-clean-round', note: note.slice(0, 200) }).catch(() => undefined)
+    $.ui.toast(`tick-it: ${t.id} still has ${blocking.length} blocking findings and the $${over.budget} review budget is ${over.reached ? 'used up' : 'too low for another round'}. Over to you.`)
+    return
+  }
   // The limit is hit with reviewers still blocking: one further round goes past it, and the timeline shows it as one.
   const pastLimit = s.round === limit
   await log($, 'debug', 'round-settled', { ticket: t.id, round: s.round, outcome: pastLimit ? 'fix-then-last-round' : 'fix', blocking: blocking.length })
