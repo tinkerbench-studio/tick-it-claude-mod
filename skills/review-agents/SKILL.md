@@ -20,3 +20,5 @@ When a ticket is built (`/tick-it done`), tick-it runs every review skill in `.t
 5. **Show what you wrote**: each skill, its sizes and model, and what you fitted. Do not commit: the person decides.
 
 Each reviewer reports `BLOCKING:` and `OPTIONAL:` lines, each with file:line, then `VERDICT: clean` or `VERDICT: changes`; tick-it adds that to the prompt, so the skills need not say it. Blocking is for what must change before the ticket is Done; a matter of taste is optional.
+
+In any text you write into a ticket (a description, acceptance check, comment or note), name another repository's ticket as `owner/name#KEY` and its pull request as `owner/name#n`, never a bare key or `#n`: a bare one always means this repository, and repositories can share a prefix.

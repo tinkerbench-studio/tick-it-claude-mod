@@ -66,6 +66,8 @@ export type Net = {
   /** Only this server connects (a cloud session: the claude.ai connector, not the plugin's own). */
   only?: string
   answer?: (args: Seen['recorded'][number]['args'], call: number) => 'unreachable' | { isError?: boolean; text?: string; rejected?: { agentId: string; reason: string }[] }
+  /** Tick-it keeps no session for a ticket taken (a person's own local session): the take answers none. */
+  noSession?: boolean
   /** Answer with lists that name no run. */
   silent?: boolean
   /** The repository's instructions for every brief; 'unreachable' makes get_repository_settings fail. */
@@ -175,7 +177,7 @@ export const engine = (
         if (a.status !== undefined) ticket.status = String(a.status)
         if (a.assignee !== undefined) ticket.assignee = a.assignee === 'me' ? 'maddiecs84' : null
         // Taking it, Tick-it answers the session it keeps for it.
-        return answer(a.status === 'In progress' ? { ticket, session: 's_taken12345' } : { ticket })
+        return answer(a.status === 'In progress' && net.noSession !== true ? { ticket, session: 's_taken12345' } : { ticket })
       }
       if (e.tool === 'set_criterion_checked') return answer({ ticket: seen.server.find(t => t.key === a.key) })
       return refuse(`no tool ${e.tool}`)

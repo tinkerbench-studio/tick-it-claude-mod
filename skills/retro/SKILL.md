@@ -37,3 +37,5 @@ When the arguments name a milestone (`milestone <title>`, or the title is one of
 7. Reply with the findings in short.
 
 Like an epic's, a milestone's retrospective changes no code or tickets. A suggestion becomes work only when someone asks for it.
+
+In any text you write into a ticket (a description, acceptance check, comment or note), name another repository's ticket as `owner/name#KEY` and its pull request as `owner/name#n`, never a bare key or `#n`: a bare one always means this repository, and repositories can share a prefix.
