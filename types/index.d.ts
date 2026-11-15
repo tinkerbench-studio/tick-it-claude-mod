@@ -51,6 +51,8 @@ export type ReviewRun = {
   headSha?: string
   status: 'running' | 'done' | 'failed'
   durationMs?: number
+  /** Set on a reviewer skipped because no changed file matches its paths, or (from round 2) because it was clean and no changed file since matches them, so its verdict carries forward: the reason, sent as `notApplicable`. */
+  notApplicable?: string
   usage?: ReviewUsage
   /** What the run would cost at API list prices; absent for a model with no price. */
   costUsd?: number

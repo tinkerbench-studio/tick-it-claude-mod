@@ -6,7 +6,7 @@ import type { ChangedFile } from './security-areas'
 import { STARTED_KEY, REPORT_EVERY_MS, REPORT_TOOL, SKILLS_DIR, EMPTY_TREE, UNLINKED_KEY, FILE_TYPES, MAX_ATTACH_BYTES, MAX_FILES, MAX_PATH, MAX_FILE_LINES } from './state'
 import { sendTickit, callTickit, repositoryHere } from './tickit'
 import type { Called } from './tickit'
-import { findCurrent, changeTicket, showStatus, save, fromRemote, readTicket } from './board'
+import { findCurrent, changeTicket, showStatus, save, fromRemote, readTicket, heldUntil } from './board'
 import type { RemoteTicket } from './board'
 import { findSkills, setSteward } from './reviews'
 import { uiEvidenceRefusal } from './ui-check'
@@ -274,6 +274,10 @@ export async function take($: EngineInterface, id: string): Promise<Ticket | str
   const wanted = id.toUpperCase()
   const problem = await readTicket($, wanted)
   if (problem !== undefined) return /\bno ticket\b/i.test(problem) ? `No ticket ${id}. Try /tick-it board.` : `Could not read ${wanted}: ${problem}.`
+  // A ticket held until a date is not taken: nothing is written, so it stays unassigned and out of In progress (Tick-it refuses its start for the same hold). Only a Backlog or Ready ticket counts, as on the server: one already in flight (In progress, In review) is resumed, never refused for a hold.
+  const held = (await read($, tickets)).find(t => t.id === wanted)
+  const until = held === undefined || (held.status !== 'Backlog' && held.status !== 'Ready') ? undefined : heldUntil(held)
+  if (until !== undefined) return `${wanted} is held until ${until} (its notBefore), so it was not taken. Take it once that date has come.`
   // Tick-it answers the session it keeps for this: one it started, or one it made now. Reports go to it.
   const adopt = async (session: string) => {
     const repository = await repositoryHere($)

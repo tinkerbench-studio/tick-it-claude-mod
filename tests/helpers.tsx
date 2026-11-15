@@ -114,7 +114,7 @@ export type Net = {
 /** The engine beneath the mod: a store, a repo whose diff is `diff.lines` lines, and quiet UI calls. */
 export const engine = (
   on: On,
-  diff: { lines: number; pr?: number; origin?: string | null; noCommit?: boolean; numstatZ?: string; failFiles?: boolean; stored?: Record<string, unknown>; refuse?: (model: string | undefined) => string | undefined; patch?: string; dirty?: boolean; untracked?: Record<string, string>; binary?: Record<string, string>; gh?: (argv: string[]) => { exitCode: number; stdout: string; stderr: string } | undefined; pictures?: { key: string; name: string }[] | 'unreachable' | 'odd' },
+  diff: { lines: number; pr?: number; origin?: string | null; noCommit?: boolean; numstatZ?: string; failFiles?: boolean; changed?: string[] | null; since?: string[] | null; failUntracked?: boolean; truncateNames?: boolean; bases?: string[]; failNames?: 'exit' | 'throw'; subdir?: string; stored?: Record<string, unknown>; refuse?: (model: string | undefined) => string | undefined; patch?: string; dirty?: boolean; untracked?: Record<string, string>; binary?: Record<string, string>; gh?: (argv: string[]) => { exitCode: number; stdout: string; stderr: string } | undefined; pictures?: { key: string; name: string }[] | 'unreachable' | 'odd' },
   isPlaced = true,
   skills: Record<string, string> = {},
   net: Net = {},
@@ -181,6 +181,10 @@ export const engine = (
         if (net.linkRefused) throw new Error('connection refused')
         return net.linkRejected ? refuse('No ticket TCK-143 in acme/web-app.') : answer({ pullRequests: [] })
       }
+      if (e.tool === 'start_session') {
+        const held = seen.server.find(t => t.key === a.key) as { notBefore?: string | null } | undefined
+        if (held?.notBefore != null && Date.parse(held.notBefore) > Date.now()) return refuse(`${String(a.key)} is held until ${held.notBefore}: it cannot be started before then.`)
+      }
       if (e.tool === 'start_session') return answer({ session: { id: 's_new1234567' }, local: { link: `claude-cli://open?q=work+on+${String(a.key)}` } })
       if (e.tool === 'add_attachment') return answer({ attachment: { id: 'att1', name: a.name, type: a.type } })
       if (e.tool === 'create_ticket') {
@@ -191,6 +195,7 @@ export const engine = (
       if (e.tool === 'update_ticket') {
         const ticket = seen.server.find(t => t.key === a.key)
         if (ticket === undefined) return refuse(`No ticket ${String(a.key)} in acme/web-app.`)
+        if (a.status === 'In progress' && (ticket as { refuseHold?: string }).refuseHold !== undefined) return refuse((ticket as { refuseHold: string }).refuseHold)
         if (a.status === 'Done' && diff.pr !== undefined) return refuse(`${String(a.key)}'s pull request #${diff.pr} is still open: it moves to Done when it merges.`)
         if (a.status === 'Done' && (typeof a.reason !== 'string' || a.reason.trim() === '')) return refuse(`${String(a.key)} has no merged pull request: give a reason to move it to Done.`)
         if (a.status !== undefined) ticket.status = String(a.status)
@@ -286,9 +291,21 @@ export const engine = (
     if (cmd !== 'git' && cmd !== 'gh') throw new Error(`$.process.run(${cmd}) failed to start: ENOENT`)
     const ghAnswer = cmd === 'gh' ? diff.gh?.(e.argv) : undefined
     if (ghAnswer !== undefined) return { value: { ...ghAnswer, isStdoutTruncated: false, isStderrTruncated: false } }
+    if (cmd === 'git' && sub === 'ls-files' && diff.failUntracked === true) return { value: { exitCode: 1, stdout: '', stderr: 'fatal', isStdoutTruncated: false, isStderrTruncated: false } }
     if (cmd === 'git' && sub === 'ls-files') {
-      return { value: { exitCode: 0, stdout: Object.keys(diff.untracked ?? {}).join('\0'), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+      // As git does: the session folder (`subdir`, below the root) only, unless the `:/` pathspec names the whole repository; --full-name changes only how paths print.
+      const whole = e.argv.includes(':/')
+      const full = e.argv.includes('--full-name')
+      const names = Object.keys(diff.untracked ?? {}).filter(f => diff.subdir === undefined || whole || f.startsWith(diff.subdir)).map(f => (diff.subdir === undefined || full ? f : f.slice(diff.subdir.length)))
+      return { value: { exitCode: 0, stdout: names.join('\0'), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     }
+    // The merge base and the files changed since it: `changed` null stands for a repository where they cannot be listed.
+    if (cmd === 'git' && sub === 'merge-base') return { value: { exitCode: diff.changed === undefined || diff.changed === null || (diff.bases !== undefined && !diff.bases.includes(e.argv[3] ?? '')) ? 1 : 0, stdout: `${'cd34'.repeat(10)}\n`, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    if (cmd === 'git' && sub === 'diff' && e.argv.includes('--name-only') && diff.failNames === 'exit') return { value: { exitCode: 128, stdout: '', stderr: 'fatal', isStdoutTruncated: false, isStderrTruncated: false } }
+    if (cmd === 'git' && sub === 'diff' && e.argv.includes('--name-only') && diff.failNames === 'throw') throw new Error('git diff --name-only failed')
+    // Files changed since a review's head (the diff against it, not against the merge base): `since`, else every changed file (a fix changed something); a test of a turn that changes no file sets `since: []`.
+    if (cmd === 'git' && sub === 'diff' && e.argv.includes('--name-only') && e.argv.includes('ab12'.repeat(10))) return { value: { exitCode: diff.since === null ? 128 : 0, stdout: (diff.since ?? diff.changed ?? ["x"]).map(f => `${f}\0`).join(''), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    if (cmd === 'git' && sub === 'diff' && e.argv.includes('--name-only')) return { value: { exitCode: 0, stdout: (diff.changed ?? []).map(f => `${f}\0`).join(''), stderr: '', isStdoutTruncated: diff.truncateNames === true, isStderrTruncated: false } }
     if (cmd === 'git' && sub === 'diff' && e.argv.includes('-z') && diff.failFiles === true) throw new Error('git diff -z failed')
     const stdout =
       cmd === 'git' && sub === 'diff'
