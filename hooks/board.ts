@@ -109,6 +109,21 @@ export const named = (keys: string[], board: Ticket[]): string =>
     })
     .join('; ')
 
+/** "14 Dec 2026": a date as the pane and the brief word it, in UTC like Tick-it's own hold. */
+export const holdDate = (iso: string): string => {
+  const d = new Date(iso)
+  return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`
+}
+
+/** The date a ticket is held until, or undefined when it has no hold or the date has passed (the hold is over). */
+export const heldUntil = (t: Ticket, now = Date.now()): string | undefined => {
+  const at = t.notBefore === undefined ? Number.NaN : Date.parse(t.notBefore)
+  return Number.isNaN(at) || at <= now ? undefined : holdDate(t.notBefore as string)
+}
+
+/** The ticket the pane lists as next to take: the first Ready one that is not held, in board order. */
+export const nextToTake = (list: Ticket[], now = Date.now()): Ticket | undefined => list.find(t => t.status === 'Ready' && heldUntil(t, now) === undefined)
+
 /** The brief's lines about attachments: none when there are none; images are fetched, other files only linked, since Claude cannot read them itself. */
 export const attachmentLines = (files: AttachmentRef[]): string[] =>
   files.length === 0 ? [] : ['Attachments:', ...files.map(f => `- ${f.name} (${f.type}, id ${f.id})${f.type === 'application/pdf' ? ': a PDF, a link you cannot read yourself; ask a person for what it says' : ''}`), ...(files.some(f => ['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(f.type)) ? ["Fetch each image with Tick-it's get_attachment (its id above) before building, and build to what it shows."] : [])]
@@ -175,6 +190,7 @@ export const brief = (t: Ticket, board: Ticket[] = [], instructions = '', files:
     ...t.acceptance.map(a => `- ${a}`),
     ...uiEvidenceLines(t, uiPaths),
     ...attachmentLines(files),
+    ...(heldUntil(t) === undefined ? [] : [`Held: ${t.id} is waiting until ${heldUntil(t)} (its notBefore). Do not start work on it before then.`]),
     ...((t.blockedBy ?? []).length > 0 ? [`Builds on: ${named(t.blockedBy ?? [], board)}.`] : []),
     ...((t.blocks ?? []).length > 0 ? [`Blocks: ${named(t.blocks ?? [], board)}: they wait on this ticket, so keep what they need from it stable.`] : []),
     ...(t.url === undefined ? [] : [`Put this line in the description of every pull request you open for ${t.id}: [${t.id} ${t.title}](${t.url})`, 'A pull request that carries several tickets links each one, a line each.', 'If a pull request was opened without it, add the line in the next review round or stewarding pass instead of failing; keep the description as it is and add the line only once.']),
@@ -211,7 +227,7 @@ export async function save($: EngineInterface, list: Ticket[]) {
 }
 
 /** A ticket as Tick-it's tools spell it. */
-export type RemoteTicket = { key: string; title: string; epic: string | null; size: TicketSize; status: TicketStatus; description?: string | null; acceptance?: string[]; blockedBy?: string[]; blocks?: string[]; labels?: string[]; url?: string }
+export type RemoteTicket = { key: string; title: string; epic: string | null; size: TicketSize; status: TicketStatus; description?: string | null; acceptance?: string[]; blockedBy?: string[]; blocks?: string[]; labels?: string[]; url?: string; notBefore?: string | null }
 export const fromRemote = (r: RemoteTicket): Ticket => ({
   id: r.key,
   title: r.title,
@@ -224,6 +240,7 @@ export const fromRemote = (r: RemoteTicket): Ticket => ({
   blocks: r.blocks ?? [],
   ...(r.labels === undefined ? {} : { labels: r.labels }),
   ...(r.url === undefined ? {} : { url: r.url }),
+  ...(typeof r.notBefore === 'string' ? { notBefore: r.notBefore } : {}),
   // A slim board row has no acceptance: only a ticket read whole (get_ticket, update_ticket) has it.
   ...(Array.isArray(r.acceptance) ? { whole: true } : {}),
 })

@@ -20,6 +20,8 @@ export type Ticket = {
   blocks?: string[]
   labels?: string[]
   url?: string
+  /** ISO time the ticket is held until (Tick-it's notBefore); absent when it has no hold. */
+  notBefore?: string
   /** Read whole (get_ticket or update_ticket); a slim board row has no description, acceptance, links or url. */
   whole?: boolean
 }
