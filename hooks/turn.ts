@@ -64,8 +64,11 @@ export const registerTurn: Register = on => {
       // Claude may have moved the ticket to In review in a way the tool.call
       // hook did not see: Tick-it says, and it is /tick-it done all the same.
       let toReview = finished
+      // What Tick-it said the ticket's status is, when it said: a continue session is done only on a status it confirmed.
+      let onTickit: Awaited<ReturnType<typeof statusOnTickit>>
       try {
-        if (toReview === null && building !== undefined && (await statusOnTickit($, building.id)) === 'In review') {
+        if (toReview === null && building !== undefined) onTickit = await statusOnTickit($, building.id)
+        if (toReview === null && building !== undefined && onTickit === 'In review') {
           await recordPullRequest($, building.id)
           const moved = await finish($, 'In review')
           // Refused (a UI change with no pictures): Claude is told what is missing with its next turn.
@@ -86,7 +89,9 @@ export const registerTurn: Register = on => {
       if (session !== null && toReview === null && building?.id === session.ticket) {
         await refreshDiff($).catch(() => undefined)
         // A continue session's ticket is not moved to review here (it is Ready to merge, say): its turn is the work, so it is done.
-        await report($, session.continued === true ? 'done' : 'working', firstLine(e.answer), session.continued === true)
+        // Only on a status Tick-it confirmed that is not In review: a failed read, or a review that could not start, leaves it working.
+        const done = session.continued === true && onTickit !== undefined && onTickit !== 'In review'
+        await report($, done ? 'done' : 'working', firstLine(e.answer), done)
       }
       if (toReview !== null) {
         await update($, reviewNext, () => null)

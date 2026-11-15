@@ -234,3 +234,14 @@ test('a message with a start line and a continue line is a start line', async ($
   expect(seen.server.find(t => t.key === 'TCK-151')).toMatchObject({ status: 'In progress' })
   expect(reports(seen).map(r => r.session)).toEqual(['s_abc12345'])
 })
+
+test('a continue session whose ticket status Tick-it cannot confirm at the turn end is not reported done', async ($, on) => {
+  const seen = engine(on, { lines: 0 })
+  const ticket = seen.server.find(t => t.key === 'TCK-151')
+  if (ticket !== undefined) ticket.status = 'Ready to merge'
+  await start($)
+  await $.prompt.submit(typed(CONTINUE))
+  seen.failTicketReads = true
+  await $.turn.complete(finishTurn(undefined, 'Merged main in.'))
+  expect(reports(seen).map(r => r.status)).toEqual(['working'])
+})
