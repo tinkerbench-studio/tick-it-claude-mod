@@ -97,7 +97,17 @@ test('a session Tick-it started sends its s_… id as tickitSession beside the C
   expect(call?.args.tickitSession).toBe('s_abc12345')
 })
 
-test('a session that took a ticket with no Tick-it session sends only the Claude Code id', async ($, on) => {
+test('a session that only stewards a ticket it did not take sends only the Claude Code id', async ($, on) => {
+  const seen = engine(on, { lines: 10 }, true, SKILLS)
+  await start($)
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'steward TCK-149' })
+  await $.turn.complete(finishTurn('agent-1', 'VERDICT: clean'))
+  const call = seen.recorded.at(-1)
+  expect(call?.args.session).toBe('session-1')
+  expect(call?.args).not.toHaveProperty('tickitSession')
+})
+
+test('a take Tick-it kept no session for sends only the Claude Code id', async ($, on) => {
   const net: Net = { noSession: true }
   const seen = engine(on, { lines: 10 }, true, SKILLS, net)
   await start($)
