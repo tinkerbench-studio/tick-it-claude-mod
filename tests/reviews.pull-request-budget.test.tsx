@@ -1,13 +1,13 @@
 import { expect, test } from 'claude-code/testing'
 
-import { RUN, SKILLS, engine, finishTurn, start } from './helpers'
+import { PANE, RUN, SKILLS, engine, finishTurn, start } from './helpers'
 import type { Net } from './helpers'
 
 // A pull request that blocks a round whose reviewer found nothing is fixed even when the review budget has no room for another reviewer round (TCK-34).
 const PRINCIPAL = { '.tick-it/skills/principal/SKILL.md': SKILLS['.tick-it/skills/principal/SKILL.md'] ?? '' }
 const served = { sizeBudgets: { XS: 11, S: 22, M: 33, L: 44 }, defaultReviewRounds: { XS: 2, S: 3, M: 5, L: 6 }, maxReviewRounds: 10, reviewRounds: 3, reviewBudget: 1, briefLines: { memories: 'm', memoryTools: 't', deferredTools: 'd', done: 'x', branch: 'b', addToTicket: ['a'] } }
 const spend = (costUsd: number, budget = 1) => ({ size: 'XS', runs: 1, costUsd, unpriced: 0, lowerBound: false, budget, remaining: budget - costUsd, overBudget: costUsd > budget })
-const pr = (extra: Record<string, unknown>) => [{ number: 12, state: 'open', draft: false, ci: 'success', ...extra }]
+const pr = (extra: Record<string, unknown>) => [{ number: 12, state: 'open', draft: false, ci: 'success', behind: false, ...extra }]
 
 type Ctx = Parameters<Parameters<typeof test>[1]>[0]
 type On = Parameters<Parameters<typeof test>[1]>[1]
@@ -86,5 +86,44 @@ test('a round with reviewer findings still stops at the budget', async ($, on) =
   await $.command.run({ ...RUN, command: 'tick-it', args: 'done' })
   await $.turn.complete(finishTurn('agent-1', 'BLOCKING: still wrong'))
   expect(seen.submitted).toHaveLength(0)
+  expect(needsHuman(seen)).toHaveLength(1)
+})
+
+test('r after a pending stop reads the pull request again without a reviewer, and a passing CI then settles it', async ($, on) => {
+  const { net, seen } = await failingRound($, on)
+  net.pullRequests = pr({ ci: 'pending' })
+  await $.turn.complete(finishTurn(undefined, 'Pushed.'))
+  net.pullRequests = pr({ ci: 'success' })
+  const ui = await $.ui.mount({ plugin: 'tick-it', surface: 'terminal', ...PANE })
+  await ui.press({ key: 'review-again' })
+  await $.turn.complete(finishTurn(undefined, 'Nothing to fix.'))
+  expect(seen.spawned).toHaveLength(1)
+  expect(status(seen)).toBe('Done')
+})
+
+test('a pull request that is not found after the fix is not read as clean', async ($, on) => {
+  const { net, seen } = await failingRound($, on)
+  net.pullRequests = []
+  await $.turn.complete(finishTurn(undefined, 'Fixed.'))
+  expect(status(seen)).toBe('In review')
+  expect(needsHuman(seen)).toHaveLength(1)
+  expect(seen.spawned).toHaveLength(1)
+})
+
+test('a branch still behind its base after the fix stops without a reviewer', async ($, on) => {
+  const { net, seen } = await failingRound($, on)
+  net.pullRequests = pr({ ci: 'success', behind: true })
+  await $.turn.complete(finishTurn(undefined, 'Fixed CI.'))
+  expect(seen.spawned).toHaveLength(1)
+  expect(needsHuman(seen)).toHaveLength(1)
+  expect(String(needsHuman(seen)[0]?.note)).toContain('still blocks')
+})
+
+test('with $0.70 of the $1 spent, a pull request still failing after the fix stops without another fix', async ($, on) => {
+  const { net, seen } = await failingRound($, on, { ...spend(0.7), runs: 2 })
+  net.pullRequests = pr({ ci: 'failure' })
+  await $.turn.complete(finishTurn(undefined, 'Tried.'))
+  expect(seen.spawned).toHaveLength(1)
+  expect(seen.submitted).toHaveLength(1)
   expect(needsHuman(seen)).toHaveLength(1)
 })
