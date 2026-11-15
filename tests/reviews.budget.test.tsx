@@ -150,3 +150,18 @@ test('with reviewSpend null (costs cannot be seen) the steward goes by the round
 test('with get_ticket unreachable the steward goes by the round limit alone', async ($, on) => {
   await byRoundsAlone($, on, { modConfig: served({ reviewRounds: 2, reviewBudget: 3 }), reviewSpend: spend(99) }, true)
 })
+
+// ---- every get_ticket names the parts it reads ---------------------------------------
+
+test('every get_ticket the hooks send names the parts it reads: the status, the unticked checks, the held-back reason and the review spend ask for the core only', async ($, on) => {
+  const net: Net = { modConfig: served({ reviewRounds: 3, reviewBudget: 3 }), reviewSpend: spend(1), timeline: [] }
+  const seen = await roundOne($, on, net)
+  await $.turn.complete(finishTurn(undefined, 'Fixed.'))
+  await $.turn.complete(finishTurn('agent-2', 'OPTIONAL: a nit\nVERDICT: clean'))
+  const reads = seen.ticketCalls.filter(c => c.tool === 'get_ticket')
+  expect(reads.length).toBeGreaterThan(2)
+  for (const c of reads) expect(Array.isArray(c.args.include)).toBe(true)
+  // Only the attachments and memories of a taken ticket are more than the core.
+  for (const c of reads.filter(c => (c.args.include as string[]).length > 0)) expect(c.args.include).toEqual(['attachments', 'memories'])
+  expect(reads.filter(c => (c.args.include as string[]).length === 0).length).toBeGreaterThan(1)
+})

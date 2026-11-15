@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { RUN, engine, start, reports, PAGED, paged } from './helpers'
+import { PANE, RUN, engine, start, reports, PAGED, paged } from './helpers'
 import type { Net } from './helpers'
 
 test('the board is read from Tick-it for the repository the session is in', async ($, on) => {
@@ -8,7 +8,7 @@ test('the board is read from Tick-it for the repository the session is in', asyn
   seen.server.push({ key: 'TCK-160', title: 'Only on the server', epic: null, size: 'XS', status: 'Backlog', acceptance: [], assignee: null })
   await start($)
   const board = await $.command.run({ ...RUN, command: 'tick-it', args: 'board' })
-  expect(seen.ticketCalls.filter(c => c.tool === 'list_tickets').map(c => c.args)).toContainEqual({ repository: 'acme/web-app' })
+  expect(seen.ticketCalls.filter(c => c.tool === 'list_tickets').map(c => c.args)).toContainEqual({ repository: 'acme/web-app', slim: true })
   expect(board.text).toContain('Backlog (1)')
   expect(board.text).toContain('TCK-160  Only on the server  XS')
   expect(board.text).not.toContain('Showing the last board read')
@@ -25,7 +25,7 @@ test('a board of several pages is saved whole, once each and in order', async ($
     .filter(c => c.tool === 'list_tickets')
     .slice(before)
     .map(c => c.args)
-  expect(calls).toEqual([{ repository: 'acme/web-app' }, { repository: 'acme/web-app', cursor: '2' }, { repository: 'acme/web-app', cursor: '4' }, { repository: 'acme/web-app', cursor: '6' }, { repository: 'acme/web-app', cursor: '8' }].slice(0, Math.ceil(seen.server.length / 2)))
+  expect(calls).toEqual([{ repository: 'acme/web-app', slim: true }, { repository: 'acme/web-app', slim: true, cursor: '2' }, { repository: 'acme/web-app', slim: true, cursor: '4' }, { repository: 'acme/web-app', slim: true, cursor: '6' }, { repository: 'acme/web-app', slim: true, cursor: '8' }].slice(0, Math.ceil(seen.server.length / 2)))
   const text = board.text ?? ''
   const at = PAGED.map(n => text.indexOf(`TCK-${n}  `))
   for (const i of at) expect(i).toBeGreaterThanOrEqual(0)
@@ -106,4 +106,59 @@ test('a get_ticket answer with no result names its content blocks and the start 
   const taken = await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-143' })
   expect(taken.text).toContain('had no result in it (2 content blocks: text 234 chars, image 0 chars; the text starts: Tick-it is busy, try again later.')
   expect(seen.server.find(t => t.key === 'TCK-143')?.status).not.toBe('In progress')
+})
+
+test('every page of the board is read slim', async ($, on) => {
+  const seen = engine(on, { lines: 0 }, false, {}, { pageSize: 2 })
+  paged(seen)
+  await start($)
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'board' })
+  const lists = seen.ticketCalls.filter(c => c.tool === 'list_tickets')
+  expect(lists.length).toBeGreaterThan(1)
+  for (const c of lists) expect(c.args).toMatchObject({ slim: true })
+})
+
+test('a slim board read keeps what a ticket read whole holds, and a ticket only on the board is read whole when opened', async ($, on) => {
+  const seen = engine(on, { lines: 0 })
+  Object.assign(seen.server[3]!, { description: 'Why the migration is needed', blockedBy: ['TCK-147'], url: 'https://app.tick-it.dev/r/acme/web-app/t/TCK-149' })
+  await start($)
+  // Opened from the board: only a slim row is known, so get_ticket (the core only) reads it whole.
+  const board = await $.ui.mount({ plugin: 'tick-it', surface: 'terminal', ...PANE })
+  await board.press({ key: 'open-TCK-149' })
+  await board.unmount()
+  const reads = seen.ticketCalls.filter(c => c.tool === 'get_ticket' && (c.args as { key?: string }).key === 'TCK-149')
+  expect(reads.map(c => c.args)).toEqual([{ repository: 'acme/web-app', key: 'TCK-149', include: [] }])
+  // The board read again is slim, yet the ticket keeps what it was read with.
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'board' })
+  const pane = await $.ui.mount({ plugin: 'tick-it', surface: 'terminal', component: 'Pane', requestId: 'tick-it-ticket', props: { title: 'TCK-149', isFocused: true, bodyColumns: 60, placement: 'dock', scroll: { offset: 0, bodyRows: 30 }, view: {} } } as const)
+  expect(JSON.stringify(await pane.drawn())).toContain('Why the migration is needed')
+  expect(JSON.stringify(await pane.drawn())).toContain('https://app.tick-it.dev/r/acme/web-app/t/TCK-149')
+  expect(await pane.find({ type: 'Text', text: 'WAITING ON' })).toBeDefined()
+  await pane.unmount()
+  // Opened again, it is not read again.
+  const board2 = await $.ui.mount({ plugin: 'tick-it', surface: 'terminal', ...PANE })
+  await board2.press({ key: 'open-TCK-149' })
+  await board2.unmount()
+  expect(seen.ticketCalls.filter(c => c.tool === 'get_ticket' && (c.args as { key?: string }).key === 'TCK-149')).toHaveLength(1)
+})
+
+test('a board reply Claude Code did not pass on whole is reported as too large, and the cached board stays', async ($, on) => {
+  const net: Net = {}
+  const seen = engine(on, { lines: 0 }, false, {}, net)
+  await start($)
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'board' })
+  net.tooLarge = 'list_tickets'
+  seen.server.push({ key: 'TCK-160', title: 'Only on the server', epic: null, size: 'XS', status: 'Backlog', acceptance: [], assignee: null })
+  const board = await $.command.run({ ...RUN, command: 'tick-it', args: 'board' })
+  expect(board.text).toContain("Showing the last board read: Tick-it's answer to list_tickets was too large for Claude Code to pass on whole")
+  expect(board.text).not.toContain('had no result')
+  expect(board.text).toContain('TCK-143  Persist checkout step in session  XS')
+  expect(board.text).not.toContain('TCK-160')
+})
+
+test('a get_ticket reply Claude Code did not pass on whole is reported as too large', async ($, on) => {
+  engine(on, { lines: 0 }, false, {}, { tooLarge: 'get_ticket' })
+  await start($)
+  const taken = await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-143' })
+  expect(taken.text).toContain("Tick-it's answer to get_ticket was too large for Claude Code to pass on whole")
 })
