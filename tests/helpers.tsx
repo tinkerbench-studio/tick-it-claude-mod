@@ -78,6 +78,8 @@ export type Net = {
   modConfig?: Record<string, unknown> | 'unreachable'
   /** The reviewSpend get_ticket answers with (null when costs cannot be seen); absent leaves it out of the ticket. */
   reviewSpend?: Record<string, unknown> | null
+  /** What get_ticket_timeline answers (its review entries); 'unreachable' makes the call fail, and absent leaves it unanswered. */
+  timeline?: Record<string, unknown>[] | 'unreachable'
   /** The config of get_repository_settings (one entry per base branch with its design section); absent when not answered. */
   config?: unknown[]
   /** The repository's autoMerge setting, as get_repository_settings answers it. */
@@ -104,7 +106,7 @@ export type Net = {
 /** The engine beneath the mod: a store, a repo whose diff is `diff.lines` lines, and quiet UI calls. */
 export const engine = (
   on: On,
-  diff: { lines: number; pr?: number; origin?: string | null; noCommit?: boolean; numstatZ?: string; failFiles?: boolean; stored?: Record<string, unknown>; refuse?: (model: string | undefined) => string | undefined; patch?: string; untracked?: Record<string, string>; binary?: Record<string, string>; gh?: (argv: string[]) => { exitCode: number; stdout: string; stderr: string } | undefined; pictures?: { key: string; name: string }[] | 'unreachable' | 'odd' },
+  diff: { lines: number; pr?: number; origin?: string | null; noCommit?: boolean; numstatZ?: string; failFiles?: boolean; stored?: Record<string, unknown>; refuse?: (model: string | undefined) => string | undefined; patch?: string; dirty?: boolean; untracked?: Record<string, string>; binary?: Record<string, string>; gh?: (argv: string[]) => { exitCode: number; stdout: string; stderr: string } | undefined; pictures?: { key: string; name: string }[] | 'unreachable' | 'odd' },
   isPlaced = true,
   skills: Record<string, string> = {},
   net: Net = {},
@@ -151,6 +153,7 @@ export const engine = (
         const ticket = seen.server.find(t => t.key === a.key)
         return ticket === undefined ? refuse(`No ticket ${String(a.key)} in acme/web-app.`) : answer({ ticket: net.reviewSpend === undefined ? ticket : { ...ticket, reviewSpend: net.reviewSpend } })
       }
+      if (e.tool === 'get_ticket_timeline') return net.timeline === undefined || net.timeline === 'unreachable' ? refuse('Tick-it is down') : answer({ timeline: net.timeline })
       if (e.tool === 'list_pull_requests') {
         if (net.pullRequests === 'unreachable') return refuse('Tick-it is down')
         return answer({ pullRequests: net.pullRequests ?? [] })
@@ -288,7 +291,9 @@ export const engine = (
               ? 'tck-151-picker\n'
               : cmd === 'git' && sub === 'rev-parse'
                 ? `${'ab12'.repeat(10)}\n`
-                : cmd === 'gh' && diff.pr !== undefined
+                : cmd === 'git' && sub === 'status' && diff.dirty === true
+                  ? ' M hooks/reviews.ts\n'
+                  : cmd === 'gh' && diff.pr !== undefined
                   ? JSON.stringify({ number: diff.pr })
                   : ''
     return {
