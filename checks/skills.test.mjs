@@ -211,3 +211,9 @@ test('every skill that writes ticket text names another repository’s ticket as
     for (const words of ["name another repository's ticket as `owner/name#KEY` and its pull request as `owner/name#n`", 'never a bare key or `#n`', 'a bare one always means this repository']) expect(skill).toContain(words, `${name} no longer says "${words}"`)
   }
 })
+
+test('README and the plan-epic skill describe the date hold: marker, refusal and clearing itself', () => {
+  const readme = read('README.md')
+  for (const words of ['`Waiting until <date>`', 'is refused with that date', 'every 15 minutes', 'clears a hold itself once its date passes']) expect(readme).toContain(words, `README no longer says "${words}"`)
+  expect(read('skills/plan-epic/SKILL.md')).toContain('`notBefore` date', 'plan-epic skill no longer mentions the date hold')
+})
