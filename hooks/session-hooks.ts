@@ -20,6 +20,8 @@ const outbox = atom({ plugin: 'tick-it', key: 'outbox' } as const, [])
 const dropped = atom({ plugin: 'tick-it', key: 'dropped' } as const, [])
 /** link_pull_request calls Tick-it has not taken yet: sent again with the outbox. */
 const unlinked = atom({ plugin: 'tick-it', key: 'unlinked' } as const, [])
+/** The Tick-it session id of a start line whose ticket the mod could not take: that session reports for itself. */
+const takeFailed = atom({ plugin: 'tick-it', key: 'takeFailed' } as const, null)
 
 export const registerSession: Register = on => {
   on('session.start', async ($, e, next) => {
@@ -71,6 +73,11 @@ export const registerSession: Register = on => {
   // rest of Tick-it's tools (tickets, epics, costs) stay the model's to use.
   on('tool.check', async ($, e, next) => {
     const isTickit = /tick-?it/i.test(e.tool)
+    // A session Tick-it started whose ticket the mod could not take: nothing is recorded or reported for it, so it reports for itself and these calls are its own.
+    if (isTickit && next.origin.plugin === 'engine' && (await read($, takeFailed)) !== null && (await read($, current)) === null && (await read($, startedSession)) === null && [RECORD_TOOL, REPORT_TOOL, AGENTS_TOOL].some(t => e.tool.endsWith(`__${t}`))) {
+      await log($, 'warn', 'tool-allowed-untaken', { tool: e.tool })
+      return next(e)
+    }
     // With no ticket taken the mod records and reports nothing, so say that: the model must not assume reviews are being recorded.
     const untaken = async () => ((await read($, current)) === null && (await read($, startedSession)) === null ? ' The mod did not take a ticket in this session, so nothing is being recorded or reported for it: take the ticket with /tick-it take, or follow the brief without the mod.' : '')
     const denied = async (why: string, reason: string) => {
@@ -124,9 +131,11 @@ export const registerSession: Register = on => {
     if (typeof t === 'string') {
       await log($, 'warn', 'start-not-taken', { ticket, session: id, why: 'take-refused' })
       await update($, startedSession, () => previous)
+      await update($, takeFailed, () => id)
       return next({ ...e, context: [...(e.context ?? []), ...notes, `tick-it could not take ${ticket}: ${t}`] })
     }
-    await log($, 'debug', 'ticket-taken', { ticket: t.id, session: id })
+    await update($, takeFailed, () => null)
+    await log($, 'debug', 'ticket-taken', { ticket: t.id, session: id, claudeSession: await $.session.id() })
     const s: StartedSession = { id, repository, ticket: t.id, status: 'working', reportedAt: 0, claudeSession: await $.session.id() }
     await update($, startedSession, () => s)
     await $.store.set(STARTED_KEY, s)
@@ -143,7 +152,7 @@ export const registerSession: Register = on => {
       await $.store.set(STARTED_KEY, reported)
     }
     // Tick-it hands over at once what it already wants of the session, such as a merge conflict to resolve: Claude gets it when this turn ends.
-    await log($, sent.ok ? 'info' : 'warn', 'report', { ticket: t.id, status: 'working', sent: sent.ok })
+    await log($, sent.ok ? 'info' : 'warn', 'report', { ticket: t.id, session: id, claudeSessionId: s.claudeSession, status: 'working', sent: sent.ok })
     const asked = instructionsOf(sent)
     if (asked.length > 0) await update($, pendingInstructions, pending => [...pending, ...asked])
     return next({ ...e, context: [...(e.context ?? []), ...notes, await freshBriefOf($, t)] })

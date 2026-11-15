@@ -63,9 +63,19 @@ export type Seen = {
  */
 export type Net = {
   connected?: boolean
+  /** list_tickets fails (the board cannot be read) while the other tools answer. */
+  listFails?: boolean
+  /** The named tool's reply is too large for Claude Code, which passes on its note in place of the answer. */
+  tooLarge?: 'list_tickets' | 'get_ticket'
+  /** get_ticket answers acceptanceItems, none ticked (a ticket's checks are then unticked). */
+  acceptanceItems?: boolean
+  /** get_ticket answers with text that holds no result (not JSON, no structured content). */
+  ticketNoResult?: boolean
   /** Only this server connects (a cloud session: the claude.ai connector, not the plugin's own). */
   only?: string
   answer?: (args: Seen['recorded'][number]['args'], call: number) => 'unreachable' | { isError?: boolean; text?: string; rejected?: { agentId: string; reason: string }[] }
+  /** Tick-it keeps no session for a ticket taken (a person's own local session): the take answers none. */
+  noSession?: boolean
   /** Answer with lists that name no run. */
   silent?: boolean
   /** The repository's instructions for every brief; 'unreachable' makes get_repository_settings fail. */
@@ -76,6 +86,8 @@ export type Net = {
   modConfig?: Record<string, unknown> | 'unreachable'
   /** The reviewSpend get_ticket answers with (null when costs cannot be seen); absent leaves it out of the ticket. */
   reviewSpend?: Record<string, unknown> | null
+  /** What get_ticket_timeline answers (its review entries); 'unreachable' makes the call fail, and absent leaves it unanswered. */
+  timeline?: Record<string, unknown>[] | 'unreachable'
   /** The config of get_repository_settings (one entry per base branch with its design section); absent when not answered. */
   config?: unknown[]
   /** The repository's autoMerge setting, as get_repository_settings answers it. */
@@ -102,15 +114,18 @@ export type Net = {
 /** The engine beneath the mod: a store, a repo whose diff is `diff.lines` lines, and quiet UI calls. */
 export const engine = (
   on: On,
-  diff: { lines: number; pr?: number; origin?: string | null; noCommit?: boolean; numstatZ?: string; failFiles?: boolean; stored?: Record<string, unknown>; refuse?: (model: string | undefined) => string | undefined; untracked?: Record<string, string>; binary?: Record<string, string>; gh?: (argv: string[]) => { exitCode: number; stdout: string; stderr: string } | undefined; pictures?: { key: string; name: string }[] | 'unreachable' | 'odd' },
+  diff: { lines: number; pr?: number; origin?: string | null; noCommit?: boolean; numstatZ?: string; failFiles?: boolean; stored?: Record<string, unknown>; refuse?: (model: string | undefined) => string | undefined; patch?: string; dirty?: boolean; untracked?: Record<string, string>; binary?: Record<string, string>; gh?: (argv: string[]) => { exitCode: number; stdout: string; stderr: string } | undefined; pictures?: { key: string; name: string }[] | 'unreachable' | 'odd' },
   isPlaced = true,
   skills: Record<string, string> = {},
   net: Net = {},
 ): Seen => {
   const seen: Seen = { spawned: [], submitted: [], toasts: [], opened: [], recorded: [], server: SAMPLE(), ticketCalls: [], processes: [] }
   const answer = (value: Record<string, unknown>) => ({
-    value: { isError: false, content: [{ type: 'text', text: JSON.stringify(value) }], structuredContent: value },
+    // As $.mcp.call hands a plugin a reply: the content blocks only, never structuredContent.
+    value: { isError: false, content: [{ type: 'text', text: JSON.stringify(value) }] },
   })
+  // What Claude Code puts in place of a reply over 50,000 characters.
+  const tooLarge = () => ({ value: { isError: false, content: [{ type: 'text', text: '<persisted-output>\nOutput too large (51.4KB). Full output saved to: /tmp/x.txt\n</persisted-output>' }] } })
   const refuseOr = (instructions: string) => (instructions === 'unreachable' ? refuse('Tick-it is down') : answer({ instructions, canEdit: true }))
   const refuse = (text: string) => ({ value: { isError: true, content: [{ type: 'text', text }] } })
   on('session.id', () => ({ value: 'session-1' }))
@@ -131,13 +146,17 @@ export const engine = (
       seen.ticketCalls.push({ tool: e.tool, args: a, server: e.server })
       if (e.tool === 'get_mod_config') return net.modConfig === undefined ? refuse('No such tool') : net.modConfig === 'unreachable' ? refuseOr('unreachable') : answer(net.modConfig)
       if (a.repository !== 'acme/web-app') return refuse(`No tickets in ${String(a.repository)} yet. create_ticket adds the first one.`)
+      if (e.tool === net.tooLarge) return tooLarge()
       if (e.tool === 'list_tickets') {
-        if (net.pageSize === undefined) return answer({ tickets: seen.server })
+        if (net.listFails === true) return refuse('Tick-it is down')
+        // A slim row is what the server's slim list sends: no description, acceptance, links or url.
+        const row = (t: Remote) => (a.slim === true ? { key: t.key, title: t.title, status: t.status, size: t.size, epic: t.epic, epicId: null, assignee: t.assignee, ...('notBefore' in t ? { notBefore: t.notBefore } : {}) } : t)
+        if (net.pageSize === undefined) return answer({ tickets: seen.server.map(row) })
         if (a.cursor !== undefined && a.cursor === net.failAt) return refuse('Tick-it is down')
         const from = a.cursor === undefined ? 0 : Number(a.cursor)
         const to = from + net.pageSize
         // The last page leaves nextCursor out; the pages before it name the next.
-        return answer({ tickets: seen.server.slice(from, to), ...(net.loop === true ? { nextCursor: '2' } : to < seen.server.length ? { nextCursor: String(to) } : {}) })
+        return answer({ tickets: seen.server.slice(from, to).map(row), ...(net.loop === true ? { nextCursor: '2' } : to < seen.server.length ? { nextCursor: String(to) } : {}) })
       }
       if (e.tool === 'list_screenshots') {
         if (diff.pictures === 'unreachable') return refuse('Tick-it is down')
@@ -146,9 +165,11 @@ export const engine = (
       if (e.tool === 'list_milestones') return answer({ milestones: net.milestones ?? [], withoutMilestone: [] })
       if (e.tool === 'get_ticket') {
         if (seen.failTicketReads === true) return refuse('Tick-it is down')
+        if (net.ticketNoResult === true) return { value: { isError: false, content: [{ type: 'text', text: 'Tick-it is busy, try again later. ' + 'x'.repeat(200) }, { type: 'image' }] } }
         const ticket = seen.server.find(t => t.key === a.key)
-        return ticket === undefined ? refuse(`No ticket ${String(a.key)} in acme/web-app.`) : answer({ ticket: net.reviewSpend === undefined ? ticket : { ...ticket, reviewSpend: net.reviewSpend } })
+        return ticket === undefined ? refuse(`No ticket ${String(a.key)} in acme/web-app.`) : answer({ ticket: { ...ticket, ...(net.acceptanceItems === true ? { acceptanceItems: ticket.acceptance.map((text, i) => ({ id: `c${i}`, text, checked: false, afterDeploy: false })) } : {}), ...(net.reviewSpend === undefined ? {} : { reviewSpend: net.reviewSpend }) } })
       }
+      if (e.tool === 'get_ticket_timeline') return net.timeline === undefined || net.timeline === 'unreachable' ? refuse('Tick-it is down') : answer({ timeline: net.timeline })
       if (e.tool === 'list_pull_requests') {
         if (net.pullRequests === 'unreachable') return refuse('Tick-it is down')
         return answer({ pullRequests: net.pullRequests ?? [] })
@@ -175,7 +196,7 @@ export const engine = (
         if (a.status !== undefined) ticket.status = String(a.status)
         if (a.assignee !== undefined) ticket.assignee = a.assignee === 'me' ? 'maddiecs84' : null
         // Taking it, Tick-it answers the session it keeps for it.
-        return answer(a.status === 'In progress' ? { ticket, session: 's_taken12345' } : { ticket })
+        return answer(a.status === 'In progress' && net.noSession !== true ? { ticket, session: 's_taken12345' } : { ticket })
       }
       if (e.tool === 'set_criterion_checked') return answer({ ticket: seen.server.find(t => t.key === a.key) })
       return refuse(`no tool ${e.tool}`)
@@ -189,7 +210,7 @@ export const engine = (
     const rejected = answered.rejected ?? []
     const accepted = net.silent ? [] : args.runs.map(r => String(r.agentId)).filter(id => !rejected.some(x => x.agentId === id))
     return {
-      value: answered.isError ? { isError: true, content: [{ type: 'text', text: answered.text ?? '' }] } : { isError: false, content: [{ type: 'text', text: JSON.stringify({ accepted, rejected }) }], structuredContent: { accepted, rejected } },
+      value: answered.isError ? { isError: true, content: [{ type: 'text', text: answered.text ?? '' }] } : { isError: false, content: [{ type: 'text', text: JSON.stringify({ accepted, rejected }) }] },
     }
   })
   let clock = 1_000
@@ -197,7 +218,8 @@ export const engine = (
   on('clock.now', () => ({ value: (clock += 1000 + (net.skip ?? 0)) }))
   // The engine hands the paths over resolved against the working directory.
   // A base review skill is read from the plugin's own folder, wherever that is: the map names it from skills/review-agents/bases on.
-  const rel = (path: string) => (path.includes('.tick') ? path.slice(path.indexOf('.tick')) : path.includes(BASES) ? path.slice(path.indexOf(BASES)) : path)
+  // A secure-coding skill is read from the plugin's own folder too: the map names it from skills/secure- on.
+  const rel = (path: string) => (path.includes('.tick') ? path.slice(path.indexOf('.tick')) : path.includes(BASES) ? path.slice(path.indexOf(BASES)) : path.includes('skills/secure-') ? path.slice(path.indexOf('skills/secure-')) : path)
   on('fs.exists', (_$, e) => ({
     value: Object.keys(skills).some(path => path === rel(e.path) || path.startsWith(`${rel(e.path)}/`)),
   }))
@@ -270,7 +292,9 @@ export const engine = (
     if (cmd === 'git' && sub === 'diff' && e.argv.includes('-z') && diff.failFiles === true) throw new Error('git diff -z failed')
     const stdout =
       cmd === 'git' && sub === 'diff'
-        ? e.argv.includes('-z')
+        ? e.argv.includes('-U0')
+          ? (diff.patch ?? '')
+          : e.argv.includes('-z')
           ? (diff.numstatZ ?? `${diff.lines}\t0\tapi/a.ts\0`)
           : `${diff.lines}\t0\tapi/a.ts\n`
         : cmd === 'git' && sub === 'remote'
@@ -283,7 +307,9 @@ export const engine = (
               ? 'tck-151-picker\n'
               : cmd === 'git' && sub === 'rev-parse'
                 ? `${'ab12'.repeat(10)}\n`
-                : cmd === 'gh' && diff.pr !== undefined
+                : cmd === 'git' && sub === 'status' && diff.dirty === true
+                  ? ' M hooks/reviews.ts\n'
+                  : cmd === 'gh' && diff.pr !== undefined
                   ? JSON.stringify({ number: diff.pr })
                   : ''
     return {

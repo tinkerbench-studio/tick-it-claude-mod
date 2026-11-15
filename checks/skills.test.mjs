@@ -16,13 +16,13 @@ test('retro skill reads the required fixes and looks for repeated kinds of fix',
 
 test('retro skill passes the finding to create_ticket when turning a suggestion into a ticket', () => {
   const retro = read('skills/retro/SKILL.md')
-  expect(retro).toContain('retroFinding: { epic:')
+  expect(retro).toContain('retroFinding: { epicId:')
   expect(retro).toContain('create_ticket')
 })
 
 test('retro skill for a milestone compares the priority order, Ready waits and repeated fixes, and changes nothing', () => {
   const retro = read('skills/retro/SKILL.md')
-  for (const words of ["A milestone's retrospective", '`get_retrospective` with `milestone`', 'priority order', 'waited Ready', 'repeat', 'changes no code or tickets']) expect(retro).toContain(words)
+  for (const words of ["A milestone's retrospective", '`get_retrospective` with `milestoneId`', 'priority order', 'waited Ready', 'repeat', 'changes no code or tickets']) expect(retro).toContain(words)
   for (const tool of ['get_retrospective', 'list_milestones', 'get_ticket_timeline', 'record_retrospective', 'remember']) expect(retro).toContain(`\`${tool}\``)
 })
 
@@ -41,6 +41,21 @@ test('draft-ticket and plan-epic point to the breakdown rules and the UI-evidenc
     const skill = read(`skills/${name}/SKILL.md`)
     expect(skill).toContain('docs/ticket-breakdown.md')
     expect(skill).toContain('UI-evidence checklist')
+  }
+})
+
+test('skills pass epic and milestone ids, never titles, for an existing epic or milestone', () => {
+  const plan = read('skills/plan-epic/SKILL.md')
+  for (const words of ['`milestoneId`', '`list_attachments` with `epicId`', '`epicId` from step 1', 'never its title']) expect(plan).toContain(words, `plan-epic no longer says "${words}"`)
+  const retro = read('skills/retro/SKILL.md')
+  for (const words of ['`epicId`', '`milestoneId`', 'retroFinding: { epicId:', 'Find the id once']) expect(retro).toContain(words, `retro no longer says "${words}"`)
+  const revise = read('skills/revise-plan/SKILL.md')
+  for (const words of ['<epic title or id>', 'Find the epic\'s id once', '`list_tickets`, `list_comments`, `get_epic`, `resolve_comment` and `create_ticket` all take `epicId`']) expect(revise).toContain(words, `revise-plan no longer says "${words}"`)
+  const draft = read('skills/draft-ticket/SKILL.md')
+  for (const words of ['`epicId`', '`create_epic`', 'never a new epic title or an owner']) expect(draft).toContain(words, `draft-ticket no longer says "${words}"`)
+  for (const name of ['plan-epic', 'retro', 'revise-plan', 'draft-ticket']) {
+    const text = read(`skills/${name}/SKILL.md`)
+    assert.ok(!/retroFinding: \{ epic:|`milestone` in place of `epic`|with that title|`list_attachments` with that title|with the `id` of each epic/.test(text), `${name} still passes a title`)
   }
 })
 
@@ -151,4 +166,47 @@ test('the tickit marketplace references VibeSec-Skill at its own repository, pin
   assert.equal(entry.license, 'Apache-2.0')
   const readme = read('README.md')
   for (const words of ['### VibeSec-Skill', '`vibesec`', 'BehiSecc/VibeSec-Skill', '/plugin marketplace add tinkerbench-studio/tick-it-claude-mod', '/plugin install vibesec@tickit', 'no copy of it is kept here', 'set `sha` of the `vibesec` entry']) expect(readme).toContain(words, `README no longer says "${words}"`)
+})
+
+const AREAS = ['authentication', 'access-control', 'database', 'infrastructure', 'secrets', 'input', 'web', 'dependencies', 'agents', 'personal-data']
+
+test('the plugin ships a secure-coding skill for each security area, for the writer and the reviewer, with nothing of one repository', () => {
+  const areas = read('hooks/security-areas.ts')
+  assert.deepEqual([...areas.matchAll(/^    name: '([a-z-]+)',$/gm)].map(m => m[1]), AREAS, 'the areas of hooks/security-areas.ts and their skills differ')
+  for (const area of AREAS) {
+    const skill = read(`skills/secure-${area}/SKILL.md`)
+    assert.match(frontMatter(skill), new RegExp(`^name: secure-${area}$`, 'm'), `secure-${area} has no name`)
+    assert.match(frontMatter(skill), /^description: Secure-coding practices for .+ Use before .+ when reviewing/m, `secure-${area}'s description does not say when to use it`)
+    // The reviewer reads a broken "Must" as blocking and a "Should" as optional: each skill has both, and says so.
+    for (const words of ['## Before you', '## Must', '## Should', '## Check before review', 'the security reviewer checks a change in this area against the same rules', 'A "Must" that the change breaks is a blocking finding']) expect(skill).toContain(words, `secure-${area} no longer says "${words}"`)
+    assert.ok(skill.split('\n').filter(line => line.startsWith('- **')).length >= 8, `secure-${area} has fewer than eight Must rules`)
+    for (const own of ['hooks/', 'apps/', 'checks/', 'npm run', '/tick-it', 'tinkerbench', 'nookivia', 'Tick-it']) assert.ok(!skill.includes(own), `secure-${area} names "${own}", which is particular to a repository`)
+    // A skill it points to is one the plugin ships.
+    for (const [, other] of skill.matchAll(/`tick-it:secure-([a-z-]+)`/g)) assert.ok(AREAS.includes(other), `secure-${area} points to tick-it:secure-${other}, which is not shipped`)
+  }
+})
+
+test('the security base runs for what a change touches as well as for its size, and the docs say how', () => {
+  const base = read('skills/review-agents/bases/security/SKILL.md')
+  assert.match(frontMatter(base), /^sizes: M, L$/m)
+  assert.match(frontMatter(base), /^changes: all$/m, 'the security base no longer runs for every security area')
+  expect(base).toContain('on one of any size whose change touches a security area')
+  // No other base runs outside its sizes.
+  for (const role of ROLES.filter(role => role !== 'security')) assert.ok(!/^changes:/m.test(frontMatter(read(`skills/review-agents/bases/${role}/SKILL.md`))), `${role} base lists changes`)
+  const own = read('.tick-it/skills/security/SKILL.md')
+  assert.match(frontMatter(own), /^changes: [a-z-]+(, [a-z-]+)*$/m, 'this repository\'s security skill lists no changes')
+  for (const area of /^changes: (.*)$/m.exec(frontMatter(own))[1].split(', ')) assert.ok(AREAS.includes(area), `this repository's security skill lists "${area}", which is no area`)
+  const skill = read('skills/review-agents/SKILL.md')
+  for (const words of ['a ticket of any size whose change touches a security area', 'The `changes` of the `security` base is `all`', '`changes: none` for size alone']) expect(skill).toContain(words, `review-agents no longer says "${words}"`)
+  const readme = read('README.md')
+  for (const words of ['### Security areas', '### Secure-coding skills', '`changes: none` turns it off', 'security runs for what the change touches', 'and not its `changes`', 'once per area for a ticket']) expect(readme).toContain(words, `README no longer says "${words}"`)
+  for (const area of AREAS) expect(readme).toContain(`| \`${area}\` |`)
+  for (const area of AREAS) expect(readme).toContain(`\`tick-it:secure-${area}\``)
+})
+
+test('every skill that writes ticket text names another repository’s ticket as owner/name#KEY and its pull request as owner/name#n', () => {
+  for (const name of ['draft-ticket', 'import-github', 'plan-epic', 'periodic-retro', 'retro', 'revise-plan', 'review-agents']) {
+    const skill = read(`skills/${name}/SKILL.md`)
+    for (const words of ["name another repository's ticket as `owner/name#KEY` and its pull request as `owner/name#n`", 'never a bare key or `#n`', 'a bare one always means this repository']) expect(skill).toContain(words, `${name} no longer says "${words}"`)
+  }
 })

@@ -1,6 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 import { withUiEvidence } from './ui-evidence'
+import { SECURE_CODING_LINE } from './security-areas'
 import type { UiPaths } from './ui-evidence'
 import type { AttachmentRef, MemoryRef, MilestoneView, PullRequestView, Ticket, TicketSize, TicketStatus } from '../types'
 import { PANE, STORE_KEY, BUDGET, SIZES, MONTHS } from './state'
@@ -174,7 +175,10 @@ export const DONE_LINE =
 
 /** What a session is told about the review budget of its ticket's size (whole dollars) beside the round ceiling; nothing is said when no budget is set. The start message words it the same (budgetLine in apps/mcp/src/sessions.ts), and tests/board.brief.test.tsx keeps the five key phrases in step. */
 export const budgetLine = (rounds: number, budget: number) =>
-  `The review budget for this ticket's size is $${budget}, with a ceiling of ${rounds} rounds (and the one further round): run another round while blocking findings are open, spend is under budget and rounds are under the ceiling. Before a further round, read the ticket's reviewSpend with get_ticket (costUsd, budget, remaining), and do not start a round whose cost, judged by the cost of the rounds so far, would clearly overshoot the remaining budget. If reviewSpend is null (you cannot see costs), go by the round ceiling alone and do not guess the spend. If the budget is reached with BLOCKING findings still open, do not start another round: call set_needs_human with kind no-clean-round and a note naming the budget and the BLOCKING findings still open, and leave the ticket In review. A fix already made is still reviewed once first.`
+  `The review budget for this ticket's size is $${budget}, with a ceiling of ${rounds} rounds (and the one further round): run another round while blocking findings are open, spend is under budget and rounds are under the ceiling. Before a further round, read the ticket's reviewSpend with get_ticket (costUsd, budget, remaining), and do not start a round whose cost, judged by the cost of the rounds so far, would clearly overshoot the remaining budget. If reviewSpend is null (you cannot see costs), go by the round ceiling alone and do not guess the spend. If the budget is reached with BLOCKING findings still open, do not start another round: call set_needs_human with kind no-clean-round and a note naming the budget and the BLOCKING findings still open, and leave the ticket In review. A fix already made is still reviewed once first. The exception: when the reviewers found nothing and the only blocking findings are the pull request's own (failing CI, a branch behind its base), the budget does not stop the round: fix them, and the pull request is read again; with no budget for a reviewer round it is clean when CI passes and the branch is up to date.`
+
+/** How a session names another repository's ticket or pull request in text it writes: a bare key or #n always means the text's own repository (TCK-32). */
+export const OTHER_REPOSITORY_LINE = "In any text you write into a ticket or a pull request (a description, comment or note), name another repository's ticket as owner/name#KEY and its pull request as owner/name#n, never a bare key or #n: a bare one always means this repository, and repositories can share a prefix."
 
 export const brief = (t: Ticket, board: Ticket[] = [], instructions = '', files: AttachmentRef[] = [], memories: MemoryRef[] = [], from: Served | null = null, uiPaths: UiPaths = null, reviewBudget: number | null = null, reviewRounds = 0): string => {
   const budget = from?.sizeBudgets[t.size] ?? BUDGET[t.size]
@@ -191,11 +195,13 @@ export const brief = (t: Ticket, board: Ticket[] = [], instructions = '', files:
     ...((t.blocks ?? []).length > 0 ? [`Blocks: ${named(t.blocks ?? [], board)}: they wait on this ticket, so keep what they need from it stable.`] : []),
     ...(t.url === undefined ? [] : [`Put this line in the description of every pull request you open for ${t.id}: [${t.id} ${t.title}](${t.url})`, 'A pull request that carries several tickets links each one, a line each.', 'If a pull request was opened without it, add the line in the next review round or stewarding pass instead of failing; keep the description as it is and add the line only once.']),
     'Each acceptance line is a checkable item with its own id (get_ticket lists them in acceptanceItems). Tick each one you have met with set_criterion_checked, each with a note on how it is met (add_criterion_note); a round is read as clean only while every criterion is ticked (one flagged after-deploy is left out), and when a round is clean with one still unticked the mod asks you to tick the ones you have met, then asks a person (leaving the ticket In review) if one still is. Where a screenshot or other file proves a criterion, add a note on it with add_criterion_note and attach the file to that note with add_attachment as evidence.',
+    SECURE_CODING_LINE,
     `Size ${t.size}: keep the whole diff under ${budget} changed lines. ` + 'Edits past that are refused by the tick-it mod; if the work does not fit, ' + 'say so and offer the choices in the refusal.',
     ...(lines?.beforeReview ?? []),
     ...(reviewBudget === null ? [] : [budgetLine(reviewRounds, reviewBudget)]),
     `When it is built and its checks pass, move ${t.id} to In review yourself with Tick-it's update_ticket, without waiting to be asked: tick-it then runs its review agents on it.`,
     ...(lines?.addToTicket ?? addToTicketLines(t.id)),
+    OTHER_REPOSITORY_LINE,
     lines?.branch ?? branchLine(t.id),
     lines?.done ?? DONE_LINE,
     ...memoryLines(memories),
@@ -221,7 +227,7 @@ export async function save($: EngineInterface, list: Ticket[]) {
 }
 
 /** A ticket as Tick-it's tools spell it. */
-export type RemoteTicket = { key: string; title: string; epic: string | null; size: TicketSize; status: TicketStatus; description?: string | null; acceptance: string[]; blockedBy?: string[]; blocks?: string[]; labels?: string[]; url?: string; notBefore?: string | null }
+export type RemoteTicket = { key: string; title: string; epic: string | null; size: TicketSize; status: TicketStatus; description?: string | null; acceptance?: string[]; blockedBy?: string[]; blocks?: string[]; labels?: string[]; url?: string; notBefore?: string | null }
 export const fromRemote = (r: RemoteTicket): Ticket => ({
   id: r.key,
   title: r.title,
@@ -229,13 +235,33 @@ export const fromRemote = (r: RemoteTicket): Ticket => ({
   size: r.size,
   status: r.status,
   ...(r.description ? { description: r.description } : {}),
-  acceptance: r.acceptance,
+  acceptance: r.acceptance ?? [],
   blockedBy: r.blockedBy ?? [],
   blocks: r.blocks ?? [],
   ...(r.labels === undefined ? {} : { labels: r.labels }),
   ...(r.url === undefined ? {} : { url: r.url }),
   ...(typeof r.notBefore === 'string' ? { notBefore: r.notBefore } : {}),
+  // A slim board row has no acceptance: only a ticket read whole (get_ticket, update_ticket) has it.
+  ...(Array.isArray(r.acceptance) ? { whole: true } : {}),
 })
+
+/** A slim board row, keeping what a ticket already read whole holds that the row lacks (description, acceptance, links, url). */
+export const withKnown = (row: Ticket, known: Ticket | undefined): Ticket =>
+  known?.whole === true && !row.whole
+    ? { ...row, ...(known.description === undefined ? {} : { description: known.description }), acceptance: known.acceptance, blockedBy: known.blockedBy ?? [], blocks: known.blocks ?? [], ...(known.labels === undefined ? {} : { labels: known.labels }), ...(known.url === undefined ? {} : { url: known.url }), whole: true }
+    : row
+
+/** Reads the one ticket by its key with get_ticket (the core only) and puts it in the cache: its reason when Tick-it cannot say. */
+export async function readTicket($: EngineInterface, wanted: string): Promise<string | undefined> {
+  const repository = await repositoryHere($)
+  if (repository === undefined) return 'this folder has no GitHub origin remote, so tick-it does not know which repository it is'
+  const one = await callTickit($, 'get_ticket', { repository, key: wanted, include: [] })
+  if (!one.ok) return one.why
+  const remote = one.value.ticket as RemoteTicket | undefined
+  if (remote === undefined || remote.key?.toUpperCase() !== wanted) return `Tick-it's answer to get_ticket was not ${wanted}`
+  await save($, [...(await read($, tickets)).filter(t => t.id !== wanted), fromRemote(remote)])
+  return undefined
+}
 
 /** Pages list_tickets by nextCursor until it is null or absent; a failure on any page fails the whole read. */
 async function listAllTickets($: EngineInterface, repository: string): Promise<{ ok: true; value: RemoteTicket[] } | { ok: false; why: string }> {
@@ -243,7 +269,7 @@ async function listAllTickets($: EngineInterface, repository: string): Promise<{
   const seen = new Set<string>()
   let cursor: string | undefined
   for (;;) {
-    const page = await callTickit($, 'list_tickets', cursor === undefined ? { repository } : { repository, cursor })
+    const page = await callTickit($, 'list_tickets', cursor === undefined ? { repository, slim: true } : { repository, slim: true, cursor })
     if (!page.ok) return page
     all.push(...((page.value.tickets as RemoteTicket[] | undefined) ?? []))
     const next = page.value.nextCursor
@@ -264,7 +290,23 @@ export async function refreshBoard($: EngineInterface): Promise<void> {
   }
   const listed = await listAllTickets($, repository)
   if (listed.ok) {
-    await save($, listed.value.map(fromRemote))
+    const known = await read($, tickets)
+    // A slim row has no url, but every ticket's page is the same address with its own key: one a ticket read whole gave is the pattern.
+    let sample = known.find(t => t.url?.includes(t.id))
+    // With none read whole yet, one get_ticket (the core only) gives it.
+    if (sample === undefined && listed.value[0] !== undefined) {
+      const one = await callTickit($, 'get_ticket', { repository, key: listed.value[0].key, include: [] }).catch(() => undefined)
+      const remote = one?.ok === true ? (one.value.ticket as RemoteTicket | undefined) : undefined
+      if (remote?.url?.includes(remote.key)) sample = { ...fromRemote(remote), id: remote.key }
+    }
+    const urlOf = (key: string) => sample?.url?.replace(sample.id, key)
+    await save(
+      $,
+      listed.value.map(r => {
+        const row = withKnown(fromRemote(r), known.find(t => t.id === r.key))
+        return row.url === undefined && urlOf(r.key) !== undefined ? { ...row, url: urlOf(r.key) } : row
+      }),
+    )
     await update($, boardError, () => null)
     // The roadmap only adds a header: when it cannot be read the board stays as it was.
     const roadmap = await callTickit($, 'list_milestones', { repository })
@@ -412,7 +454,7 @@ export async function startSession($: EngineInterface, id: string): Promise<stri
 export async function statusOnTickit($: EngineInterface, id: string): Promise<TicketStatus | undefined> {
   const repository = await repositoryHere($)
   if (repository === undefined) return undefined
-  const got = await callTickit($, 'get_ticket', { repository, key: id }).catch(() => ({ ok: false as const, why: 'unreachable' }))
+  const got = await callTickit($, 'get_ticket', { repository, key: id, include: [] }).catch(() => ({ ok: false as const, why: 'unreachable' }))
   return got.ok ? ((got.value.ticket as RemoteTicket | undefined)?.status ?? undefined) : undefined
 }
 

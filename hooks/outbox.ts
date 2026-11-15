@@ -13,8 +13,9 @@ const syncError = atom({ plugin: 'tick-it', key: 'syncError' } as const, null)
 const dropped = atom({ plugin: 'tick-it', key: 'dropped' } as const, [])
 /** link_pull_request calls Tick-it has not taken yet: sent again with the outbox. */
 const unlinked = atom({ plugin: 'tick-it', key: 'unlinked' } as const, [])
+const startedSession = atom({ plugin: 'tick-it', key: 'started' } as const, null)
 
-/** What record_runs answers, in structuredContent or as JSON text. */
+/** What record_runs answers, as JSON text (a plugin is handed the content blocks only, but a structuredContent is read when there is one). */
 export type RecordAnswer = { accepted: string[]; rejected: { agentId: string; reason: string }[] }
 
 export const readAnswer = (result: { content: readonly { type: string; text?: string }[]; structuredContent?: unknown }): RecordAnswer | undefined => {
@@ -85,8 +86,11 @@ export async function flush($: EngineInterface): Promise<string> {
     failure = 'this folder has no GitHub origin remote, so Tick-it would not know the repository'
   } else {
     const session = await $.session.id()
+    // The Tick-it session (s_…) the session took a ticket for: Tick-it's review hold matches a run on it, since a routine-started session's Claude Code id there is the claude.ai one. Left out when no ticket was taken.
+    const tickitSession = (await read($, startedSession))?.id
     const sent = await sendTickit($, RECORD_TOOL, place => ({
       session,
+      ...(tickitSession === undefined ? {} : { tickitSession }),
       // owner/name, as Tick-it knows the repository: not the remote's URL.
       repository,
       // Each review run carries its findings with their text, parsed from its BLOCKING and OPTIONAL lines.
@@ -124,6 +128,16 @@ export async function flush($: EngineInterface): Promise<string> {
     await $.store.set(DROPPED_KEY, list)
   }
 
+  // Each run's fate under the session it was sent as: a session id Tick-it does not know for the ticket is why a clean round can still be held back.
+  if (repository !== undefined) {
+    const session = await $.session.id()
+    const tickitSession = (await read($, startedSession))?.id ?? 'none'
+    for (const run of waiting) {
+      const refusal = refused.find(d => d.run.agentId === run.agentId)
+      const sha = 'headSha' in run ? run.headSha : undefined
+      await log($, 'debug', 'outbox-send', { claudeSession: session, tickitSession, agentId: run.agentId, skill: 'skill' in run ? run.skill : run.kind, round: run.round ?? 'none', headSha: sha ?? 'none', result: accepted.has(run.agentId) ? 'accepted' : refusal !== undefined ? 'rejected' : 'unanswered' })
+    }
+  }
   const sentCount = waiting.filter(r => accepted.has(r.agentId)).length
   if (refused.length > 0) await log($, 'error', 'runs-dropped', { dropped: refused.length })
   await log($, failure === null ? 'info' : 'warn', 'outbox-send', { sent: sentCount, dropped: refused.length, waiting: left.length, failed: failure !== null })

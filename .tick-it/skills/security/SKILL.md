@@ -3,7 +3,10 @@ name: security
 description: Looks for security problems the change brings in
 model: claude-sonnet-5-5
 sizes: M, L
+changes: input, secrets, agents, access-control, dependencies, infrastructure
 ---
+
+It runs on M and L tickets, and on a ticket of any size whose change touches one of the areas in `changes` above (`hooks/security-areas.ts` reads them from the changed paths and lines). When the prompt says what the change touches, review those parts first, against the practices given for each area.
 
 Look at what the change takes in and what it reaches: command arguments, Tick-it's answers, review output, files, the shell (`git`, `gh`), other services.
 

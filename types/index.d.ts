@@ -22,6 +22,8 @@ export type Ticket = {
   url?: string
   /** ISO time the ticket is held until (Tick-it's notBefore); absent when it has no hold. */
   notBefore?: string
+  /** Read whole (get_ticket or update_ticket); a slim board row has no description, acceptance, links or url. */
+  whole?: boolean
 }
 
 /** Token counts as the API reports them, summed over a review agent's run. */
@@ -43,6 +45,8 @@ export type ReviewRun = {
   skill: string
   model: string
   startedAt: number
+  /** The commit the reviewer ran on (git rev-parse HEAD when the round started); Tick-it records it with the run. */
+  headSha?: string
   status: 'running' | 'done' | 'failed'
   durationMs?: number
   usage?: ReviewUsage
@@ -139,6 +143,12 @@ export type Steward = {
   fixing?: boolean
   /** Claude has been asked, in this round's turn, to tick the acceptance checks it has met: a clean round that still has one unticked asks a person. */
   ticking?: boolean
+  /** Stewarding stopped by the mod itself (the round limit or the review budget), not by the stop button: a fix made later is still reviewed once. */
+  stoppedBy?: 'mod'
+  /** This round reviews a fix made after the mod stopped: if it still has blocking findings the mod stops again and starts no further round. */
+  afterStop?: boolean
+  /** The round's only blocking findings were the pull request's own and the review budget has no room for a reviewer round: after the fix the pull request is read again and settles the round. */
+  pullRequestOnly?: boolean
 }
 
 declare module 'claude-code' {
@@ -173,6 +183,8 @@ declare module 'claude-code' {
       syncError: string | null
       /** Runs Tick-it rejected, newest last. */
       dropped: DroppedRun[]
+      /** The security areas Claude has been pointed at for a ticket's edits, so each is named once. */
+      securityNudged: { ticket: string; areas: string[] }
     }
   }
 }
