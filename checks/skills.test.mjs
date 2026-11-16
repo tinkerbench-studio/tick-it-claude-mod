@@ -94,6 +94,11 @@ test('plan-epic and draft-ticket keep another repository’s tickets out of the 
   for (const words of ['one call per repository', 'each ticket is created with its repository', 'a new ticket from a split names its repository', 'a repository it cannot get is named before the draft is shown']) expect(readme).toContain(words, `README no longer says "${words}"`)
 })
 
+test('the README says plan-epic takes a design ticket\u2019s checks from the design.workflow doc', () => {
+  const readme = read('README.md')
+  for (const words of ['`design.uiPaths` takes the design ticket\'s checks from the `design.workflow` doc', 'both read from `get_repository_settings`', 'reads as a doc and never runs', 'a repository with no `design` section gets the default design ticket']) expect(readme).toContain(words, `README no longer says "${words}"`)
+})
+
 test('the README’s skill section describes reading other repositories', () => {
   const readme = read('README.md')
   for (const words of ['every repository the epic covers', 'docs/other-repositories.md', 'names one repository']) expect(readme).toContain(words, `README no longer says "${words}"`)
