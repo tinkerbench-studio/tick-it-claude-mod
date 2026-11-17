@@ -108,3 +108,12 @@ test('a round with blocking findings ticks no acceptance checks', async ($, on) 
   await $.turn.complete(finishTurn('agent-1', 'BLOCKING: the step is not stored\nVERDICT: changes'))
   expect(seen.ticketCalls.some(c => c.tool === 'set_criterion_checked')).toBe(false)
 })
+
+test('a round whose only BLOCKING line says none settles as clean', async ($, on) => {
+  const seen = engine(on, { lines: 10 }, true, { '.tick-it/skills/principal/SKILL.md': SKILLS['.tick-it/skills/principal/SKILL.md'] ?? '' })
+  await start($)
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-143' })
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'done' })
+  await $.turn.complete(finishTurn('agent-1', 'BLOCKING: **None.**\nVERDICT: clean'))
+  expect(seen.server.find(t => t.key === 'TCK-143')?.status).toBe('Done')
+})
