@@ -306,6 +306,8 @@ export const registerUi: Register = on => {
               <Text bold wrap="wrap">{answered.subject}</Text>
               <Text>{`Decision: ${answered.state}`}</Text>
               <Text>{`Asked of: ${answered.reviewer}`}</Text>
+              {answered.answeredBy != null && <Text key="approval-answered-by">{`Answered by: ${answered.answeredBy}`}</Text>}
+              {answered.answeredAt != null && <Text key="approval-answered-at">{`Answered at: ${answered.answeredAt}`}</Text>}
               {answered.questions.map(q => (
                 <Text key={`approval-q-${q.id}`} wrap="wrap">{`${q.text} → ${q.answer ?? 'no answer'}`}</Text>
               ))}
