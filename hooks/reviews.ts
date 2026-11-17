@@ -770,9 +770,9 @@ export async function settleRound($: EngineInterface, s: Steward, withoutReviewe
   const spent = summarise(runs)
   // The stop button may be pressed while this waits on Tick-it or GitHub: stopped stays stopped.
   const stillReviewing = async () => (await read($, steward))?.phase === 'reviewing'
-  // A reviewer whose newest run of the round failed or gave no verdict (it was already run again once) reviewed nothing: the round is not clean, whatever the others found, and a person is asked.
+  // A reviewer whose newest run of the round failed or gave no verdict (it was already run again once; one that could not be started is blocking by its own reason below) reviewed nothing: the round is not clean, whatever the others found, and a person is asked.
   const newest = new Map<string, ReviewRun>()
-  for (const r of runs) if (r.notApplicable === undefined) newest.set(r.skill, r)
+  for (const r of runs) if (r.notApplicable === undefined && r.reason === undefined) newest.set(r.skill, r)
   const unreviewed = [...newest.values()].filter(r => r.status === 'failed').map(r => r.skill)
   if (unreviewed.length > 0 && !withoutReviewers) {
     if (!(await stillReviewing())) return
