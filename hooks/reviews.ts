@@ -124,9 +124,13 @@ const plain = (line: string): string => {
   return rest.replace(/^[*_`]*(BLOCKING|OPTIONAL|FINDING)[*_`]*:[*_`]*\s*/i, '$1: ')
 }
 
-/** The BLOCKING and OPTIONAL lines of a reviewer's report. */
+/** A line whose whole body, with punctuation and markdown stripped, is a nil word ("BLOCKING: none.", "OPTIONAL: **N/A**") says nothing is wrong: it is no finding. */
+const NIL = /^(none|n\/a|nothing|no issues|no blocking findings|not applicable)$/i
+const saysNothing = (line: string): boolean => NIL.test(line.replace(/^(BLOCKING|OPTIONAL):/i, '').replace(/[^\p{L}\p{N}/\s]/gu, '').replace(/\s+/g, ' ').trim())
+
+/** The BLOCKING and OPTIONAL lines of a reviewer's report, leaving out a line that says nothing is wrong. */
 export const readFindings = (answer: string) => {
-  const lines = answer.split('\n').map(plain)
+  const lines = answer.split('\n').map(plain).filter(line => !saysNothing(line))
   return {
     blocking: lines.filter(line => /^BLOCKING:/i.test(line)),
     optional: lines.filter(line => /^OPTIONAL:/i.test(line)),
