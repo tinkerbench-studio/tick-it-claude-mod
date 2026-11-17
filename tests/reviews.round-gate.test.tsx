@@ -6,7 +6,6 @@ const HEAD = 'ab12'.repeat(10)
 const OTHER = 'cd34'.repeat(10)
 const pr = (extra: Record<string, unknown> = {}) => ({ number: 12, state: 'open', draft: false, ci: 'success', headSha: HEAD, ...extra })
 
-
 const run = async ($: Parameters<typeof start>[0] & { command: { run: (e: never) => Promise<unknown> } }) => {
   await start($)
   await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-143' })
@@ -48,4 +47,18 @@ test('when Tick-it cannot be read the round runs and the pane says the head coul
   await run($)
   expect(seen.spawned.length).toBeGreaterThan(0)
   expect(seen.toasts.some(t => t.includes('pull request head could not be checked'))).toBe(true)
+})
+
+test('a pull request that gives no head commit does not stop the round, and the pane says the head could not be checked', async ($, on) => {
+  const { headSha: _head, ...noHead } = pr()
+  const seen = engine(on, { lines: 10, changed: ['hooks/a.ts'] }, true, SKILLS, { pullRequests: [noHead] })
+  await run($)
+  expect(seen.spawned.length).toBeGreaterThan(0)
+  expect(seen.toasts.some(t => t.includes('Tick-it gave no head commit'))).toBe(true)
+})
+
+test('a merged pull request whose head differs does not stop the round', async ($, on) => {
+  const seen = engine(on, { lines: 10, changed: ['hooks/a.ts'] }, true, SKILLS, { pullRequests: [pr({ state: 'merged', headSha: OTHER })] })
+  await run($)
+  expect(seen.spawned.length).toBeGreaterThan(0)
 })

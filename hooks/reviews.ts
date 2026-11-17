@@ -379,7 +379,7 @@ export async function changedSince($: EngineInterface, sha: string): Promise<str
  * What stops a round before any reviewer starts (TCK-51): the checkout is not at the head of the ticket's open pull request, or the change against the base is empty.
  * `stop` says why; `note` is set when the head could not be checked (Tick-it unreadable, or it gave no head), and the round then runs as before.
  */
-export async function roundGate($: EngineInterface, ticket: string): Promise<{ stop?: string; note?: string; changed: string[] | null }> {
+export async function roundGate($: EngineInterface, ticket: string): Promise<{ stop?: string; why?: 'head-differs' | 'empty-diff'; note?: string; changed: string[] | null }> {
   await refreshPullRequest($, ticket).catch(() => update($, pullRequestError, () => 'could not read the pull request'))
   const pr = await read($, pullRequest)
   // Listed once for the round: the paths of the reviewers use it too.
@@ -389,10 +389,11 @@ export async function roundGate($: EngineInterface, ticket: string): Promise<{ s
   if (pr !== null && pr.state === 'open') {
     if (pr.headSha === undefined) return { note: 'The pull request head could not be checked: Tick-it gave no head commit.', changed }
     const here = (await $.process.run(['git', 'rev-parse', 'HEAD']).catch(() => undefined))?.stdout.trim()
-    if (here !== undefined && here !== '' && here !== pr.headSha) return { stop: `No review started: the checkout is at ${here}, but pull request #${pr.number} is at ${pr.headSha}. Check out or push the pull request's head, then review again.`, changed }
+    if (here === undefined || here === '') return { note: 'The pull request head could not be checked: git did not say which commit is checked out.', changed }
+    if (here !== pr.headSha) return { why: 'head-differs', stop: `No review started: the checkout is at ${here}, but pull request #${pr.number} is at ${pr.headSha}. Check out or push the pull request's head, then review again.`, changed }
   }
   // Nothing changed against the base branch (the working tree, untracked files included): there is nothing to review. A listing that cannot be had does not stop the round.
-  if (changed !== null && changed.length === 0) return { stop: 'No review started: git diff against the base branch is empty, so there is nothing to review.', changed }
+  if (changed !== null && changed.length === 0) return { stop: 'No review started: git diff against the base branch is empty, so there is nothing to review.', why: 'empty-diff', changed }
   return { changed }
 }
 
@@ -442,7 +443,7 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
   const gate = await roundGate($, t.id)
   if (gate.stop !== undefined) {
     await setSteward($, { ticket: t.id, round, phase: 'stopped', maxRounds: Math.max(limit, round), note: gate.stop, fixing: false })
-    await log($, 'warn', 'round-not-started', { ticket: t.id, round, why: gate.stop.includes('empty') ? 'empty-diff' : 'head-differs' })
+    await log($, 'warn', 'round-not-started', { ticket: t.id, round, why: gate.why ?? 'head-differs' })
     return gate.stop
   }
   if (gate.note !== undefined) {
