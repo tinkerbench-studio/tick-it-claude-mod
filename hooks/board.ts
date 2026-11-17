@@ -341,7 +341,7 @@ export async function refreshPullRequest($: EngineInterface, id: string): Promis
   const states = ['open', 'closed', 'merged', 'unknown']
   const cis = ['pending', 'success', 'failure']
   const view: PullRequestView | null =
-    found === undefined ? null : { number: found.number, state: states.includes(found.state) ? found.state : 'unknown', draft: found.draft === true, ci: cis.includes(found.ci as string) ? found.ci : null, behind: typeof found.behind === 'boolean' ? found.behind : null, conflicting: (found as { mergeState?: string }).mergeState === 'conflicting', queued: (found as { mergeQueue?: unknown }).mergeQueue != null, ciInstructed: found.ciInstructed === true, url: typeof found.url === 'string' ? found.url : `https://github.com/${repository}/pull/${found.number}` }
+    found === undefined ? null : { number: found.number, state: states.includes(found.state) ? found.state : 'unknown', draft: found.draft === true, ci: cis.includes(found.ci as string) ? found.ci : null, behind: typeof found.behind === 'boolean' ? found.behind : null, conflicting: (found as { mergeState?: string }).mergeState === 'conflicting', queued: (found as { mergeQueue?: unknown }).mergeQueue != null, ciInstructed: found.ciInstructed === true, url: typeof found.url === 'string' ? found.url : `https://github.com/${repository}/pull/${found.number}`, ...(typeof found.headSha === 'string' && /^[0-9a-f]{40}$/.test(found.headSha) ? { headSha: found.headSha } : {}) }
   await update($, pullRequest, () => view)
   await update($, pullRequestError, () => null)
   // CI turning failing is said once, with the pane opened; it speaks again only after CI has left failing.

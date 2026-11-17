@@ -120,6 +120,8 @@ export type PullRequestView = {
   ciInstructed: boolean
   /** Its page on GitHub; absent on one read by an older mod. */
   url?: string
+  /** The commit its branch is at on GitHub (headSha of list_pull_requests); absent when Tick-it did not say. */
+  headSha?: string
 }
 
 export type StewardPhase = 'reviewing' | 'fixing' | 'done' | 'stopped'
