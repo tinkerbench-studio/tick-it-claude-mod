@@ -9,6 +9,7 @@ import { queue, flush, plural } from './outbox'
 import { AREA_SKILL_DIR, AREA_NAMES, areaSkill, changesFor, parseChanges, touchedAreas, touchedLine, unknownChanges } from './security-areas'
 import type { Changes, Touched } from './security-areas'
 import { log } from './log'
+import { saveResume } from './resume'
 
 // Declared in this file: the engine reads an atom only where it is written (a module cannot use one imported from state.ts).
 const tickets = atom({ plugin: 'tick-it', key: 'tickets' } as const, [])
@@ -409,6 +410,7 @@ export const withoutStopMarks = (s: Steward): Steward => {
 
 export async function setSteward($: EngineInterface, next: Steward | null) {
   await update($, steward, () => next)
+  await saveResume($)
   await showStatus($)
   if (next !== null && (await read($, startedSession))?.ticket === next.ticket) {
     const said = next.note ?? (next.phase === 'reviewing' ? `Review round ${next.round}.` : next.phase === 'fixing' ? `Fixing round ${next.round}'s findings.` : undefined)
@@ -502,6 +504,7 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
   if (before !== 'stopped' && (await read($, steward))?.phase === 'stopped') {
     // No turn is running either, so r has to carry the next round in with a prompt of its own.
     await update($, steward, v => (v === null ? v : { ...v, fixing: false }))
+    await saveResume($)
     await log($, 'debug', 'round-not-started', { ticket: t.id, round: fromRound, why: 'stopped' })
     return `Stopped; round ${fromRound} of ${t.id} did not start.`
   }
@@ -522,6 +525,7 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
     // The stop button pressed while the spend was read: that round does not start.
     if ((await read($, steward))?.phase === 'stopped') {
       await update($, steward, v => (v === null ? v : { ...v, fixing: false }))
+      await saveResume($)
       await log($, 'debug', 'round-not-started', { ticket: t.id, round, why: 'stopped' })
       return `Stopped; round ${round} of ${t.id} did not start.`
     }

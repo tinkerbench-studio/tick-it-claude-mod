@@ -176,6 +176,17 @@ export type Steward = {
   pullRequestOnly?: boolean
 }
 
+/** What a resumed session keeps, stored beside the started session (hooks/resume.ts). */
+export type ResumeState = {
+  /** The Claude Code session and the repository it belongs to: another session, or another repository, restores none of it. */
+  claudeSession: string
+  repository: string
+  current: string | null
+  baseCommit: string | null
+  steward: Steward | null
+  reviewNext: string | null
+}
+
 declare module 'claude-code' {
   interface PluginState {
     'tick-it': {
