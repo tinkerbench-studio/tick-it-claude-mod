@@ -91,7 +91,7 @@ test('with no base branch found the prompt keeps the working-tree wording', () =
 })
 
 test('a round on committed work with a clean working tree tells the reviewer to read the base diff', async ($, on) => {
-  const seen = engine(on, { lines: 10, changed: [], bases: ['origin/main'] }, true, { [OWN]: own.replace('base: principal\n', ''), [BASE]: base })
+  const seen = engine(on, { lines: 10, changed: ['hooks/a.ts'], bases: ['origin/main'] }, true, { [OWN]: own.replace('base: principal\n', ''), [BASE]: base })
   await done($, 'TCK-143')
   const prompt = seen.spawned[0]?.prompt ?? ''
   expect(prompt).toContain('git diff $(git merge-base origin/main HEAD)')

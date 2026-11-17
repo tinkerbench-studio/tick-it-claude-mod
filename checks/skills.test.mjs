@@ -242,3 +242,8 @@ test('README names the copies:check script, how a repository adds one, and what 
   const readme = read('README.md')
   for (const words of ['`copies:check` script', '"scripts": { "copies:check":', 'npm run copies:check', 'refuses the move', 'A check that cannot be started', 'says the check could not run']) expect(readme).toContain(words, `README no longer says "${words}"`)
 })
+
+test('the README says a reviewer reviews the ticket’s whole change against the base', () => {
+  const readme = read('README.md')
+  for (const words of ['review the ticket\'s whole change against the base', 'the diff from the merge base with the base branch']) expect(readme).toContain(words, `README no longer says "${words}"`)
+})
