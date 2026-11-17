@@ -115,9 +115,19 @@ export const withBase = (skill: ReviewSkill, base: ReviewSkill): ReviewSkill => 
 export const missingBases = (skills: { folder: string; skill: ReviewSkill }[]): string[] =>
   skills.filter(({ skill }) => skill.base !== undefined && skill.baseBody === undefined).map(({ folder, skill }) => `${folder} (base ${JSON.stringify(skill.base)})`)
 
+/** A report line without the markdown round its marker: bullets, numbers, # and > marks, and bold, italic or code marks round the word and its colon. */
+const plain = (line: string): string => {
+  let rest = line.trim()
+  for (let before = ''; before !== rest; ) {
+    before = rest
+    rest = rest.replace(/^(?:[-*+]\s+|\d+[.)]\s+|#+\s*|>\s*)/, '')
+  }
+  return rest.replace(/^[*_`]*(BLOCKING|OPTIONAL|FINDING)[*_`]*:[*_`]*\s*/i, '$1: ')
+}
+
 /** The BLOCKING and OPTIONAL lines of a reviewer's report. */
 export const readFindings = (answer: string) => {
-  const lines = answer.split('\n').map(line => line.trim().replace(/^[-*]\s*/, ''))
+  const lines = answer.split('\n').map(plain)
   return {
     blocking: lines.filter(line => /^BLOCKING:/i.test(line)),
     optional: lines.filter(line => /^OPTIONAL:/i.test(line)),
@@ -189,7 +199,7 @@ export const withTickit = (local: Earlier[], remote: Earlier[] = []): Earlier[] 
 export const readVerdicts = (answer: string, earlier: Earlier[]): NonNullable<ReviewRun['verdicts']> => {
   const given = new Set<number>()
   return answer.split('\n').flatMap(line => {
-    const m = /^FINDING:\s*(\d+)\s+(fixed|open|gone)\b[\s:–—-]*(.*)$/i.exec(line.trim().replace(/^[-*]\s*/, ''))
+    const m = /^FINDING:\s*(\d+)\s+(fixed|open|gone)\b[\s:–—-]*(.*)$/i.exec(plain(line))
     const f = m === null ? undefined : earlier[Number(m[1]) - 1]
     // The first verdict on a finding stands; a repeat is not counted twice.
     if (m !== null && f !== undefined) {
