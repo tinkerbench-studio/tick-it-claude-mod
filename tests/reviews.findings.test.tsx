@@ -109,3 +109,12 @@ test('readVerdicts reads FINDING lines in bold or as a numbered list item', () =
   const got = readVerdicts('**FINDING:** 1 fixed done\n2. FINDING: 2 open still\n**FINDING: 3 gone** moved', earlier)
   expect(got.map(v => v.verdict)).toEqual(['fixed', 'open', 'gone'])
 })
+
+test('a BLOCKING or OPTIONAL line that only says nothing is wrong is no finding', () => {
+  for (const body of ['none.', '**None**', 'N/A', 'Nothing', 'no issues.', 'No blocking findings', '_Not applicable_']) {
+    const found = readFindings(`BLOCKING: ${body}\nOPTIONAL: ${body}\n- **BLOCKING:** ${body}`)
+    expect(found, body).toEqual({ blocking: [], optional: [] })
+  }
+  expect(readFindings('BLOCKING: none of the tests cover X').blocking).toEqual(['BLOCKING: none of the tests cover X'])
+  expect(readFindings('BLOCKING: none.\nBLOCKING: src/a.ts:3 bug\nOPTIONAL: none').blocking).toEqual(['BLOCKING: src/a.ts:3 bug'])
+})
