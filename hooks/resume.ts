@@ -34,8 +34,9 @@ export async function restoreResume($: EngineInterface): Promise<void> {
     if (typeof saved.current === 'string' && (await read($, current)) === null) await update($, current, () => saved.current)
     if (typeof saved.baseCommit === 'string' && (await read($, baseCommit)) === null) await update($, baseCommit, () => saved.baseCommit)
     if (typeof saved.reviewNext === 'string' && (await read($, reviewNext)) === null) await update($, reviewNext, () => saved.reviewNext)
-    // Its reviewers belonged to the old process and no agent is left to answer: the round runs again when the next turn ends.
-    if (typeof saved.steward === 'object' && saved.steward !== null && (await read($, steward)) === null) await update($, steward, () => ({ ...saved.steward, phase: saved.steward?.phase === 'reviewing' ? ('fixing' as const) : saved.steward?.phase }) as Steward)
+    // Its reviewers belonged to the old process and no agent is left to answer: restored as fixing, one round back, so the turn's end starts that same round again (a fixing steward at round r starts round r + 1).
+    const held = saved.steward
+    if (typeof held === 'object' && held !== null && (await read($, steward)) === null) await update($, steward, () => (held.phase === 'reviewing' ? { ...held, phase: 'fixing' as const, round: Math.max(0, held.round - 1) } : held) as Steward)
   }
   const restored = mine && (typeof saved.current === 'string' || (typeof saved.steward === 'object' && saved.steward !== null) || typeof saved.reviewNext === 'string')
   await update($, resumeUntaken, () => started !== null && !restored)

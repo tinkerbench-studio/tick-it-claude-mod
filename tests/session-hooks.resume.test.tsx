@@ -41,7 +41,7 @@ test('a steward in phase fixing is restored and the next turn end starts the nex
 })
 
 test('a steward in phase reviewing is restored as fixing, so its round runs again when the next turn ends', async ($, on) => {
-  const steward = { ticket: 'TCK-143', round: 1, phase: 'reviewing', maxRounds: 3 }
+  const steward = { ticket: 'TCK-143', round: 2, phase: 'reviewing', maxRounds: 3 }
   const seen = engine(on, { lines: 4, stored: store({ current: null, baseCommit: null, steward }) }, true, PRINCIPAL_ONLY)
   seen.server.find(t => t.key === 'TCK-143')!.status = 'In review'
   await start($)
