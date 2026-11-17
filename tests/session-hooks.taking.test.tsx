@@ -101,7 +101,8 @@ test('Claude moving a same-key ticket of another repository to In review leaves 
   expect(ran).not.toHaveProperty('deny')
   expect(seen.server.find(t => t.key === 'TCK-147')?.status).toBe('In progress')
   expect(seen.ticketCalls.slice(calls).map(c => c.tool)).not.toContain('link_pull_request')
-  expect(seen.ticketCalls.slice(calls).filter(c => c.tool === 'update_ticket' && (c.args as { repository?: string }).repository !== 'acme/other')).toEqual([])
+  // The call goes on as Claude made it (the test harness runs no real call): the mod sends no update_ticket of its own, with changed lines or a pull request.
+  expect(seen.ticketCalls.slice(calls).filter(c => c.tool === 'update_ticket')).toEqual([])
   expect(reports(seen).filter(r => r.status === 'reviewing')).toEqual([])
   await $.turn.complete(finishTurn(undefined, 'Done.'))
   expect(seen.spawned).toEqual([])
