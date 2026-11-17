@@ -55,13 +55,15 @@ test('a run whose agent is still listed as running is left running, and r says t
   await ui.unmount()
 })
 
-test('settleRound settles a round whose remaining running run has no live agent', async ($, on) => {
+test('settleRound settles a round whose remaining running run has no live agent, and the lost run is a failed review, so a person is asked', async ($, on) => {
   const seen = engine(on, { lines: 10 }, true, SKILLS)
   await begin($)
   seen.unlisted = ['agent-2']
   await $.turn.complete(finishTurn('agent-1', 'BLOCKING: api/a.ts:4 no test\nVERDICT: changes'))
-  expect(seen.submitted.join('\n')).toContain('[principal] BLOCKING: api/a.ts:4 no test')
-  expect(await report($)).toContain('fixing, round 1')
+  // The lost run reviewed nothing (TCK-54): the round stops for a person instead of going to Claude as a fix.
+  expect(seen.submitted.join('\n')).not.toContain('[principal] BLOCKING: api/a.ts:4 no test')
+  expect(seen.ticketCalls.filter(c => c.tool === 'set_needs_human').map(c => (c.args as { kind: string }).kind)).toEqual(['no-clean-round'])
+  expect(await report($)).not.toContain('fixing, round 1')
 })
 
 test('/tick-it steward over a round with a reviewer still running fails that run; its late answer changes nothing and sends nothing', async ($, on) => {
