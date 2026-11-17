@@ -228,6 +228,13 @@ test('README and the plan-epic skill describe the date hold: marker, refusal and
   expect(read('skills/plan-epic/SKILL.md')).toContain('`notBefore` date', 'plan-epic skill no longer mentions the date hold')
 })
 
+test('the README and the review-agents skill describe how paths and sizes are written', () => {
+  for (const file of ['README.md', 'skills/review-agents/SKILL.md']) {
+    const text = read(file)
+    for (const words of ['inline list', 'block list', 'brace group', 'leading `!`', 'applies to every path']) expect(text).toContain(words, `${file} lacks "${words}"`)
+  }
+})
+
 test('the README says when a review round is not started', () => {
   const readme = read('README.md')
   for (const words of ['**When a round is not started.**', 'no reviewer starts and no run is recorded', 'The checkout is not the pull request\'s head', 'Nothing differs from the base branch', 'the pull request head could not be checked']) expect(readme).toContain(words, `README no longer says "${words}"`)
@@ -243,6 +250,11 @@ test('README names the copies:check script, how a repository adds one, and what 
   for (const words of ['`copies:check` script', '"scripts": { "copies:check":', 'npm run copies:check', 'refuses the move', 'A check that cannot be started', 'says the check could not run']) expect(readme).toContain(words, `README no longer says "${words}"`)
 })
 
+test('the README says a reviewer reviews the ticket’s whole change against the base', () => {
+  const readme = read('README.md')
+  for (const words of ['review the ticket\'s whole change against the base', 'the diff from the merge base with the base branch']) expect(readme).toContain(words, `README no longer says "${words}"`)
+})
+
 test('the version-raise skill acts only on a failing Plugin version check and names the three copies and the checks', () => {
   const skill = read('.claude/skills/version-raise/SKILL.md')
   for (const words of ['Act only when Tick-it reports the `Plugin version` check failing', '`.claude-plugin/plugin.json`', '`hooks/state.ts`', '`tests/contract-fixtures.json`', 'above', 'node --test checks/*.test.mjs']) expect(skill).toContain(words, `the version-raise skill no longer says "${words}"`)
@@ -252,4 +264,13 @@ test('tests reviewer keeps a README-only criterion optional and a skill-dependen
   const tests = read('.tick-it/skills/tests/SKILL.md')
   expect(tests).toContain('A criterion that only asks the README, or other prose no skill or hook reads, to say something needs no test, and a missing wording check for it is OPTIONAL at most.')
   expect(tests).toContain('A wording check in `checks/skills.test.mjs` stays BLOCKING for wording a skill or hook depends on.')
+})
+
+test('review skills agree: the merge queue raises the plugin version, a pull request does not, a missing raise is no finding', () => {
+  for (const name of ['acceptance', 'principal']) {
+    const skill = read(`.tick-it/skills/${name}/SKILL.md`)
+    for (const words of ["raised by the merge queue's Plugin version check", 'not by a pull request', 'a missing raise is not a finding']) expect(skill).toContain(words, `${name} no longer says "${words}"`)
+    assert.ok(!/BLOCKING:[^\n]*(missing|without|no) (a )?(version )?(bump|raise)/i.test(skill), `${name} blocks a missing version raise`)
+    assert.ok(!/(must|should|needs to|has to) (raise|bump)[^\n]*version/i.test(skill), `${name} asks a pull request to raise the version`)
+  }
 })
