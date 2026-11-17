@@ -24,3 +24,12 @@ A UX change carries evidence, produced like this (the builder does it before the
 - OPTIONAL: a change that touches a UI path (a page or component, a story, a stylesheet or a token) yet has no visible effect, whose pull request description does not say so. A change that touches no UI path (backend, docs, scripts, config) gets no finding about its description's visible-effect line: do not ask for the sentence.
 
 Look at the images themselves, not only that they exist.
+
+Rules for every round:
+
+- Fetch the base branch (`git fetch origin <base branch>`) before you judge what the diff contains, so the diff is against the branch as it is now and not a stale copy.
+- On lines unchanged since round 1, a later round raises BLOCKING only for a correctness or security defect, and says why it was missed before. Anything else found late is OPTIONAL.
+- Wording is BLOCKING only when it states something false about behaviour, a count or a name. Text the change did not touch is never BLOCKING.
+- Do not report a line that says nothing is wrong: "none", "not needed", or something listed only to say the check was done.
+- Do not raise as BLOCKING a check you could not run in your own sandbox: name it as not run, with why.
+- You own what a person sees: the pictures and how the change is worded and drawn. As the ux-evidence reviewer you decide how it is worded and drawn: acceptance decides what must exist, and ux-evidence decides how it is worded and drawn. A finding of yours that contradicts an acceptance finding about what must exist is OPTIONAL. A defect in code, a test, access or a criterion is another reviewer's: leave it to it.

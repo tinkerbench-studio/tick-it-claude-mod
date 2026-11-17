@@ -52,6 +52,8 @@ export type ReviewRun = {
   /** The commit the reviewer ran on (git rev-parse HEAD when the round started); Tick-it records it with the run. */
   headSha?: string
   status: 'running' | 'done' | 'failed'
+  /** The Claude Code session the run was spawned in: a running run of another session has no agent left to answer. */
+  claudeSession?: string
   durationMs?: number
   /** Set on a reviewer skipped because no changed file matches its paths, or (from round 2) because it was clean and no changed file since matches them, so its verdict carries forward: the reason, sent as `notApplicable`. */
   notApplicable?: string
@@ -124,6 +126,8 @@ export type PullRequestView = {
   ciInstructed: boolean
   /** Its page on GitHub; absent on one read by an older mod. */
   url?: string
+  /** The commit its branch is at on GitHub (headSha of list_pull_requests); absent when Tick-it did not say. */
+  headSha?: string
 }
 
 export type StewardPhase = 'reviewing' | 'fixing' | 'done' | 'stopped'

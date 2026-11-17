@@ -68,3 +68,9 @@ test('a skill keeps the description, model and sizes it sets, and its own name a
   expect(bare).toMatchObject({ name: 'principal', description: 'A second principal engineer', model: 'claude-opus-5-5', sizes: ['S', 'M', 'L'] })
   expect(bare.paths).toBeUndefined()
 })
+
+test('the reviewer prompt names the ticket’s size', async ($, on) => {
+  const seen = engine(on, { lines: 10 }, true, { [OWN]: own.replace('base: principal', 'base: nonesuch') })
+  await done($, 'TCK-143')
+  expect(seen.spawned[0]?.prompt).toContain('Ticket size: XS.')
+})

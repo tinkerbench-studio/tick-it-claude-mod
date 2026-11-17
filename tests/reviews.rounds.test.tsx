@@ -220,3 +220,13 @@ test('a recorded review run carries no epic title', async ($, on) => {
   expect(JSON.stringify(seen.recorded.map(r => r.args))).not.toContain('One-page checkout')
   expect(JSON.stringify(seen.recorded.map(r => r.args))).not.toContain('"epic"')
 })
+
+test('a round whose only reviewer answers a bold BLOCKING line leaves the ticket In review and asks Claude for a fix', async ($, on) => {
+  const seen = engine(on, { lines: 10 }, true, PRINCIPAL)
+  await start($)
+  await $.prompt.submit(typed(STARTED.replace('TCK-151', 'TCK-143')))
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'done' })
+  await $.turn.complete(finishTurn('agent-1', '**BLOCKING:** src/a.ts:3 leaks the token\nVERDICT: changes'))
+  expect(seen.server.find(t => t.key === 'TCK-143')?.status).toBe('In review')
+  expect(seen.submitted.some(t => t.includes('leaks the token'))).toBe(true)
+})

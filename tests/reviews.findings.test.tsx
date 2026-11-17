@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { findingLine, findingRows, parseFinding, roundFindings, count } from '../hooks/register'
+import { findingLine, findingRows, parseFinding, readFindings, readVerdicts, roundFindings, count } from '../hooks/register'
 import { PANE, RUN, engine, finishTurn, start, PRINCIPAL, STARTED, typed } from './helpers'
 
 test('parseFinding takes a file and line from a finding when it starts with one', () => {
@@ -75,4 +75,46 @@ test("the stewarding pane lists the round's blocking findings by file and line, 
   // The button's count is the one record_runs carried for the round's run.
   expect(seen.recorded.flatMap(r => r.args.runs).find(r => r.agentId === 'agent-1')).toMatchObject({ blocking: 1, optional: 1 })
   await ui.unmount()
+})
+
+test('readFindings reads a BLOCKING or OPTIONAL line in each markdown shape a model uses', () => {
+  const shapes: Record<string, string> = {
+    'bold word and colon': '**BLOCKING:** src/a.ts:3 x',
+    'bold word, colon outside': '**BLOCKING**: src/a.ts:3 x',
+    'numbered with a dot': '1. BLOCKING: src/a.ts:3 x',
+    'numbered with a bracket': '1) BLOCKING: src/a.ts:3 x',
+    heading: '### BLOCKING: src/a.ts:3 x',
+    'block quote': '> BLOCKING: src/a.ts:3 x',
+    'plus bullet': '+ BLOCKING: src/a.ts:3 x',
+    'code marks': '`BLOCKING:` src/a.ts:3 x',
+    'italic marks': '_BLOCKING:_ src/a.ts:3 x',
+  }
+  for (const [name, line] of Object.entries(shapes)) {
+    expect(readFindings(line).blocking.length, `blocking: ${name}`).toBe(1)
+    expect(readFindings(line.replace('BLOCKING', 'OPTIONAL')).optional.length, `optional: ${name}`).toBe(1)
+  }
+})
+
+test('parseFinding still gives the file and line of a finding whose marker was bold', () => {
+  const [line] = readFindings('**BLOCKING:** src/a.ts:3 what is wrong').blocking
+  expect(parseFinding(line!)).toEqual({ severity: 'blocking', file: 'src/a.ts', line: 3, text: 'what is wrong' })
+})
+
+test('a line that mentions BLOCKING: after other words is not a finding', () => {
+  expect(readFindings('nothing BLOCKING: all good\n- see **BLOCKING:** above')).toEqual({ blocking: [], optional: [] })
+})
+
+test('readVerdicts reads FINDING lines in bold or as a numbered list item', () => {
+  const earlier = [{ text: 'a' }, { text: 'b' }, { text: 'c' }]
+  const got = readVerdicts('**FINDING:** 1 fixed done\n2. FINDING: 2 open still\n**FINDING: 3 gone** moved', earlier)
+  expect(got.map(v => v.verdict)).toEqual(['fixed', 'open', 'gone'])
+})
+
+test('a BLOCKING or OPTIONAL line that only says nothing is wrong is no finding', () => {
+  for (const body of ['none.', '**None**', 'N/A', 'Nothing', 'no issues.', 'No blocking findings', '_Not applicable_']) {
+    const found = readFindings(`BLOCKING: ${body}\nOPTIONAL: ${body}\n- **BLOCKING:** ${body}`)
+    expect(found, body).toEqual({ blocking: [], optional: [] })
+  }
+  expect(readFindings('BLOCKING: none of the tests cover X').blocking).toEqual(['BLOCKING: none of the tests cover X'])
+  expect(readFindings('BLOCKING: none.\nBLOCKING: src/a.ts:3 bug\nOPTIONAL: none').blocking).toEqual(['BLOCKING: src/a.ts:3 bug'])
 })
