@@ -5,7 +5,7 @@ import { SIZES } from './state'
 import { areaNudge, touchedAreas } from './security-areas'
 import { repositoryHere, freshBriefOf } from './tickit'
 import { budgetOf, changedLines, nextSize, findCurrent, save, showStatus } from './board'
-import { readText, measureDiff, refreshDiff, take, finishedByClaude } from './work'
+import { measureDiff, refreshDiff, take, finishedByClaude, editEffect, applyEdit, editCount } from './work'
 
 // Declared in this file: the engine reads an atom only where it is written (a module cannot use one imported from state.ts).
 const tickets = atom({ plugin: 'tick-it', key: 'tickets' } as const, [])
@@ -35,19 +35,33 @@ export const registerTools: Register = on => {
   // budget. Measuring failures let the edit through (a proof of concept should
   // not block work), so the .catch passes rather than denies.
   on('tool.call', async ($, e, next) => {
-    if (e.tool !== 'Edit' && e.tool !== 'Write') return next(e)
+    if (e.tool !== 'Edit' && e.tool !== 'Write' && (e.tool as string) !== 'MultiEdit') return next(e)
     const t = await findCurrent($)
     if (t === undefined) return next(e)
 
-    let estimate = 0
-    if (e.tool === 'Edit') {
-      estimate = changedLines(e.old_string, e.new_string)
-    } else {
-      estimate = changedLines(await readText($, e.file_path), e.content)
-    }
+    // What the edit adds to the diff: the file's changed lines against the ticket's base after it, less before it. NotebookEdit is not guarded.
+    const input = e as unknown as { file_path: string; old_string: string; new_string: string; replace_all?: boolean; content: string; edits?: { old_string: string; new_string: string; replace_all?: boolean }[] }
+    const edits = e.tool === 'MultiEdit' ? (input.edits ?? []) : [{ old_string: input.old_string, new_string: input.new_string, replace_all: input.replace_all }]
+    const estimate = await editEffect(
+      $,
+      e.file_path,
+      before => {
+        if (e.tool === 'Write') return { after: input.content, estimate: changedLines(before, input.content) }
+        let after = before
+        let each = 0
+        for (const edit of edits) {
+          const all = edit.replace_all === true
+          each += changedLines(edit.old_string, edit.new_string) * editCount(after, edit.old_string, all)
+          after = applyEdit(after, edit.old_string, edit.new_string, all)
+        }
+        return { after, estimate: each }
+      },
+      changedLines,
+    )
     const now = await measureDiff($)
     const budget = await budgetOf($, t.size)
-    if (now + estimate > budget) {
+    // An edit that does not make the diff larger is never refused: the session must be able to edit its way back under the budget.
+    if (estimate > 0 && now + estimate > budget) {
       return {
         deny:
           `tick-it: refused. This change takes the diff to about ${now + estimate} lines, ` +
@@ -60,7 +74,7 @@ export const registerTools: Register = on => {
     const ran = await next(e)
     await refreshDiff($)
     // The first edit of the ticket that lands in a security area names the skill to follow there: once per area, so the reviewer finds less.
-    const nudge = await nudgeFor($, t.id, e.file_path, e.tool === 'Edit' ? `${e.old_string}\n${e.new_string}` : e.content).catch(() => undefined)
+    const nudge = await nudgeFor($, t.id, e.file_path, e.tool === 'Write' ? e.content : edits.map(x => `${x.old_string}\n${x.new_string}`).join('\n')).catch(() => undefined)
 
     return nudge === undefined || !('result' in ran) || ran.isError === true ? ran : { ...ran, context: [...(ran.context ?? []), nudge] }
   }).catch(($, e, next) => next(e))

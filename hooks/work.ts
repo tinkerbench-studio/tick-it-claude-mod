@@ -81,6 +81,48 @@ export async function measureDiff($: EngineInterface): Promise<number> {
   }
 }
 
+/** The lines `old` becomes `new` in a file's text: every occurrence with `all`, else the first; the text itself when `old` is not in it. */
+export const applyEdit = (text: string, old: string, replacement: string, all: boolean): string => {
+  if (old === '' || !text.includes(old)) return text
+  return all ? text.split(old).join(replacement) : text.replace(old, () => replacement)
+}
+
+/** How many times `old` is in a text (at least 1 for the estimate when it cannot be read). */
+const occurrences = (text: string, old: string): number => (old === '' ? 0 : text.split(old).length - 1)
+
+/**
+ * What an edit of one file adds to the ticket's diff, in changed lines, or 0
+ * when it adds nothing (a file outside the repository's top level, or one git
+ * ignores). With the file's text at the ticket's base readable, the effect is
+ * its changed lines against the base after the edit less before it; otherwise
+ * the edit's own estimate (lines added plus removed, per occurrence). Never
+ * throws: a measure that fails is 0, as the guard lets the edit through.
+ */
+export async function editEffect(
+  $: EngineInterface,
+  file: string,
+  change: (before: string) => { after: string; estimate: number },
+  count: (before: string, after: string) => number,
+): Promise<number> {
+  try {
+    const top = await $.process.run(['git', 'rev-parse', '--show-toplevel'])
+    if (top.exitCode !== 0) return change(await readText($, file)).estimate
+    const root = top.stdout.trim()
+    if (root === '' || !file.startsWith(`${root}/`)) return 0
+    if ((await $.process.run(['git', 'check-ignore', '-q', '--', file])).exitCode === 0) return 0
+    const before = await readText($, file)
+    const { after, estimate } = change(before)
+    const base = await $.process.run(['git', 'show', `${(await read($, baseCommit)) ?? 'HEAD'}:${file.slice(root.length + 1)}`])
+    if (base.exitCode !== 0) return estimate
+    return count(base.stdout, after) - count(base.stdout, before)
+  } catch {
+    return 0
+  }
+}
+
+/** Occurrences an Edit changes: all of them with replace_all, else one. */
+export const editCount = (before: string, old: string, all: boolean): number => (all ? Math.max(1, occurrences(before, old)) : 1)
+
 /** `git diff --numstat` (with `-z` for the per-file rows) against the ticket's base, or null when it cannot be had. */
 export async function numstat($: EngineInterface, z = false): Promise<string | null> {
   const args = z ? ['git', 'diff', '--numstat', '-z'] : ['git', 'diff', '--numstat']
