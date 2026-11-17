@@ -143,3 +143,13 @@ for (const [name, over] of [
     expect(state()).toMatchObject({ claudeSession: 'session-1', repository: 'acme/web-app', current: null, baseCommit: null, steward: { round: 1, phase: 'reviewing' } })
   })
 }
+
+test('a resumed session with no taken ticket is denied its own record_runs and report_session again once it takes one', async ($, on) => {
+  engine(on, { lines: 0, stored: store({ current: null, baseCommit: null }) })
+  on('tool.check', () => ({ decision: 'allow' as const }))
+  await start($)
+  expect((await check($, 'record_runs')).decision).not.toBe('deny')
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-143' })
+  expect((await check($, 'record_runs')).decision).toBe('deny')
+  expect((await check($, 'report_session')).decision).toBe('deny')
+})
