@@ -191,6 +191,8 @@ test('another live session of the ticket is reviewing: no reviewer starts, nothi
   expect(seen.spawned).toHaveLength(0)
   expect(seen.recorded).toHaveLength(0)
   expect(seen.ticketCalls.some(c => c.tool === 'set_needs_human')).toBe(false)
+  // The stop names the session: the pane carries the note of the stopped steward.
+  expect(JSON.stringify(seen.toasts) + JSON.stringify(seen.ticketCalls.filter(c => c.tool === 'report_session').map(c => c.args))).toContain('s_other12345678')
 })
 
 test('another session of the ticket that is only working, or reviewing but no longer live, does not stop the round', async ($, on) => {
