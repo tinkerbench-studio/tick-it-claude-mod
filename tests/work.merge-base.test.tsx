@@ -52,7 +52,7 @@ test('the size guard allows an edit within budget after a merge of the base that
   await take($, 'TCK-143')
   const small = await $.tool.call({ tool: 'Edit', file_path: '/repo/api/a.ts', old_string: 'a', new_string: 'b' })
   expect(JSON.stringify(small)).not.toContain('refused')
-  // The ticket's own 12 lines plus a 40-line write are still counted against the XS budget of 100.
+  // The ticket's own 12 lines plus a 95-line write are still counted against the XS budget of 100.
   const big = await $.tool.call({ tool: 'Write', file_path: '/repo/api/b.ts', content: Array.from({ length: 95 }, (_, i) => `line ${i}`).join('\n') })
   expect(JSON.stringify(big)).toContain('refused')
 })
