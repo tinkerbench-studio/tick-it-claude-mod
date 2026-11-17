@@ -291,10 +291,10 @@ export const registerUi: Register = on => {
           section(
             'WAITING FOR APPROVAL',
             <Box key="approval-open" flexDirection="column">
-              <Text bold>{open.subject}</Text>
-              <Text color={COLOR.dim}>{itemCounts(open)}</Text>
-              <Text>{`Who may answer: ${open.reviewer}`}</Text>
-              {open.staleReason === null ? <Text key="approval-waiting">{`Waiting ${waitedFor(open.askedAt, Date.now())}`}</Text> : <Text key="approval-stale" color={COLOR.warn}>{`Changed since asked: ${open.staleReason}`}</Text>}
+              <Text bold wrap="wrap">{open.subject}</Text>
+              <Text color={COLOR.dim} wrap="wrap">{itemCounts(open)}</Text>
+              <Text wrap="wrap">{`Who may answer: ${open.reviewer}`}</Text>
+              {open.staleReason === null ? <Text key="approval-waiting">{`Waiting ${waitedFor(open.askedAt, Date.now())}`}</Text> : <Text key="approval-stale" color={COLOR.warn} wrap="wrap">{`Changed since asked: ${open.staleReason}`}</Text>}
               {request(open) !== undefined && <Link key="approval-link" href={request(open) as string} label="Open the request in Tick-it" />}
             </Box>,
           )}
@@ -302,7 +302,7 @@ export const registerUi: Register = on => {
           section(
             'APPROVAL ANSWERED',
             <Box key="approval-answered" flexDirection="column">
-              <Text bold>{answered.subject}</Text>
+              <Text bold wrap="wrap">{answered.subject}</Text>
               <Text>{`Decision: ${answered.state}`}</Text>
               <Text>{`Asked of: ${answered.reviewer}`}</Text>
               {answered.questions.map(q => (
