@@ -91,3 +91,28 @@ test('with no design.uiPaths set, the brief of a ticket naming a built-in UI pat
   await start($)
   expect((await takeBrief($ as never)).match(/^- UI evidence: /gm)).toHaveLength(5)
 })
+
+test('Claude moving a same-key ticket of another repository to In review leaves the taken ticket alone', async ($, on) => {
+  const seen = engine(on, { lines: 12 }, true, { '.tick-it/skills/principal/SKILL.md': SKILLS['.tick-it/skills/principal/SKILL.md'] ?? '' })
+  await start($)
+  await $.tool.call({ tool: 'mcp__plugin_tick-it_tickit__update_ticket', tool_use_id: 'tu-1', repository: 'acme/web-app', key: 'TCK-147', status: 'In progress', assignee: 'me' } as never)
+  const calls = seen.ticketCalls.length
+  const ran = await $.tool.call({ tool: 'mcp__plugin_tick-it_tickit__update_ticket', tool_use_id: 'tu-2', repository: 'acme/other', key: 'TCK-147', status: 'In review' } as never)
+  expect(ran).not.toHaveProperty('deny')
+  expect(seen.server.find(t => t.key === 'TCK-147')?.status).toBe('In progress')
+  expect(seen.ticketCalls.slice(calls).map(c => c.tool)).not.toContain('link_pull_request')
+  expect(seen.ticketCalls.slice(calls).filter(c => c.tool === 'update_ticket' && (c.args as { repository?: string }).repository !== 'acme/other')).toEqual([])
+  expect(reports(seen).filter(r => r.status === 'reviewing')).toEqual([])
+  await $.turn.complete(finishTurn(undefined, 'Done.'))
+  expect(seen.spawned).toEqual([])
+})
+
+test('Claude moving its ticket to In review with the repository in another letter case still finishes it', async ($, on) => {
+  const seen = engine(on, { lines: 12 }, true, { '.tick-it/skills/principal/SKILL.md': SKILLS['.tick-it/skills/principal/SKILL.md'] ?? '' })
+  await start($)
+  await $.tool.call({ tool: 'mcp__plugin_tick-it_tickit__update_ticket', tool_use_id: 'tu-1', repository: 'acme/web-app', key: 'TCK-147', status: 'In progress', assignee: 'me' } as never)
+  await $.tool.call({ tool: 'mcp__plugin_tick-it_tickit__update_ticket', tool_use_id: 'tu-2', repository: 'Acme/Web-App', key: 'TCK-147', status: 'In review' } as never)
+  await $.turn.complete(finishTurn(undefined, 'Done.'))
+  expect(seen.ticketCalls.filter(c => c.tool === 'update_ticket').at(-1)?.args).toMatchObject({ key: 'TCK-147', status: 'In review', changedLines: 12 })
+  expect(seen.spawned.map(a => a.description)).toEqual(['tick-it review: principal on TCK-147, round 1'])
+})
