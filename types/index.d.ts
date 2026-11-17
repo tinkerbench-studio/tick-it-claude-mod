@@ -64,6 +64,11 @@ export type ReviewRun = {
   items?: { severity: 'blocking' | 'optional'; file?: string; line?: number; text: string; /** An earlier blocker the reviewer verified still open: counted and listed in the pane, not sent as a finding. */ open?: true }[]
   /** The open blocking findings of earlier rounds this reviewer was given, numbered from 1 in this order. */
   earlier?: { id?: string; file?: string; line?: number; text: string }[]
+  /** The prompt and description the reviewer was spawned with: a run that failed or gave no verdict is started again with them. Kept locally, never sent to Tick-it. */
+  prompt?: string
+  description?: string
+  /** Set on the second run of a reviewer in a round, started because the first failed or gave no verdict: it is not retried again. */
+  retry?: true
   /** The reviewer's verdict on each of those, sent to Tick-it as the run's verdicts. */
   verdicts?: { /** The Tick-it id of the finding, when it came from Tick-it: Tick-it closes that finding on a fixed or gone verdict. */ finding?: string; file?: string; text: string; verdict: 'fixed' | 'open' | 'gone'; reason: string }[]
 }

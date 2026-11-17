@@ -64,7 +64,7 @@ export async function reportAgents($: EngineInterface): Promise<void> {
 }
 
 /** A run as Tick-it takes it: its findings are its items, without an earlier blocker verified open (Tick-it adds those to the blocking count itself, from the run's verdicts). */
-export const sendable = ({ epic: _epic, ...run }: OutboxRun) => {
+export const sendable = ({ epic: _epic, prompt: _prompt, description: _description, retry: _retry, ...run }: OutboxRun & { prompt?: string; description?: string; retry?: true }) => {
   // The epic's title stays here: Tick-it knows the ticket's epic, and no title goes to its tools.
   if (!('findings' in run || 'items' in run)) return run
   const { findings: _findings, items, ...rest } = run as typeof run & { items?: { open?: true }[]; blocking?: number }

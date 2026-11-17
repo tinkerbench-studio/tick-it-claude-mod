@@ -123,6 +123,15 @@ export const readFindings = (answer: string) => {
   }
 }
 
+/** Whether a reviewer's answer ends with a verdict: the last VERDICT line says clean or changes. */
+export const readVerdict = (answer: string): 'clean' | 'changes' | undefined => {
+  const last = answer.split('\n').map(line => /^\s*[-*]?\s*\**VERDICT:?\**:?\s*\**(clean|changes)\b/i.exec(line)?.[1]?.toLowerCase()).filter(v => v !== undefined).at(-1)
+  return last === 'clean' || last === 'changes' ? last : undefined
+}
+
+/** Whether a finished run is a review: its turn ended with an answer that says VERDICT: clean, or that lists a blocking finding (which blocks the round whatever else it says). A failed turn, an answer with no verdict, and VERDICT: changes with no BLOCKING line that could be read reviewed nothing. */
+export const gaveVerdict = (answer: string, reason: string, blocking: number): boolean => reason === 'answer' && (blocking > 0 || readVerdict(answer) === 'clean')
+
 /** A BLOCKING or OPTIONAL line as a finding: "BLOCKING: path/file.ts:12 what is wrong" gives its file and line; otherwise it is all text. */
 export const parseFinding = (line: string): { severity: 'blocking' | 'optional'; file?: string; line?: number; text: string } => {
   const severity = /^BLOCKING:/i.test(line) ? 'blocking' : 'optional'
@@ -532,11 +541,12 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
     const description = `tick-it review: ${skill.name} on ${t.id}, round ${round}`
     const spawn = async (model: string | undefined) => {
       try {
-        return await $.agent.spawn({ prompt: reviewPrompt(t, skill, round, earlier, head, change), description, subagentType: 'general-purpose', ...(model === undefined ? {} : { model }) })
+        return await $.agent.spawn({ prompt, description, subagentType: 'general-purpose', ...(model === undefined ? {} : { model }) })
       } catch (error) {
         return { deny: error instanceof Error ? error.message : String(error) }
       }
     }
+    const prompt = reviewPrompt(t, skill, round, earlier, head, change)
     let spawned = await spawn(skill.model)
     // A model this session cannot run: the session's own model reviews instead.
     if (spawned.deny !== undefined && skill.model !== undefined) spawned = await spawn(undefined)
@@ -559,6 +569,8 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
       model: spawned.model,
       startedAt,
       status: 'running',
+      prompt,
+      description,
       ...(head === undefined ? {} : { headSha: head }),
       ...(earlier.length === 0 ? {} : { earlier }),
     })
@@ -747,6 +759,20 @@ export async function settleRound($: EngineInterface, s: Steward, withoutReviewe
   const spent = summarise(runs)
   // The stop button may be pressed while this waits on Tick-it or GitHub: stopped stays stopped.
   const stillReviewing = async () => (await read($, steward))?.phase === 'reviewing'
+  // A reviewer whose newest run of the round failed or gave no verdict (it was already run again once) reviewed nothing: the round is not clean, whatever the others found, and a person is asked.
+  const newest = new Map<string, ReviewRun>()
+  for (const r of runs) if (r.notApplicable === undefined) newest.set(r.skill, r)
+  const unreviewed = [...newest.values()].filter(r => r.status === 'failed').map(r => r.skill)
+  if (unreviewed.length > 0 && !withoutReviewers) {
+    if (!(await stillReviewing())) return
+    await log($, 'debug', 'round-settled', { ticket: t.id, round: s.round, outcome: 'stopped-no-verdict', skills: unreviewed.join(',') })
+    const note = `${unreviewed.join(', ')} failed or gave no VERDICT, twice in round ${s.round}: not a clean review, so the round is not read as clean.`
+    await setSteward($, { ...s, phase: 'stopped', stoppedBy: 'mod', note })
+    const repository = await repositoryHere($)
+    if (repository !== undefined) await callTickit($, 'set_needs_human', { repository, key: t.id, kind: 'no-clean-round', note: note.slice(0, 200) }).catch(() => undefined)
+    $.ui.toast(`tick-it: ${unreviewed.join(', ')} gave no review of ${t.id} in round ${s.round}, so it is not read as clean. Over to you.`)
+    return
+  }
   if (pending) {
     if (!(await stillReviewing())) return
     await log($, 'debug', 'round-settled', { ticket: t.id, round: s.round, outcome: 'stopped-ci-pending' })

@@ -4,7 +4,7 @@ import type { ReviewUsage, WorkRun } from '../types'
 import { BREAKDOWN_SUGGESTION, MAX_FINDINGS } from './state'
 import { findCurrent, refreshPullRequest, statusOnTickit, showStatus } from './board'
 import { refreshDiff, report, recordPullRequest, firstLine, finish } from './work'
-import { withoutStopMarks, costOf, openVerdictLines, readFindings, readVerdicts, parseFinding, saveReviews, setSteward, startRound, settleRound } from './reviews'
+import { gaveVerdict, withoutStopMarks, costOf, openVerdictLines, readFindings, readVerdicts, parseFinding, saveReviews, setSteward, startRound, settleRound } from './reviews'
 import { queue, flush } from './outbox'
 
 // Declared in this file: the engine reads an atom only where it is written (a module cannot use one imported from state.ts).
@@ -159,7 +159,8 @@ export const registerTurn: Register = on => {
           ? {
               ...r,
               model,
-              status: e.reason === 'answer' ? 'done' : 'failed',
+              // A run is a review only when its turn ended with an answer that gave a verdict; otherwise it reviewed nothing and is failed (it is run again once, see below).
+              status: gaveVerdict(e.answer, e.reason, found.blocking.length + held.length) ? 'done' : 'failed',
               durationMs: e.durationMs,
               usage,
               costUsd: usage === undefined ? undefined : costOf(model, usage),
@@ -185,6 +186,19 @@ export const registerTurn: Register = on => {
     await flush($).catch(() => undefined)
     // Read again: the stop button may have been pressed while the run was sent.
     const reviewing = await read($, steward)
+    const saved = (await read($, reviews)).find(r => r.agentId === e.agentId)
+    // A run that failed or gave no verdict is not a review: it is started again once in the same round. The second one is judged as it ends, and settleRound stops the round when it gives none either.
+    if (saved?.status === 'failed' && saved.retry !== true && saved.prompt !== undefined && reviewing !== null && reviewing.ticket === run.ticket && reviewing.round === run.round && reviewing.phase === 'reviewing') {
+      const started = await $.clock.now()
+      const description = saved.description ?? `tick-it review: ${run.skill} on ${run.ticket}, round ${run.round}`
+      const spawned = await $.agent.spawn({ prompt: saved.prompt, description, subagentType: 'general-purpose', model: saved.model }).catch(error => ({ deny: error instanceof Error ? error.message : String(error) }) as { deny?: string; agentId?: string; model?: string })
+      const agentId = spawned.deny === undefined ? (spawned.agentId ?? (await $.agent.list()).find(a => a.description === description && a.id !== run.agentId)?.id) : undefined
+      if (agentId !== undefined) {
+        const { prompt, description: _d, ...first } = saved
+        await saveReviews($, list => [...list, { ...first, prompt, description, agentId, model: spawned.model ?? saved.model, startedAt: started, status: 'running', retry: true, blocking: undefined, optional: undefined, findings: undefined, items: undefined, verdicts: undefined, usage: undefined, costUsd: undefined, durationMs: undefined }])
+        return done
+      }
+    }
     if (reviewing !== null && reviewing.ticket === run.ticket && reviewing.round === run.round && reviewing.phase === 'reviewing') await settleRound($, reviewing)
 
     return done
