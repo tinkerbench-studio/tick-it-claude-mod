@@ -6,6 +6,7 @@ import { callTickit, originHere, checkoutBeside, freshBriefOf } from './tickit'
 import { refreshBoard, showStatus } from './board'
 import { reportsForItself, instructionsOf, take, resume } from './work'
 import { reportAgents, flush } from './outbox'
+import { failRuns } from './reviews'
 import { log } from './log'
 
 // Declared in this file: the engine reads an atom only where it is written (a module cannot use one imported from state.ts).
@@ -33,6 +34,9 @@ export const registerSession: Register = on => {
       const saved = await $.store.get(REVIEWS_KEY)
       if (Array.isArray(saved)) await update($, reviews, () => saved as ReviewRun[])
     }
+    // A run still running from another session lost its agent with that session.
+    const here = await $.session.id()
+    await failRuns($, r => r.claudeSession !== here)
     if ((await read($, outbox)).length === 0) {
       const waiting = await $.store.get(OUTBOX_KEY)
       if (Array.isArray(waiting)) await update($, outbox, () => waiting as OutboxRun[])

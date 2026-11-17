@@ -300,6 +300,22 @@ export const reviewPrompt = (t: Ticket, skill: ReviewSkill, round: number, earli
     'End with "VERDICT: clean" when nothing is blocking, else "VERDICT: changes".',
   ].join('\n')
 
+/** Marks the running runs `pick` chooses failed (not queued: Tick-it hears of a run only from its answer). Answers how many. */
+export async function failRuns($: EngineInterface, pick: (r: ReviewRun) => boolean): Promise<number> {
+  const n = (await read($, reviews)).filter(r => r.status === 'running' && pick(r)).length
+  if (n > 0) await saveReviews($, list => list.map(r => (r.status === 'running' && pick(r) ? { ...r, status: 'failed' as const } : r)))
+  return n
+}
+
+/** A run is running only while its agent can still answer: a ticket's running run whose agent is not listed, or is listed finished, is failed. Unreadable list: nothing changes. */
+export async function failLostRuns($: EngineInterface, ticket: string): Promise<number> {
+  if (!(await read($, reviews)).some(r => r.ticket === ticket && r.status === 'running')) return 0
+  const listed = await $.agent.list().catch(() => undefined)
+  if (listed === undefined) return 0
+  const live = new Set(listed.filter(a => a.status === 'running').map(a => a.id))
+  return failRuns($, r => r.ticket === ticket && !live.has(r.agentId))
+}
+
 export async function saveReviews($: EngineInterface, fn: (list: ReviewRun[]) => ReviewRun[]) {
   const list = fn(await read($, reviews)).slice(-KEEP_REVIEWS)
   await update($, reviews, () => list)
@@ -402,6 +418,8 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
   const carried = Math.max(recorded === undefined ? 0 : lastRecordedRound(recorded), ranHere)
   const round = first ? carried + 1 : fromRound
   const limit = await roundLimit($, t.size, t.id)
+  // A reviewer of an earlier round still running is given up: a late answer from it changes no round.
+  await failRuns($, r => r.ticket === t.id && r.round < round)
   // The fix that followed a round blocked by the pull request alone, with no budget for a reviewer round: no review agent starts, the pull request is read again and settles the round.
   if (trigger === 'after-fix' && (await read($, steward))?.pullRequestOnly === true && (await budgetStop($, t.id, await reviewedRounds($, t.id))) !== undefined) {
     // The stop button pressed while the spend was read: that round does not start.
@@ -564,6 +582,7 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
       model: spawned.model,
       startedAt,
       status: 'running',
+      claudeSession: await $.session.id(),
       ...(head === undefined ? {} : { headSha: head }),
       ...(earlier.length === 0 ? {} : { earlier }),
     })
@@ -596,8 +615,9 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
 export async function reviewAgain($: EngineInterface): Promise<string> {
   const s = await read($, steward)
   if (s === null) return 'Nothing is being stewarded.'
-  // Stopping does not end the reviewers already running: the next round waits for them.
-  if (s.phase === 'reviewing' || (await read($, reviews)).some(r => r.ticket === s.ticket && r.status === 'running')) return `Round ${s.round} of ${s.ticket} is still being reviewed.`
+  // Stopping does not end the reviewers already running: the next round waits for them. A reviewer whose agent is gone does not count.
+  const lost = await failLostRuns($, s.ticket)
+  if ((s.phase === 'reviewing' && lost === 0) || (await read($, reviews)).some(r => r.ticket === s.ticket && r.status === 'running')) return `Round ${s.round} of ${s.ticket} is still being reviewed.`
   if (s.phase !== 'fixing') {
     // Stopped, or Done: the ticket goes back In review for another round.
     const why = await setStatus($, s.ticket, 'In review')
@@ -739,6 +759,7 @@ async function reviewedRounds($: EngineInterface, ticket: string): Promise<numbe
  * With `withoutReviewers` no reviewer ran for this round (the budget had no room for one after a fix of the pull request alone): the round is settled on the pull request, so it is clean or it stops, and it asks for no further fix.
  */
 export async function settleRound($: EngineInterface, s: Steward, withoutReviewers = false) {
+  await failLostRuns($, s.ticket)
   const runs = (await read($, reviews)).filter(r => r.ticket === s.ticket && r.round === s.round)
   if (runs.some(r => r.status === 'running')) return
   const t = (await read($, tickets)).find(one => one.id === s.ticket)
