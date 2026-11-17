@@ -4,7 +4,7 @@ import type { EngineInterface, Register } from 'claude-code'
 import { PANE, TICKET_PANE, WARN_AT, groupsOf, COLOR } from './state'
 import { budgetOf, linkTickets, boardStops, heldUntil, nextToTake, pickMilestone, nextMilestone, milestoneLine, milestoneOf, findCurrent, readTicket, pullRequestLine, startSession, fixCi, rerunFailed, openPullRequest } from './board'
 import { take } from './work'
-import { reviewAgain, stopStewarding, summarise, reviewLine, findingRows } from './reviews'
+import { hereRuns, reviewAgain, stopStewarding, summarise, reviewLine, findingRows } from './reviews'
 
 // Declared in this file: the engine reads an atom only where it is written (a module cannot use one imported from state.ts).
 const tickets = atom({ plugin: 'tick-it', key: 'tickets' } as const, [])
@@ -16,7 +16,6 @@ const milestones = atom({ plugin: 'tick-it', key: 'milestones' } as const, [] as
 /** The milestone the board shows, by title; the first one when it is null or no longer on the roadmap. */
 const shownMilestone = atom({ plugin: 'tick-it', key: 'shownMilestone' } as const, null as string | null)
 const pullRequest = atom({ plugin: 'tick-it', key: 'pullRequest' } as const, null)
-const reviews = atom({ plugin: 'tick-it', key: 'reviews' } as const, [])
 const steward = atom({ plugin: 'tick-it', key: 'steward' } as const, null)
 /** Whether the stewarding pane lists the round's optional findings; they stay behind a key until asked for. */
 const showOptional = atom({ plugin: 'tick-it', key: 'showOptional' } as const, false)
@@ -41,7 +40,7 @@ export const registerUi: Register = on => {
       const s = await read($, steward)
       if (s === null || s.phase === 'done') return next(e)
       const { Box, Text } = $.ui.resolve(e)
-      const runs = (await read($, reviews)).filter(r => r.ticket === s.ticket)
+      const runs = (await hereRuns($)).filter(r => r.ticket === s.ticket)
       const round = runs.filter(r => r.round === s.round)
       const answered = round.filter(r => r.status !== 'running').length
       return (
@@ -105,7 +104,7 @@ export const registerUi: Register = on => {
     const taken = await read($, current)
     const problem = await read($, boardError)
     const s = await read($, steward)
-    const stewarded = s === null ? [] : (await read($, reviews)).filter(r => r.ticket === s.ticket)
+    const stewarded = s === null ? [] : (await hereRuns($)).filter(r => r.ticket === s.ticket)
     const optionalShown = await read($, showOptional)
     const pr = await read($, pullRequest)
     const rows = s === null ? [] : findingRows(stewarded, s.round, optionalShown)
