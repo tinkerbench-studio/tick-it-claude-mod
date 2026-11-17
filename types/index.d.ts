@@ -129,6 +129,8 @@ export type PullRequestView = {
   queued: boolean
   /** Tick-it has already told the ticket's session about CI failing on the current head commit. */
   ciInstructed: boolean
+  /** Tick-it carries the review of an earlier commit over to this head, which only merged the base (reviewCarriedOver of list_pull_requests); absent when false or when an older Tick-it does not say. */
+  reviewCarriedOver?: boolean
   /** Its page on GitHub; absent on one read by an older mod. */
   url?: string
   /** The commit its branch is at on GitHub (headSha of list_pull_requests); absent when Tick-it did not say. */
@@ -168,6 +170,8 @@ export type Steward = {
   stoppedBy?: 'mod'
   /** This round reviews a fix made after the mod stopped: if it still has blocking findings the mod stops again and starts no further round. */
   afterStop?: boolean
+  /** Set when the round started no reviewer because the review of an earlier commit carries over (TCK-52): the pane says so, by that commit's short hash when it is known. It stays while the round settles. */
+  carriedOver?: string
   /** The round's only blocking findings were the pull request's own and the review budget has no room for a reviewer round: after the fix the pull request is read again and settles the round. */
   pullRequestOnly?: boolean
 }

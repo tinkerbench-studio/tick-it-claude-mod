@@ -545,6 +545,31 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
     $.ui.toast(`tick-it: ${gate.note}`)
     await log($, 'debug', 'head-not-checked', { ticket: t.id, round })
   }
+  const fromCommand = trigger === 'done-command' || trigger === 'steward-command'
+  // Reviewers read the working tree against HEAD: edits made since a review at this head (uncommitted or untracked) have not been reviewed, so the head alone does not say it was.
+  const cleanTree = async () => {
+    const status = await $.process.run(['git', 'status', '--porcelain'])
+    return status.exitCode === 0 && status.stdout.trim() === ''
+  }
+  const settlesClean = async () => {
+    if (!fromCommand) return true
+    const unticked = await untickedAcceptance($, t.id)
+    if (unticked === null || unticked.length > 0) return false
+    await refreshPullRequest($, t.id).catch(() => update($, pullRequestError, () => 'could not read the pull request'))
+    return (await read($, pullRequestError)) === null && pullRequestFindings(await read($, pullRequest)).length === 0
+  }
+  // The head only merged the base and Tick-it carries the review of the earlier commit over (reviewCarriedOver of list_pull_requests, TCK-52): no reviewer starts, and the round settles from the pull request and the acceptance ticks. An older Tick-it does not say, and the round runs as before.
+  const pr = await read($, pullRequest)
+  if (pr !== null && (await read($, pullRequestError)) === null && pr.state === 'open' && pr.reviewCarriedOver === true && (await cleanTree()) && (await settlesClean())) {
+    const earlier = ((await recordedReviews($, t.id)) ?? []).flatMap(r => r.agents).findLast(a => a.headSha !== undefined)?.headSha
+    const last = first ? carried : fromRound - 1
+    const note = `Review carried over from the earlier commit${earlier === undefined ? '' : ` ${earlier.slice(0, 7)}`}: the head only merged the base, so no reviewer started.`
+    const steward: Steward = { ticket: t.id, round: last, phase: 'reviewing', maxRounds: Math.max(limit, last), carriedOver: note, ...(ticking === true ? { ticking } : {}) }
+    await setSteward($, steward)
+    await log($, 'debug', 'round-not-started', { ticket: t.id, round: last, why: 'review-carried-over' })
+    await settleRound($, steward)
+    return `${t.id}: ${note} Settling from the pull request and the acceptance checks.`
+  }
   const earlierRuns = await hereRuns($)
   // The ticket's open required findings in Tick-it, from any session: a fresh container has no local state for them.
   const remote = (await tickitBlockers($, t.id)) ?? new Map<string, Earlier[]>()
@@ -622,19 +647,6 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
   const base = (await defaultBase($).catch(() => null))?.ref
   // Every applicable skill already reviewed this head with nothing blocking: no reviewer starts, and the round settles from the pull request and the acceptance ticks alone.
   // A command cannot submit a prompt, and a settle that finds a check unticked or the pull request failing submits one: from a command the round settles here only when it ends clean, and is reviewed as before otherwise.
-  const fromCommand = trigger === 'done-command' || trigger === 'steward-command'
-  // Reviewers read the working tree against HEAD: edits made since a review at this head (uncommitted or untracked) have not been reviewed, so the head alone does not say it was.
-  const cleanTree = async () => {
-    const status = await $.process.run(['git', 'status', '--porcelain'])
-    return status.exitCode === 0 && status.stdout.trim() === ''
-  }
-  const settlesClean = async () => {
-    if (!fromCommand) return true
-    const unticked = await untickedAcceptance($, t.id)
-    if (unticked === null || unticked.length > 0) return false
-    await refreshPullRequest($, t.id).catch(() => update($, pullRequestError, () => 'could not read the pull request'))
-    return (await read($, pullRequestError)) === null && pullRequestFindings(await read($, pullRequest)).length === 0
-  }
   if (recorded !== undefined && head !== undefined && recorded.length > 0 && skills.every(({ folder }) => reviewedClean(recorded, folder, head) && blockersOf(folder).length === 0) && (await cleanTree()) && (await settlesClean())) {
     const last = first ? carried : fromRound - 1
     const steward: Steward = { ticket: t.id, round: last, phase: 'reviewing', maxRounds: Math.max(limit, last), ...(ticking === true ? { ticking } : {}) }
