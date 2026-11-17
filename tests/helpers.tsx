@@ -119,7 +119,7 @@ export type Net = {
 /** The engine beneath the mod: a store, a repo whose diff is `diff.lines` lines, and quiet UI calls. */
 export const engine = (
   on: On,
-  diff: { lines: number; siblings?: Record<string, string> | 'unlistable'; pr?: number; origin?: string | null; noCommit?: boolean; numstatZ?: string; failFiles?: boolean; changed?: string[] | null; since?: string[] | null; failUntracked?: boolean; truncateNames?: boolean; bases?: string[]; failNames?: 'exit' | 'throw'; subdir?: string; stored?: Record<string, unknown>; refuse?: (model: string | undefined, description: string) => string | undefined; patch?: string; dirty?: boolean; untracked?: Record<string, string>; binary?: Record<string, string>; gh?: (argv: string[]) => { exitCode: number; stdout: string; stderr: string } | undefined; pictures?: { key: string; name: string }[] | 'unreachable' | 'odd' },
+  diff: { lines: number; merged?: boolean; byCommit?: Record<string, { lines?: number; numstatZ?: string; patch?: string }>; failDiff?: boolean; siblings?: Record<string, string> | 'unlistable'; pr?: number; origin?: string | null; noCommit?: boolean; numstatZ?: string; failFiles?: boolean; changed?: string[] | null; since?: string[] | null; failUntracked?: boolean; truncateNames?: boolean; bases?: string[]; failNames?: 'exit' | 'throw'; subdir?: string; stored?: Record<string, unknown>; refuse?: (model: string | undefined, description: string) => string | undefined; patch?: string; dirty?: boolean; untracked?: Record<string, string>; binary?: Record<string, string>; gh?: (argv: string[]) => { exitCode: number; stdout: string; stderr: string } | undefined; pictures?: { key: string; name: string }[] | 'unreachable' | 'odd' },
   isPlaced = true,
   skills: Record<string, string> = {},
   net: Net = {},
@@ -315,6 +315,11 @@ export const engine = (
       return { value: { exitCode: 0, stdout: names.join('\0'), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     }
     // The merge base and the files changed since it: `changed` null stands for a repository where they cannot be listed.
+    // `merged`: the base was merged in after the ticket was taken, so the merge base is newer than the taken commit (a descendant of it).
+    if (cmd === 'git' && sub === 'merge-base' && e.argv[2] === '--is-ancestor') return { value: { exitCode: diff.merged === true ? 0 : 1, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    // `byCommit`: what the diff against that commit holds, so a test tells the taken commit's diff from the merge base's.
+    const per = diff.byCommit?.[e.argv.at(-1) ?? '']
+    if (cmd === 'git' && sub === 'diff' && !e.argv.includes('--name-only') && diff.failDiff === true && e.argv.at(-1) !== '4b825dc642cb6eb9a060e54bf8d69288fbee4904') return { value: { exitCode: 128, stdout: '', stderr: 'fatal', isStdoutTruncated: false, isStderrTruncated: false } }
     if (cmd === 'git' && sub === 'merge-base') return { value: { exitCode: diff.changed === undefined || diff.changed === null || (diff.bases !== undefined && !diff.bases.includes(e.argv[3] ?? '')) ? 1 : 0, stdout: `${'cd34'.repeat(10)}\n`, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     if (cmd === 'git' && sub === 'diff' && e.argv.includes('--name-only') && diff.failNames === 'exit') return { value: { exitCode: 128, stdout: '', stderr: 'fatal', isStdoutTruncated: false, isStderrTruncated: false } }
     if (cmd === 'git' && sub === 'diff' && e.argv.includes('--name-only') && diff.failNames === 'throw') throw new Error('git diff --name-only failed')
@@ -325,10 +330,10 @@ export const engine = (
     const stdout =
       cmd === 'git' && sub === 'diff'
         ? e.argv.includes('-U0')
-          ? (diff.patch ?? '')
+          ? (per?.patch ?? diff.patch ?? '')
           : e.argv.includes('-z')
-          ? (diff.numstatZ ?? `${diff.lines}\t0\tapi/a.ts\0`)
-          : `${diff.lines}\t0\tapi/a.ts\n`
+          ? (per?.numstatZ ?? diff.numstatZ ?? `${per?.lines ?? diff.lines}\t0\tapi/a.ts\0`)
+          : `${per?.lines ?? diff.lines}\t0\tapi/a.ts\n`
         : cmd === 'git' && sub === 'remote'
           ? diff.origin === undefined
             ? 'git@github.com:acme/web-app.git\n'
