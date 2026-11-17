@@ -46,6 +46,8 @@ export const OUTBOX_KEY = 'outbox'
 export const DROPPED_KEY = 'dropped'
 export const UNLINKED_KEY = 'unlinked'
 export const KEEP_DROPPED = 100
+/** Runs to a record_runs call: Tick-it takes at most 500, and a call over it is refused whole. */
+export const BATCH_SIZE = 100
 
 export const COLOR = {
   accent: '#8FA8FF',

@@ -83,15 +83,15 @@ export async function callTickit($: EngineInterface, tool: string, args: Record<
   return { ok: false, why: `Tick-it's answer to ${tool} had no result in it (${result.content.length} content blocks: ${result.content.map(b => `${b.type} ${b.type === 'text' ? (b.text ?? '').length : 0} chars`).join(', ') || 'none'}; the text starts: ${textOf(result).slice(0, 80) || 'empty'})` }
 }
 
-/** Whether two repository names (owner/name) are the same one: GitHub names carry no letter case, and Tick-it compares them lower-cased. */
-export const sameRepository = (a: unknown, b: unknown): boolean => typeof a === 'string' && typeof b === 'string' && a.toLowerCase() === b.toLowerCase()
-
 /** The repository this session works in, as owner/name, from its origin remote. */
 /** The folder's origin remote: null when it has none, undefined when it is not a GitHub repository. */
 export async function originHere($: EngineInterface): Promise<string | null | undefined> {
   const remote = await $.process.run(['git', 'remote', 'get-url', 'origin'])
   return remote.exitCode === 0 ? repositoryOf(remote.stdout) : null
 }
+
+/** Whether two repository names (owner/name) are the same one: GitHub names carry no letter case, and Tick-it compares them lower-cased. */
+export const sameRepository = (a: unknown, b: unknown): boolean => typeof a === 'string' && typeof b === 'string' && a.toLowerCase() === b.toLowerCase()
 
 /** A folder beside this repository's top level whose origin is `repository`, as its path; undefined when there is none or the folders cannot be listed. */
 export async function checkoutBeside($: EngineInterface, repository: string): Promise<string | undefined> {

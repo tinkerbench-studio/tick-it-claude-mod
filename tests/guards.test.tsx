@@ -99,22 +99,17 @@ test('/tick-it done still moves the ticket when git rev-parse for the branch thr
 })
 
 test('more than 100 waiting runs go in calls of at most 100, and a failed call leaves only its own runs waiting', async ($, on) => {
-  let down = true
-  let failing = 0
-  const net: Net = { answer: (_args, call) => (down ? 'unreachable' : call === failing ? { isError: true, text: 'busy' } : {}) }
-  const seen = engine(on, { lines: 5 }, true, {}, net)
+  // 101 runs left waiting by a long spell signed out; the first call Tick-it gets fails, the next is taken.
+  const waiting = Array.from({ length: 101 }, (_, i) => ({ agentId: `turn-${i}`, ticket: 'TCK-143', kind: 'build', model: 'claude-opus-5-5', status: 'done', durationMs: 1000 }))
+  const net: Net = { answer: (_args, call) => (call === 1 ? { isError: true, text: 'busy' } : {}) }
+  const seen = engine(on, { lines: 5, stored: { outbox: waiting } }, true, {}, net)
+  // Session start sends what waits: two calls, the first of 100 runs failing, the second of the last run taken.
   await start($)
-  await run($, 'take TCK-143')
-  // Signed out: each main-loop turn queues a run that cannot leave.
-  for (let i = 0; i < 101; i++) await $.turn.complete(finishTurn(undefined, 'x'.repeat(i + 1)))
-  const sentBefore = seen.recorded.length
-  down = false
-  failing = sentBefore + 1
-  await run($, 'sync')
-  const sizes = seen.recorded.slice(sentBefore).map(c => c.args.runs.length)
-  expect(sizes).toHaveLength(2)
-  expect(Math.max(...sizes)).toBeLessThanOrEqual(100)
-  expect(sizes[0]).toBe(100)
-  // The first call failed: its 100 runs wait; the second call's runs left.
+  expect(seen.recorded.map(c => c.args.runs.length)).toEqual([100, 1])
+  expect(seen.recorded[1]?.args.runs.map(r => r.agentId)).toEqual(['turn-100'])
   expect((await run($, 'reviews')).text).toContain('100 review runs waiting to send to Tick-it')
+  // The 100 that waited go in one call of their own.
+  await run($, 'sync')
+  expect(seen.recorded.map(c => c.args.runs.length)).toEqual([100, 1, 100])
+  expect((await run($, 'reviews')).text).toContain('Tick-it has every review run.')
 })

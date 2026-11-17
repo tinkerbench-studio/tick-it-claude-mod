@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 import type { DroppedRun, OutboxRun } from '../types'
-import { OUTBOX_KEY, DROPPED_KEY, KEEP_DROPPED, RECORD_TOOL, AGENTS_TOOL } from './state'
+import { OUTBOX_KEY, DROPPED_KEY, KEEP_DROPPED, BATCH_SIZE, RECORD_TOOL, AGENTS_TOOL } from './state'
 import { sendTickit, textOf, repositoryHere } from './tickit'
 import { sendWaitingLinks } from './work'
 import { findSkills } from './reviews'
@@ -13,8 +13,6 @@ const syncError = atom({ plugin: 'tick-it', key: 'syncError' } as const, null)
 const dropped = atom({ plugin: 'tick-it', key: 'dropped' } as const, [])
 /** link_pull_request calls Tick-it has not taken yet: sent again with the outbox. */
 const unlinked = atom({ plugin: 'tick-it', key: 'unlinked' } as const, [])
-/** Runs to a record_runs call: Tick-it takes at most 500, and a call over it is refused whole. */
-export const BATCH_SIZE = 100
 const startedSession = atom({ plugin: 'tick-it', key: 'started' } as const, null)
 
 /** What record_runs answers, as JSON text (a plugin is handed the content blocks only, but a structuredContent is read when there is one). */
