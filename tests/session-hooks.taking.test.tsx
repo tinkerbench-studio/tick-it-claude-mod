@@ -104,7 +104,7 @@ test('Claude moving a same-key ticket of another repository to In review leaves 
   // The call goes on as Claude made it (the test harness runs no real call): the mod sends no update_ticket of its own, with changed lines or a pull request.
   expect(seen.ticketCalls.slice(calls).filter(c => c.tool === 'update_ticket')).toEqual([])
   const reported = reports(seen).length
-  expect(reports(seen).filter(r => r.status === 'reviewing')).toEqual([])
+  expect(seen.ticketCalls.slice(calls).filter(c => c.tool === 'report_session')).toEqual([])
   await $.turn.complete(finishTurn(undefined, 'Done.'))
   // The turn-end heartbeat is 'working'; nothing for the taken ticket says reviewing, done or stopped.
   expect(reports(seen).slice(reported).filter(r => r.status !== 'working')).toEqual([])
