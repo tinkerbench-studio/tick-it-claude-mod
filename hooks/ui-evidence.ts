@@ -1,3 +1,5 @@
+import { DEFAULT_UI_PATH, globToRegExp } from '../scripts/ui-paths.mjs'
+
 /**
  * The UI-evidence checklist: acceptance criteria a ticket that changes a page or component carries from the
  * start, so the ux-evidence reviewer finds its deliverables in round 1 and not as blocking findings.
@@ -12,29 +14,6 @@ export const UI_EVIDENCE_CHECKLIST: readonly string[] = [
   'UI evidence: the pull request description lists each before/after image by its object key as plain text (no image markup) and names every visible difference',
 ]
 
-/**
- * Paths a ticket that changes what a person sees touches: the web app's pages and components (not its server code or
- * tests), the design system or canvas, a story or a stylesheet. A path may follow a space, a quote, a bracket, "./" or a directory.
- */
-const UI_PATH = /(^|[^\w-])apps\/web\/src\/(design\/|(pages|client|links|markdown|pictures|render|style|dropzone)\.tsx?\b)|(?<![\w-]|docs\/)design\/|\.storybook\/|[\w./-]*\.stories\.tsx?\b|[\w./-]*\.css(\.ts)?(?![\w-])/
-
-/** A glob ("**" crosses folders, "*" and "?" stay in one) as a regular expression on a whole path: the same reading as globToRegExp in scripts/ui-evidence-check.mjs. */
-export function globToRegExp(glob: string): RegExp {
-  let re = ''
-  for (let i = 0; i < glob.length; i++) {
-    const c = glob[i]
-    if (c === '*' && glob[i + 1] === '*') {
-      i++
-      if (glob[i + 1] === '/') {
-        i++
-        re += '(?:.*/)?'
-      } else re += '.*'
-    } else if (c === '*') re += '[^/]*'
-    else if (c === '?') re += '[^/]'
-    else re += c.replace(/[.+^${}()|[\]\\]/g, '\\$&')
-  }
-  return new RegExp(`^${re}$`)
-}
 
 /** The repository's UI globs (design.uiPaths of .tick-it/config.json, as get_repository_settings gives them in config) when any are set; null otherwise, which means the built-in paths. */
 export type UiPaths = readonly string[] | null
@@ -48,7 +27,7 @@ const wordsOf = (text: string): string[] => text.split(/[\s"'`()[\],;<>]+/).map(
  * Words alone ("page", "board") do not count: Tick-it's own tickets use them for the API and docs.
  */
 export const touchesUi = (text: string, uiPaths: UiPaths = null): boolean => {
-  if (uiPaths === null || uiPaths.length === 0) return UI_PATH.test(text)
+  if (uiPaths === null || uiPaths.length === 0) return DEFAULT_UI_PATH.test(text)
   const globs = uiPaths.map(globToRegExp)
   // Each line whole first (the gate passes one changed path a line, and a path may hold brackets or parentheses, as Next.js routes do), then the words of prose.
   return [...text.split('\n').map(l => l.trim()), ...wordsOf(text)].some(w => w !== '' && globs.some(g => g.test(w)))

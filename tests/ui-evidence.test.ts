@@ -2,6 +2,7 @@ import { expect, test } from 'claude-code/testing'
 
 import { UI_EVIDENCE_CHECKLIST, hasUiEvidence, touchesUi, withUiEvidence } from '../hooks/ui-evidence'
 import { uiPathsOf } from '../hooks/tickit'
+import { isUiPath } from '../scripts/ui-evidence-check.mjs'
 
 test('the UI-evidence checklist is added to the criteria of a ticket that touches apps/web pages or design files, and left off one that does not', () => {
   const page = ['Header shows the account menu on every page in apps/web/src/pages.tsx']
@@ -43,4 +44,21 @@ test("with the repository's design.uiPaths, touchesUi and the checklist follow t
 test('uiPathsOf reads design.uiPaths from the first config entry that sets any, and null otherwise', () => {
   expect(uiPathsOf({ config: [{ branch: 'main', design: null }, { branch: 'dev', design: { uiPaths: ['src/ui/**'] } }] })).toEqual(['src/ui/**'])
   for (const value of [{}, { config: [] }, { config: [{ branch: 'main', design: {} }] }, { config: [{ design: { uiPaths: [] } }] }, { config: [{ design: { uiPaths: [1] } }] }]) expect(uiPathsOf(value)).toBeNull()
+})
+
+test('the gate and the evidence script agree on each glob and path, and on the default rule', () => {
+  const cases: [string, string, boolean][] = [
+    ['src/ui/**', 'src/ui/deep/menu.tsx', true],
+    ['src/*.css', 'src/site.css', true],
+    ['src/*.css', 'src/deep/site.css', false],
+    ['src/menu?.tsx', 'src/menu1.tsx', true],
+    ['src/menu?.tsx', 'src/menu12.tsx', false],
+    ['src/ui/**', 'src/server/api.ts', false],
+  ]
+  for (const [glob, path, expected] of cases) {
+    expect(touchesUi(path, [glob])).toBe(expected)
+    expect(isUiPath(path, [glob])).toBe(expected)
+  }
+  for (const path of ['apps/web/src/pages.tsx', 'design/tokens.json', 'x/a.css', 'apps/mcp/src/tools.ts']) expect(isUiPath(path, [])).toBe(touchesUi(path, null))
+  expect(isUiPath('apps/web/src/pages.tsx', [])).toBe(true)
 })

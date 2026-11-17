@@ -3,6 +3,7 @@ import { execFileSync, spawn, spawnSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
+import { cpSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
@@ -185,4 +186,14 @@ test('the evidence check command reads the change from git and exits 0, 1 or 2',
   assert.equal(check('ABC-1', '--base', 'main', '--config', 'bad.json').status, 2)
   // With no configuration file nothing is a UI path, so the same branch passes.
   assert.match(check('ABC-1', '--base', 'main', '--config', 'missing.json').stdout, /no UI path changed/)
+})
+
+test('the evidence script runs with node alone: its folder holds the shared module it imports, and nothing else is needed', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'plugin-'))
+  cpSync(new URL('../scripts/', import.meta.url), join(dir, 'scripts'), { recursive: true })
+  const ran = spawnSync('node', [join(dir, 'scripts/ui-evidence-check.mjs'), 'not a key'], { cwd: dir, encoding: 'utf8' })
+  assert.equal(ran.status, 2)
+  assert.match(ran.stderr, /^usage: node scripts\/ui-evidence-check\.mjs/)
+  assert.deepEqual([...readFileSync(CHECK, 'utf8').matchAll(/^import .* from '(.*)'/gm)].map(m => m[1]).filter(s => !s.startsWith('node:')), ['./ui-paths.mjs'])
+  assert.equal(isUiPath('apps/web/src/pages.tsx', []), true)
 })

@@ -1,38 +1,24 @@
 // The branch side of the UI evidence check: a UI change must not commit its pictures, before review:
 //   node scripts/ui-evidence-check.mjs <TCK-key> [--base <ref>] [--config <file>] [--pictures-under <folder>]
 // The UI path globs are `design.uiPaths` of the repository's .tick-it/config.json, the file Tick-it's GitHub App reads
-// (--config names another). With none, no path is a UI path and nothing is checked. A picture file (PNG, JPEG, GIF, WebP)
+// (--config names another). With none, the built-in tick-it paths of scripts/ui-paths.mjs apply, as at the gate. A picture file (PNG, JPEG, GIF, WebP)
 // a UI change adds or changes under --pictures-under (default docs/change-screenshots/) is committed, and fails the check:
 // upload pictures with presign_screenshot_upload and confirm_screenshot (scripts/upload-screenshots.mjs).
 // Whether pictures are uploaded is read from Tick-it (list_screenshots) by the mod's gate at /tick-it done, not here, and
-// that gate keeps its own built-in UI paths and does not read the config (a follow-up ticket).
+// that gate reads the same globs and default rule from scripts/ui-paths.mjs.
 // Exit 0 when it passes, 1 when pictures are committed, 2 on a wrong call.
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { DEFAULT_UI_PATH, globToRegExp } from './ui-paths.mjs'
 
 const DEFAULT_PICTURES = 'docs/change-screenshots/'
 const IMAGE = /\.(png|jpe?g|gif|webp)$/i
 
-/** A glob ("**" crosses folders, "*" and "?" stay in one) as a regular expression on a whole path. */
-export function globToRegExp(glob) {
-  let re = ''
-  for (let i = 0; i < glob.length; i++) {
-    const c = glob[i]
-    if (c === '*' && glob[i + 1] === '*') {
-      i++
-      if (glob[i + 1] === '/') {
-        i++
-        re += '(?:.*/)?'
-      } else re += '.*'
-    } else if (c === '*') re += '[^/]*'
-    else if (c === '?') re += '[^/]'
-    else re += c.replace(/[.+^${}()|[\]\\]/g, '\\$&')
-  }
-  return new RegExp(`^${re}$`)
-}
+export { globToRegExp }
 
-export const isUiPath = (path, uiPaths) => uiPaths.some(g => globToRegExp(g).test(path))
+/** With the repository's design.uiPaths a path matches one of those globs; with none, the default rule the `/tick-it done` gate uses (scripts/ui-paths.mjs). */
+export const isUiPath = (path, uiPaths) => (uiPaths.length === 0 ? DEFAULT_UI_PATH.test(path) : uiPaths.some(g => globToRegExp(g).test(path)))
 
 /** Reads .tick-it/config.json's design.uiPaths; answers the list (empty when the file gives none) or throws with what is wrong. */
 export function parseConfig(text) {
