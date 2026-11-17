@@ -157,9 +157,9 @@ test('each base fetches the base branch, limits late and wording blocking, repor
     const base = read(`skills/review-agents/bases/${role}/SKILL.md`)
     for (const words of ['Fetch the base branch', 'unchanged since round 1', 'only for a correctness or security defect', 'says why it was missed', 'else found late is OPTIONAL', 'something false about behaviour, a count or a name', 'the change did not touch is never BLOCKING', 'says nothing is wrong', 'not needed', 'could not run in your own sandbox', owns[role], 'leave it to']) expect(base).toContain(words, `${role} base no longer says "${words}"`)
   }
-  for (const role of ['acceptance', 'ux-evidence']) for (const words of ['acceptance decides what must exist', 'ux-evidence decides how it is worded and drawn', 'contradicts']) expect(read(`skills/review-agents/bases/${role}/SKILL.md`)).toContain(words, `${role} base no longer says "${words}"`)
+  for (const role of ['acceptance', 'ux-evidence']) for (const words of ['acceptance decides what must exist', 'ux-evidence decides how it is worded and drawn', 'contradicts', 'is OPTIONAL']) expect(read(`skills/review-agents/bases/${role}/SKILL.md`)).toContain(words, `${role} base no longer says "${words}"`)
   for (const role of ROLES) expect(read(`skills/review-agents/samples/${role}/SKILL.md`)).toContain(role === 'ux-evidence' ? 'fetch it before judging the diff' : 'Fetch the base branch')
-  expect(read('README.md')).toContain('raises BLOCKING only for a correctness or security defect, with why it was missed')
+  for (const words of ['raises BLOCKING only for a correctness or security defect, with why it was missed', 'fetch the base branch before judging', 'something false about behaviour, a count or a name', '`acceptance` the criteria', '`security` access and input', 'the other\'s contradicting finding is OPTIONAL']) expect(read('README.md')).toContain(words, `README no longer says "${words}"`)
 })
 
 test('review-agents and the README explain how a repository’s skill adds its rules to a base', () => {
