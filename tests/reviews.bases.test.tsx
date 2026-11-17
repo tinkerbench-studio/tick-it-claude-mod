@@ -83,6 +83,7 @@ test('reviewPrompt points the reviewer at the diff against the named base, not g
   expect(prompt).toContain('git diff $(git merge-base origin/main HEAD)')
   expect(prompt).toContain('against its base branch origin/main')
   expect(prompt).not.toContain('against HEAD')
+  expect(prompt).not.toContain('git diff HEAD')
 })
 
 test('with no base branch found the prompt keeps the working-tree wording', () => {
@@ -94,5 +95,5 @@ test('a round on committed work with a clean working tree tells the reviewer to 
   await done($, 'TCK-143')
   const prompt = seen.spawned[0]?.prompt ?? ''
   expect(prompt).toContain('git diff $(git merge-base origin/main HEAD)')
-  expect(prompt).not.toContain('(git diff HEAD and the untracked files)')
+  expect(prompt).not.toContain('git diff HEAD')
 })

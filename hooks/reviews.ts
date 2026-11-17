@@ -296,7 +296,7 @@ export const reviewPrompt = (t: Ticket, skill: ReviewSkill, round: number, earli
     ...t.acceptance.map(a => `- ${a}`),
     base === undefined
       ? `Review the change in the working tree against HEAD (git diff HEAD and the untracked files). Do not change any file.`
-      : `Review the whole change of this ticket against its base branch ${base}: the diff from the merge base to the working tree (git diff $(git merge-base ${base} HEAD)) and the untracked files. Committed work counts, so git diff HEAD being empty is not a reason to report nothing to review. Do not change any file.`,
+      : `Review the whole change of this ticket against its base branch ${base}: the diff from the merge base to the working tree (git diff $(git merge-base ${base} HEAD)) and the untracked files. Committed work counts, so an empty diff of the working tree alone is not a reason to report nothing to review. Do not change any file.`,
     '',
     ...skillLines(skill),
     '',
