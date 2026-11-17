@@ -73,3 +73,11 @@ test('an open request is withdrawn on Tick-it when the ticket goes back to Ready
   const again = await $.ui.mount(TICKET)
   expect(await texts(again, 'WAITING FOR APPROVAL')).toBeUndefined()
 })
+
+test('the subject, item counts, who may answer and the stale reason wrap in a narrow pane', async ($, on) => {
+  const long = 'a very long value that would run off a narrow terminal if it were not wrapped '.repeat(3).trim()
+  const { pane } = await open($, on, [request({ subject: `Subject ${long}`, reviewer: `Reviewer ${long}`, staleReason: `Reason ${long}` })])
+  for (const text of [`Subject ${long}`, '1 pull-request, 2 picture', `Who may answer: Reviewer ${long}`, `Changed since asked: Reason ${long}`]) {
+    expect((await texts(pane, text)) as { props?: { wrap?: string } } | undefined).toMatchObject({ props: { wrap: 'wrap' } })
+  }
+})
