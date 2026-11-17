@@ -67,6 +67,13 @@ test('every applicable skill already reviewed this head with nothing blocking: n
   expect(seen.server.find(t => t.key === 'TCK-143')?.status).toBe('Done')
 })
 
+test('a reviewer that was refused at this head (recorded with a blocking count) is not read as clean in a later session: it runs', async ($, on) => {
+  const seen = run(on, { timeline: [entry(1, 1, HEAD)] })
+  await done($)
+  expect(seen.spawned).toHaveLength(1)
+  expect(seen.server.find(t => t.key === 'TCK-143')?.status).toBe('In review')
+})
+
 test('a head that differs from the reviewed one is reviewed: the round starts', async ($, on) => {
   const seen = run(on, { timeline: [entry(1, 0, 'cafe')] })
   await done($)

@@ -23,7 +23,7 @@ test('the refused reviewer has a failed run with its reason, shown by /tick-it r
   await $.turn.complete(finishTurn('agent-1', 'VERDICT: clean'))
   const report = await $.command.run({ ...RUN, command: 'tick-it', args: 'reviews' })
   expect(report.text).toMatch(/✗ security\s+round 1.*could not be started: background tasks are off/)
-  expect(seen.recorded.flatMap(c => c.args.runs).find(r => r.skill === 'security')).toMatchObject({ status: 'failed' })
+  expect(seen.recorded.flatMap(c => c.args.runs).find(r => r.skill === 'security')).toMatchObject({ status: 'failed', blocking: 1, reason: 'background tasks are off' })
 })
 
 test('clean reviewers that ran do not take the ticket to Done while one was refused', async ($, on) => {

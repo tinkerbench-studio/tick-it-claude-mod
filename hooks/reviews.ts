@@ -517,7 +517,7 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
   await setSteward($, { ticket: t.id, round, phase: 'reviewing', maxRounds: Math.max(limit, round), ...(ticking === true ? { ticking } : {}), ...(trigger === 'after-stop' ? { afterStop: true } : {}) })
   const started: ReviewRun[] = []
   const refused: string[] = []
-  // A reviewer that applies but could not be started is part of the round: a failed run, with the refusal as its reason.
+  // A reviewer that applies but could not be started is part of the round: a failed run, with the refusal as its reason. It counts one blocking, because Tick-it's timeline keeps no status: a later session reading it back must not take the skill as clean at this head.
   const failedRuns: ReviewRun[] = []
   const practices = new Map<string, string>()
   for (const { area } of touched) {
@@ -544,7 +544,7 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
     if (spawned.deny !== undefined && skill.model !== undefined) spawned = await spawn(undefined)
     if (spawned.deny !== undefined) {
       refused.push(`${folder}: ${spawned.deny}`)
-      failedRuns.push({ agentId: `${await $.session.id()}-${t.id}-${folder}-r${round}-refused`, ticket: t.id, epic: t.epic, round, skill: folder, model: skill.model ?? 'none', startedAt, status: 'failed', durationMs: 0, reason: spawned.deny.slice(0, 300), ...(head === undefined ? {} : { headSha: head }) })
+      failedRuns.push({ agentId: `${await $.session.id()}-${t.id}-${folder}-r${round}-refused`, ticket: t.id, epic: t.epic, round, skill: folder, model: skill.model ?? 'none', startedAt, status: 'failed', durationMs: 0, blocking: 1, reason: spawned.deny.slice(0, 300), ...(head === undefined ? {} : { headSha: head }) })
       continue
     }
     // Core answers the id; where a hook answered the spawn without it, the agent list still names the run.
@@ -552,7 +552,7 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
     if (agentId === undefined) {
       const reason = 'started, but Claude Code did not say which agent it is'
       refused.push(`${folder}: ${reason}`)
-      failedRuns.push({ agentId: `${await $.session.id()}-${t.id}-${folder}-r${round}-refused`, ticket: t.id, epic: t.epic, round, skill: folder, model: spawned.model, startedAt, status: 'failed', durationMs: 0, reason, ...(head === undefined ? {} : { headSha: head }) })
+      failedRuns.push({ agentId: `${await $.session.id()}-${t.id}-${folder}-r${round}-refused`, ticket: t.id, epic: t.epic, round, skill: folder, model: spawned.model, startedAt, status: 'failed', durationMs: 0, blocking: 1, reason, ...(head === undefined ? {} : { headSha: head }) })
       continue
     }
     started.push({
