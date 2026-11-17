@@ -54,6 +54,9 @@ export type Seen = {
   ticketCalls: { tool: string; args: Record<string, unknown>; server: string }[]
   /** Every command the mod ran, as one line. */
   processes: string[]
+  /** Agents the agent list does not show (gone), and agents it shows running that this session did not spawn. */
+  unlisted?: string[]
+  listedExtra?: string[]
 }
 
 /**
@@ -101,7 +104,7 @@ export type Net = {
   /** Tick-it answers link_pull_request with an error while this is true. */
   linkRejected?: boolean
   /** What list_pull_requests answers; 'unreachable' makes it fail. */
-  pullRequests?: 'unreachable' | { number: number; state: string; draft: boolean; ci: string | null; behind?: boolean | null; mergeState?: string; mergeQueue?: unknown; ciInstructed?: boolean }[]
+  pullRequests?: 'unreachable' | { number: number; state: string; draft: boolean; ci: string | null; behind?: boolean | null; mergeState?: string; mergeQueue?: unknown; ciInstructed?: boolean; headSha?: string }[]
   /** What list_milestones answers; no milestones when absent. */
   milestones?: { title: string; dueOn: string | null; epics: { id?: string; title: string; tickets: number; done: number }[]; tickets: number; done: number }[]
   /** list_tickets answers this many tickets a page with a nextCursor (the page's offset); `failAt` refuses the page with that cursor. */
@@ -116,7 +119,7 @@ export type Net = {
 /** The engine beneath the mod: a store, a repo whose diff is `diff.lines` lines, and quiet UI calls. */
 export const engine = (
   on: On,
-  diff: { lines: number; merged?: boolean; byCommit?: Record<string, { lines?: number; numstatZ?: string; patch?: string }>; failDiff?: boolean; siblings?: Record<string, string> | 'unlistable'; pr?: number; origin?: string | null; noCommit?: boolean; numstatZ?: string; failFiles?: boolean; changed?: string[] | null; since?: string[] | null; failUntracked?: boolean; truncateNames?: boolean; bases?: string[]; failNames?: 'exit' | 'throw'; subdir?: string; stored?: Record<string, unknown>; refuse?: (model: string | undefined, description: string) => string | undefined; patch?: string; dirty?: boolean; untracked?: Record<string, string>; binary?: Record<string, string>; gh?: (argv: string[]) => { exitCode: number; stdout: string; stderr: string } | undefined; pictures?: { key: string; name: string }[] | 'unreachable' | 'odd' },
+  diff: { lines: number; merged?: boolean; byCommit?: Record<string, { lines?: number; numstatZ?: string; patch?: string }>; failDiff?: boolean; branch?: string; defaultBranch?: string; branchThrows?: boolean; siblings?: Record<string, string> | 'unlistable'; pr?: number; origin?: string | null; noCommit?: boolean; numstatZ?: string; failFiles?: boolean; changed?: string[] | null; since?: string[] | null; failUntracked?: boolean; truncateNames?: boolean; bases?: string[]; failNames?: 'exit' | 'throw'; subdir?: string; stored?: Record<string, unknown>; refuse?: (model: string | undefined, description: string) => string | undefined; patch?: string; dirty?: boolean; untracked?: Record<string, string>; binary?: Record<string, string>; gh?: (argv: string[]) => { exitCode: number; stdout: string; stderr: string } | undefined; pictures?: { key: string; name: string }[] | 'unreachable' | 'odd'; copies?: { exitCode: number; stdout: string; stderr: string } | 'hang' | 'throw'; files?: Record<string, string>; base?: Record<string, string>; ignored?: string[]; throwShow?: boolean },
   isPlaced = true,
   skills: Record<string, string> = {},
   net: Net = {},
@@ -226,7 +229,7 @@ export const engine = (
   // The engine hands the paths over resolved against the working directory.
   // A base review skill is read from the plugin's own folder, wherever that is: the map names it from skills/review-agents/bases on.
   // A secure-coding skill is read from the plugin's own folder too: the map names it from skills/secure- on.
-  const rel = (path: string) => (path.includes('.tick') ? path.slice(path.indexOf('.tick')) : path.includes(BASES) ? path.slice(path.indexOf(BASES)) : path.includes('skills/secure-') ? path.slice(path.indexOf('skills/secure-')) : path)
+  const rel = (path: string) => (path.includes('.tick') ? path.slice(path.indexOf('.tick')) : path.includes(BASES) ? path.slice(path.indexOf(BASES)) : path.includes('skills/secure-') ? path.slice(path.indexOf('skills/secure-')) : /\/(package\.json|node_modules)$/.test(path) ? path.slice(path.lastIndexOf('/') + 1) : path)
   on('fs.exists', (_$, e) => ({
     value: Object.keys(skills).some(path => path === rel(e.path) || path.startsWith(`${rel(e.path)}/`)),
   }))
@@ -255,7 +258,7 @@ export const engine = (
   const untracked = (path: string) => Object.entries(diff.untracked ?? {}).find(([name]) => path === name || path.endsWith(`/${name}`))?.[1]
   const binary = (path: string) => Object.entries(diff.binary ?? {}).find(([name]) => path === name || path.endsWith(`/${name}`))?.[1]
   on('fs.read', (_$, e) => {
-    if (e.as !== 'bytes') return { value: skills[rel(e.path)] ?? untracked(e.path) ?? '' }
+    if (e.as !== 'bytes') return { value: skills[rel(e.path)] ?? diff.files?.[e.path] ?? untracked(e.path) ?? '' }
     const text = untracked(e.path)
     const base64 = binary(e.path) ?? (text === undefined ? undefined : btoa(String.fromCharCode(...new TextEncoder().encode(text))))
     return { value: { base64: base64 ?? '' } }
@@ -268,7 +271,7 @@ export const engine = (
     return { model: e.model ?? 'claude-opus-5-5', agentId }
   })
   on('agent.list', () => ({
-    value: seen.spawned.map(s => ({ id: s.agentId, description: s.description, type: 'general-purpose', status: 'running' as const, spawnedBy: 'tick-it' })),
+    value: [...seen.spawned.map(s => ({ id: s.agentId, description: s.description })), ...(seen.listedExtra ?? []).map(id => ({ id, description: id }))].filter(a => !(seen.unlisted ?? []).includes(a.id)).map(a => ({ ...a, type: 'general-purpose', status: 'running' as const, spawnedBy: 'tick-it' })),
   }))
   on('prompt.submit', (_$, e) => {
     seen.submitted.push(e.text)
@@ -295,6 +298,11 @@ export const engine = (
   on('process.run', (_$, e) => {
     const [cmd, sub] = e.argv
     seen.processes.push(e.argv.join(' '))
+    if (cmd === 'npm' && diff.copies !== undefined) {
+      if (diff.copies === 'throw') throw new Error('$.process.run(npm) failed to start: ENOENT')
+      if (diff.copies === 'hang') return new Promise(resolve => setTimeout(() => resolve({ value: { exitCode: 1, stdout: 'late hits', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }), 300)) as never
+      return { value: { ...diff.copies, isStdoutTruncated: false, isStderrTruncated: false } }
+    }
     // As in a session that will not run them for a plugin: only git and gh start.
     if (cmd !== 'git' && cmd !== 'gh') throw new Error(`$.process.run(${cmd}) failed to start: ENOENT`)
     const ghAnswer = cmd === 'gh' ? diff.gh?.(e.argv) : undefined
@@ -303,6 +311,15 @@ export const engine = (
       const origin = typeof diff.siblings === 'object' ? diff.siblings[e.argv[2]?.slice(1) ?? ''] : undefined
       return { value: { exitCode: origin === undefined ? 128 : 0, stdout: origin ?? '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     }
+    // The size guard: a path git ignores, and a file's text at the ticket's base (`base`; absent stands for text that cannot be read).
+    if (cmd === 'git' && sub === 'check-ignore') return { value: { exitCode: (diff.ignored ?? []).includes(e.argv.at(-1) ?? '') ? 0 : 1, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    if (cmd === 'git' && sub === 'show') {
+      if (diff.throwShow === true) throw new Error('git show failed')
+      const text = diff.base?.[(e.argv[2] ?? '').replace(/^[^:]*:/, '')]
+      return { value: { exitCode: text === undefined ? 128 : 0, stdout: text ?? '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    }
+    if (cmd === 'git' && sub === 'symbolic-ref') return { value: { exitCode: diff.defaultBranch === undefined ? 1 : 0, stdout: `origin/${diff.defaultBranch ?? ''}\n`, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    if (cmd === 'git' && sub === 'rev-parse' && e.argv.includes('--abbrev-ref') && diff.branchThrows === true) throw new Error('git rev-parse failed')
     if (cmd === 'git' && sub === 'ls-files' && diff.failUntracked === true) return { value: { exitCode: 1, stdout: '', stderr: 'fatal', isStdoutTruncated: false, isStderrTruncated: false } }
     if (cmd === 'git' && sub === 'ls-files') {
       // As git does: the session folder (`subdir`, below the root) only, unless the `:/` pathspec names the whole repository; --full-name changes only how paths print.
@@ -338,7 +355,7 @@ export const engine = (
           : cmd === 'git' && sub === 'rev-parse' && e.argv.includes('--show-toplevel')
             ? '/repo\n'
             : cmd === 'git' && sub === 'rev-parse' && e.argv.includes('--abbrev-ref')
-              ? 'tck-151-picker\n'
+              ? `${diff.branch ?? 'tck-151-picker'}\n`
               : cmd === 'git' && sub === 'rev-parse'
                 ? `${'ab12'.repeat(10)}\n`
                 : cmd === 'git' && sub === 'status' && diff.dirty === true

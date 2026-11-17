@@ -144,6 +144,7 @@ export const registerUi: Register = on => {
               </Text>
             ))}
             {s.note !== undefined && <Text color={COLOR.dim}>{s.note}</Text>}
+            {s.carriedOver !== undefined && <Text color={COLOR.dim}>{s.carriedOver}</Text>}
             <Box key="steward-actions" flexDirection="row" gap={1}>
               <Button key="review-again" label="r review again now" onPress={async () => void $.ui.toast(await reviewAgain($))} />
               <Button key="optional-findings" label={`o ${optionalShown ? 'hide' : 'show'} optional (${optionalCount})`} onPress={async () => void (await update($, showOptional, v => !v))} />

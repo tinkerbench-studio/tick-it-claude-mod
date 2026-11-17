@@ -68,3 +68,32 @@ test('a skill keeps the description, model and sizes it sets, and its own name a
   expect(bare).toMatchObject({ name: 'principal', description: 'A second principal engineer', model: 'claude-opus-5-5', sizes: ['S', 'M', 'L'] })
   expect(bare.paths).toBeUndefined()
 })
+
+test('the reviewer prompt names the ticket’s size', async ($, on) => {
+  const seen = engine(on, { lines: 10 }, true, { [OWN]: own.replace('base: principal', 'base: nonesuch') })
+  await done($, 'TCK-143')
+  expect(seen.spawned[0]?.prompt).toContain('Ticket size: XS.')
+})
+
+const ticket = { id: 'TCK-1', title: 't', epic: 'e', acceptance: [] } as never
+const skill = { name: 'principal', body: 'Look.' } as never
+
+test('reviewPrompt points the reviewer at the diff against the named base, not git diff HEAD', () => {
+  const prompt = reviewPrompt(ticket, skill, 1, [], undefined, undefined, 'origin/main')
+  expect(prompt).toContain('git diff $(git merge-base origin/main HEAD)')
+  expect(prompt).toContain('against its base branch origin/main')
+  expect(prompt).not.toContain('against HEAD')
+  expect(prompt).not.toContain('git diff HEAD')
+})
+
+test('with no base branch found the prompt keeps the working-tree wording', () => {
+  expect(reviewPrompt(ticket, skill, 1)).toContain('Review the change in the working tree against HEAD (git diff HEAD and the untracked files)')
+})
+
+test('a round on committed work with a clean working tree tells the reviewer to read the base diff', async ($, on) => {
+  const seen = engine(on, { lines: 10, changed: ['hooks/a.ts'], bases: ['origin/main'] }, true, { [OWN]: own.replace('base: principal\n', ''), [BASE]: base })
+  await done($, 'TCK-143')
+  const prompt = seen.spawned[0]?.prompt ?? ''
+  expect(prompt).toContain('git diff $(git merge-base origin/main HEAD)')
+  expect(prompt).not.toContain('git diff HEAD')
+})

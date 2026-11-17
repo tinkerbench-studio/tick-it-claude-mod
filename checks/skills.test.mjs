@@ -151,6 +151,17 @@ test('each sample names its base, keeps only the repository’s own rules and le
   }
 })
 
+test('each base fetches the base branch, limits late and wording blocking, reports no non-findings and owns one kind of defect', () => {
+  const owns = { acceptance: 'You own the acceptance criteria', principal: 'You own the code and the documents', security: 'You own access', tests: 'You own the tests and the checks', 'ux-evidence': 'You own what a person sees' }
+  for (const role of ROLES) {
+    const base = read(`skills/review-agents/bases/${role}/SKILL.md`)
+    for (const words of ['Fetch the base branch', 'unchanged since round 1', 'only for a correctness or security defect', 'says why it was missed', 'else found late is OPTIONAL', 'something false about behaviour, a count or a name', 'the change did not touch is never BLOCKING', 'says nothing is wrong', 'not needed', 'could not run in your own sandbox', owns[role], 'leave it to']) expect(base).toContain(words, `${role} base no longer says "${words}"`)
+  }
+  for (const role of ['acceptance', 'ux-evidence']) for (const words of ['acceptance decides what must exist', 'ux-evidence decides how it is worded and drawn', 'contradicts', 'is OPTIONAL']) expect(read(`skills/review-agents/bases/${role}/SKILL.md`)).toContain(words, `${role} base no longer says "${words}"`)
+  for (const role of ROLES) expect(read(`skills/review-agents/samples/${role}/SKILL.md`)).toContain(role === 'ux-evidence' ? 'fetch it before judging the diff' : 'Fetch the base branch')
+  for (const words of ['raises BLOCKING only for a correctness or security defect, with why it was missed', 'fetch the base branch before judging', 'something false about behaviour, a count or a name', '`acceptance` the criteria', '`security` access and input', 'the other\'s contradicting finding is OPTIONAL']) expect(read('README.md')).toContain(words, `README no longer says "${words}"`)
+})
+
 test('review-agents and the README explain how a repository’s skill adds its rules to a base', () => {
   const skill = read('skills/review-agents/SKILL.md')
   for (const words of ['`bases/<name>/SKILL.md` beside this file', 'names with `base` in its front matter', 'Read the base first', "Keep the front matter's `name` and `base`", 'come from the base']) expect(skill).toContain(words, `review-agents no longer says "${words}"`)
@@ -215,4 +226,56 @@ test('README and the plan-epic skill describe the date hold: marker, refusal and
   const readme = read('README.md')
   for (const words of ['is refused with that date', 'with `Waiting until <date>` under the title of a ticket whose `notBefore` hold is still in the future', 'a held Backlog or Ready ticket is refused with its date, as `/tick-it take` refuses it', 'every 15 minutes', 'clears a hold itself once its date passes', 'the release rule allows it (no open blocker or question, autoReady on, its epic in a prioritised milestone, an approved plan, no need)', 'otherwise leaving it in the Backlog']) expect(readme).toContain(words, `README no longer says "${words}"`)
   expect(read('skills/plan-epic/SKILL.md')).toContain('`notBefore` date', 'plan-epic skill no longer mentions the date hold')
+})
+
+test('the README says a failed run or a missing verdict is not a clean review', () => {
+  const readme = read('README.md')
+  for (const words of ['an answer with no `VERDICT:` line', '`VERDICT: changes` with no `BLOCKING:` line that could be read are not a clean review', 'started again once in the same round', '`stoppedBy` mod', 'kind `no-clean-round` and a note naming the skill']) expect(readme).toContain(words, `README no longer says "${words}"`)
+})
+
+test('the README and the review-agents skill describe how paths and sizes are written', () => {
+  for (const file of ['README.md', 'skills/review-agents/SKILL.md']) {
+    const text = read(file)
+    for (const words of ['inline list', 'block list', 'brace group', 'leading `!`', 'applies to every path']) expect(text).toContain(words, `${file} lacks "${words}"`)
+  }
+})
+
+test('the README says when a review round is not started', () => {
+  const readme = read('README.md')
+  for (const words of ['**When a round is not started.**', 'no reviewer starts and no run is recorded', 'The checkout is not the pull request\'s head', 'Nothing differs from the base branch', 'the pull request head could not be checked']) expect(readme).toContain(words, `README no longer says "${words}"`)
+})
+
+test('the principal base lists failure paths, concurrency and input in round 1 of S, M and L, and leaves XS the lighter pass', () => {
+  const base = read('skills/review-agents/bases/principal/SKILL.md')
+  for (const words of ['Ticket size:', 'round 1 of a ticket sized S, M or L', 'before you report any finding', 'its failure paths', 'what a second concurrent call does', 'what input it accepts', 'An XS ticket keeps the lighter pass']) expect(base).toContain(words, `the principal base no longer says "${words}"`)
+})
+
+test('README names the copies:check script, how a repository adds one, and what the mod does with it', () => {
+  const readme = read('README.md')
+  for (const words of ['`copies:check` script', '"scripts": { "copies:check":', 'npm run copies:check', 'refuses the move', 'A check that cannot be started', 'says the check could not run']) expect(readme).toContain(words, `README no longer says "${words}"`)
+})
+
+test('the README says a reviewer reviews the ticket’s whole change against the base', () => {
+  const readme = read('README.md')
+  for (const words of ['review the ticket\'s whole change against the base', 'the diff from the merge base with the base branch']) expect(readme).toContain(words, `README no longer says "${words}"`)
+})
+
+test('the version-raise skill acts only on a failing Plugin version check and names the three copies and the checks', () => {
+  const skill = read('.claude/skills/version-raise/SKILL.md')
+  for (const words of ['Act only when Tick-it reports the `Plugin version` check failing', '`.claude-plugin/plugin.json`', '`hooks/state.ts`', '`tests/contract-fixtures.json`', 'above', 'node --test checks/*.test.mjs']) expect(skill).toContain(words, `the version-raise skill no longer says "${words}"`)
+})
+
+test('tests reviewer keeps a README-only criterion optional and a skill-dependent wording check blocking', () => {
+  const tests = read('.tick-it/skills/tests/SKILL.md')
+  expect(tests).toContain('A criterion that only asks the README, or other prose no skill or hook reads, to say something needs no test, and a missing wording check for it is OPTIONAL at most.')
+  expect(tests).toContain('A wording check in `checks/skills.test.mjs` stays BLOCKING for wording a skill or hook depends on.')
+})
+
+test('review skills agree: the merge queue raises the plugin version, a pull request does not, a missing raise is no finding', () => {
+  for (const name of ['acceptance', 'principal']) {
+    const skill = read(`.tick-it/skills/${name}/SKILL.md`)
+    for (const words of ["raised by the merge queue's Plugin version check", 'not by a pull request', 'a missing raise is not a finding']) expect(skill).toContain(words, `${name} no longer says "${words}"`)
+    assert.ok(!/BLOCKING:[^\n]*(missing|without|no) (a )?(version )?(bump|raise)/i.test(skill), `${name} blocks a missing version raise`)
+    assert.ok(!/(must|should|needs to|has to) (raise|bump)[^\n]*version/i.test(skill), `${name} asks a pull request to raise the version`)
+  }
 })
