@@ -112,8 +112,9 @@ export async function editEffect(
     if ((await $.process.run(['git', 'check-ignore', '-q', '--', file])).exitCode === 0) return 0
     const before = await readText($, file)
     const { after, estimate } = change(before)
-    const base = await $.process.run(['git', 'show', `${(await read($, baseCommit)) ?? 'HEAD'}:${file.slice(root.length + 1)}`])
-    if (base.exitCode !== 0) return estimate
+    // A base that cannot be read, by a non-zero exit or by git failing to run, leaves today's estimate.
+    const base = await $.process.run(['git', 'show', `${(await read($, baseCommit)) ?? 'HEAD'}:${file.slice(root.length + 1)}`]).catch(() => null)
+    if (base === null || base.exitCode !== 0) return estimate
     return count(base.stdout, after) - count(base.stdout, before)
   } catch {
     return 0
