@@ -2,7 +2,7 @@ import type { MilestoneView, TicketStatus } from '../types'
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 import { PANE, TICKET_PANE, WARN_AT, groupsOf, COLOR } from './state'
-import { budgetOf, linkTickets, boardStops, heldUntil, nextToTake, pickMilestone, nextMilestone, milestoneLine, milestoneOf, findCurrent, readTicket, pullRequestLine, startSession, fixCi, rerunFailed, openPullRequest } from './board'
+import { budgetOf, linkTickets, boardStops, heldUntil, nextToTake, pickMilestone, nextMilestone, milestoneLine, milestoneOf, findCurrent, readTicket, itemCounts, waitedFor, pullRequestLine, startSession, fixCi, rerunFailed, openPullRequest } from './board'
 import { take } from './work'
 import { hereRuns, reviewAgain, stopStewarding, summarise, reviewLine, findingRows } from './reviews'
 
@@ -254,6 +254,10 @@ export const registerUi: Register = on => {
     const waitingOn = t.blockedBy ?? []
     const blocks = t.blocks ?? []
     const labels = t.labels ?? []
+    // The open request, and the latest answered one (open first). Read only: answering is on the Tick-it ticket page. A reply without approvals (an older Tick-it) draws nothing.
+    const open = (t.approvals ?? []).find(a => a.state === 'open')
+    const answered = (t.approvals ?? []).find(a => a.state !== 'open')
+    const request = (a: typeof open) => (a === undefined || t.url === undefined ? undefined : `${t.url}#ar_${a.id}`)
 
     return (
       <Box flexDirection="column" gap={1}>
@@ -283,6 +287,30 @@ export const registerUi: Register = on => {
             </Box>
           )}
         </Box>
+        {open !== undefined &&
+          section(
+            'WAITING FOR APPROVAL',
+            <Box key="approval-open" flexDirection="column">
+              <Text bold>{open.subject}</Text>
+              <Text color={COLOR.dim}>{itemCounts(open)}</Text>
+              <Text>{`Who may answer: ${open.reviewer}`}</Text>
+              {open.staleReason === null ? <Text key="approval-waiting">{`Waiting ${waitedFor(open.askedAt, Date.now())}`}</Text> : <Text key="approval-stale" color={COLOR.warn}>{`Changed since asked: ${open.staleReason}`}</Text>}
+              {request(open) !== undefined && <Link key="approval-link" href={request(open) as string} label="Open the request in Tick-it" />}
+            </Box>,
+          )}
+        {answered !== undefined &&
+          section(
+            'APPROVAL ANSWERED',
+            <Box key="approval-answered" flexDirection="column">
+              <Text bold>{answered.subject}</Text>
+              <Text>{`Decision: ${answered.state}`}</Text>
+              <Text>{`Asked of: ${answered.reviewer}`}</Text>
+              {answered.questions.map(q => (
+                <Text key={`approval-q-${q.id}`} wrap="wrap">{`${q.text} → ${q.answer ?? 'no answer'}`}</Text>
+              ))}
+              {request(answered) !== undefined && <Link key="approval-answered-link" href={request(answered) as string} label="Open the request in Tick-it" />}
+            </Box>,
+          )}
         {waitingOn.length > 0 && section('WAITING ON', waitingOn.map(ref))}
         {blocks.length > 0 && section('BLOCKS', blocks.map(ref))}
         {t.description !== undefined && section('DESCRIPTION', <Markdown key="description" text={t.description} />)}
