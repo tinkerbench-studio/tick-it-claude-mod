@@ -70,6 +70,11 @@ export type ReviewRun = {
   items?: { severity: 'blocking' | 'optional'; file?: string; line?: number; text: string; /** An earlier blocker the reviewer verified still open: counted and listed in the pane, not sent as a finding. */ open?: true }[]
   /** The open blocking findings of earlier rounds this reviewer was given, numbered from 1 in this order. */
   earlier?: { id?: string; file?: string; line?: number; text: string }[]
+  /** The prompt and description the reviewer was spawned with: a run that failed or gave no verdict is started again with them. Kept locally, never sent to Tick-it. */
+  prompt?: string
+  description?: string
+  /** Set on the second run of a reviewer in a round, started because the first failed or gave no verdict: it is not retried again. */
+  retry?: true
   /** The reviewer's verdict on each of those, sent to Tick-it as the run's verdicts. */
   verdicts?: { /** The Tick-it id of the finding, when it came from Tick-it: Tick-it closes that finding on a fixed or gone verdict. */ finding?: string; file?: string; text: string; verdict: 'fixed' | 'open' | 'gone'; reason: string }[]
 }
@@ -124,6 +129,8 @@ export type PullRequestView = {
   queued: boolean
   /** Tick-it has already told the ticket's session about CI failing on the current head commit. */
   ciInstructed: boolean
+  /** Tick-it carries the review of an earlier commit over to this head, which only merged the base (reviewCarriedOver of list_pull_requests); absent when false or when an older Tick-it does not say. */
+  reviewCarriedOver?: boolean
   /** Its page on GitHub; absent on one read by an older mod. */
   url?: string
   /** The commit its branch is at on GitHub (headSha of list_pull_requests); absent when Tick-it did not say. */
@@ -163,6 +170,8 @@ export type Steward = {
   stoppedBy?: 'mod'
   /** This round reviews a fix made after the mod stopped: if it still has blocking findings the mod stops again and starts no further round. */
   afterStop?: boolean
+  /** Set when the round started no reviewer because the review of an earlier commit carries over (TCK-52): the pane says so, by that commit's short hash when it is known. It stays while the round settles. */
+  carriedOver?: string
   /** The round's only blocking findings were the pull request's own and the review budget has no room for a reviewer round: after the fix the pull request is read again and settles the round. */
   pullRequestOnly?: boolean
 }
