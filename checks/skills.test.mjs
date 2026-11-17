@@ -250,6 +250,11 @@ test('README names the copies:check script, how a repository adds one, and what 
   for (const words of ['`copies:check` script', '"scripts": { "copies:check":', 'npm run copies:check', 'refuses the move', 'A check that cannot be started', 'says the check could not run']) expect(readme).toContain(words, `README no longer says "${words}"`)
 })
 
+test('the README says a reviewer reviews the ticket’s whole change against the base', () => {
+  const readme = read('README.md')
+  for (const words of ['review the ticket\'s whole change against the base', 'the diff from the merge base with the base branch']) expect(readme).toContain(words, `README no longer says "${words}"`)
+})
+
 test('the version-raise skill acts only on a failing Plugin version check and names the three copies and the checks', () => {
   const skill = read('.claude/skills/version-raise/SKILL.md')
   for (const words of ['Act only when Tick-it reports the `Plugin version` check failing', '`.claude-plugin/plugin.json`', '`hooks/state.ts`', '`tests/contract-fixtures.json`', 'above', 'node --test checks/*.test.mjs']) expect(skill).toContain(words, `the version-raise skill no longer says "${words}"`)
