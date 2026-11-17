@@ -30,6 +30,8 @@ async function nudgeFor($: EngineInterface, ticket: string, file: string, text: 
   return areaNudge(fresh)
 }
 
+const lineCount = (text: string): number => (text === '' ? 0 : text.split('\n').length)
+
 export const registerTools: Register = on => {
   // The size budget: refuse an edit that would take the diff past the ticket's
   // budget. Measuring failures let the edit through (a proof of concept should
@@ -46,12 +48,13 @@ export const registerTools: Register = on => {
       $,
       e.file_path,
       before => {
-        if (e.tool === 'Write') return { after: input.content, estimate: changedLines(before, input.content) }
+        if (e.tool === 'Write') return { after: input.content, estimate: lineCount(input.content) > lineCount(before) ? changedLines(before, input.content) : 0 }
         let after = before
         let each = 0
         for (const edit of edits) {
           const all = edit.replace_all === true
-          each += changedLines(edit.old_string, edit.new_string) * editCount(after, edit.old_string, all)
+          // With no readable base the edit's own lines stand, but an edit with no more lines than it replaces does not grow the diff.
+          if (lineCount(edit.new_string) > lineCount(edit.old_string)) each += changedLines(edit.old_string, edit.new_string) * editCount(after, edit.old_string, all)
           after = applyEdit(after, edit.old_string, edit.new_string, all)
         }
         return { after, estimate: each }

@@ -190,3 +190,17 @@ test('when the file cannot be read the edit is estimated by its own lines, not l
   expect(refused(await edit($, { old_string: 'a', new_string: lines(12) }))).toBe(true)
   expect(refused(await edit($, { old_string: 'a', new_string: 'b' }))).toBe(false)
 })
+
+test('with the diff over budget and no readable base an edit that only removes lines is not refused, one that adds lines is', async ($, on) => {
+  // A file new to the ticket has no base text: the session must still be able to trim it.
+  await taken($, on, { lines: 120, files: { '/repo/api/a.ts': 'a\nb\nc' } })
+  expect(refused(await edit($, { old_string: 'a\nb\nc', new_string: 'a' }))).toBe(false)
+  expect(JSON.stringify(await edit($, { old_string: 'a', new_string: 'a\nb\nc' }))).toContain('about 122 lines')
+})
+
+test('with the diff over budget and no readable base a Write that shrinks the file is not refused', async ($, on) => {
+  await taken($, on, { lines: 120, files: { '/repo/api/a.ts': lines(10) } })
+  const write = (content: string) => $.tool.call({ tool: 'Write', file_path: '/repo/api/a.ts', content })
+  expect(refused(await write(lines(3)))).toBe(false)
+  expect(refused(await write(lines(20)))).toBe(true)
+})
