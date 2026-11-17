@@ -38,6 +38,8 @@ export type ReviewSkill = {
   changes?: Changes
   /** The `changes` entries that name no area and are no glob. */
   unknownChanges?: string[]
+  /** The `paths` globs (after brace groups are written out) that can match no path and are left out of `paths`. */
+  unknownPaths?: string[]
   body: string
   /** The base review skill of the plugin it adds its rules to (front matter `base`). */
   base?: string
@@ -57,32 +59,72 @@ export const costOf = (model: string, u: ReviewUsage): number | undefined => {
   return (u.input * input + u.output * output + u.cacheRead * cacheRead + u.cacheWrite * cacheWrite) / 1_000_000
 }
 
+/** The entries of a front-matter list: an inline list ([a, "b"]), or a comma- or space-separated line. A comma inside a closed brace group does not split. */
+const splitList = (raw: string): string[] => {
+  // A whole line in one pair of quotes (`sizes: "S, M"`) is read as its content, as before.
+  const line = /^(["'])([^"']*)\1$/.exec(raw.trim())?.[2] ?? raw
+  const body = /^\[([\s\S]*)\]$/.test(line.trim()) ? line.trim().slice(1, -1) : line
+  const out: string[] = []
+  let current = ''
+  let depth = 0
+  for (let i = 0; i < body.length; i++) {
+    const c = body.charAt(i)
+    if (c === '{' && body.indexOf('}', i) !== -1) depth++
+    else if (c === '}' && depth > 0) depth--
+    if (depth === 0 && (c === ',' || /\s/.test(c))) {
+      out.push(current)
+      current = ''
+    } else current += c
+  }
+  out.push(current)
+  return out.map(e => e.replace(/^(["'])(.*)\1$/, '$2')).filter(e => e !== '')
+}
+
+/** A glob with each brace group ({ts,tsx}) written out as one glob per alternative; a brace with no closing mate stays as it is. */
+const expandBraces = (glob: string): string[] => {
+  const group = /\{([^{}]*)\}/.exec(glob)
+  if (group === null) return [glob]
+  const head = glob.slice(0, group.index)
+  const tail = glob.slice(group.index + group[0].length)
+  return group[1].split(',').flatMap(alt => expandBraces(head + alt.trim() + tail)).slice(0, 100)
+}
+
+/** A glob no path glob can be: one with a bracket, a brace left unexpanded, a quote, or a leading !. */
+const unusableGlob = (glob: string): boolean => /[[\]{}"']/.test(glob) || glob.startsWith('!')
+
 /** Reads a SKILL.md: its front matter (name, description, model, sizes, paths, changes) and its body. */
 export const parseSkill = (folder: string, text: string): ReviewSkill => {
   const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/.exec(text)
   const fields = new Map<string, string>()
+  // The raw value of each key: its line, or its block list (`- a` lines under the key) as an inline list.
+  const raw = new Map<string, string>()
+  let blockKey: string | undefined
   for (const line of (match?.[1] ?? '').split(/\r?\n/)) {
+    const item = /^\s*-\s+(.*)$/.exec(line)
+    if (blockKey !== undefined && item !== null) {
+      raw.set(blockKey, `${raw.get(blockKey) ?? ''} ${item[1].trim()}`.trim())
+      continue
+    }
     const at = line.indexOf(':')
-    if (at > 0)
-      fields.set(
-        line.slice(0, at).trim(),
-        line
-          .slice(at + 1)
-          .trim()
-          .replace(/^["']|["']$/g, ''),
-      )
+    blockKey = undefined
+    if (at > 0) {
+      const key = line.slice(0, at).trim()
+      const value = line.slice(at + 1).trim()
+      raw.set(key, value)
+      if (value === '') blockKey = key
+      fields.set(key, value.replace(/^["']|["']$/g, ''))
+    }
   }
-  const sizes = fields
-    .get('sizes')
-    ?.split(/[\s,]+/)
-    .map(size => size.toUpperCase())
+  const list = (key: string): string[] | undefined => (raw.has(key) ? splitList(raw.get(key) ?? '') : undefined)
+  const sizes = list('sizes')
+    ?.map(size => size.toUpperCase())
     .filter((size): size is TicketSize => (SIZES as string[]).includes(size))
 
-  // Globs split on commas or spaces; none (or an empty value) leaves paths out: the skill applies to every path.
-  const paths = fields
-    .get('paths')
-    ?.split(/[\s,]+/)
-    .filter(glob => glob !== '')
+  // Globs: a brace group is written out first; one that still cannot be a path glob is kept out and named. None usable (or none) leaves paths out: the skill applies to every path.
+  const globs = list('paths')?.flatMap(expandBraces)
+  const paths = globs?.filter(glob => !unusableGlob(glob))
+  const unknownPaths = globs?.filter(unusableGlob)
+  const changesText = list('changes')?.join(',')
 
   return {
     name: fields.get('name') || folder,
@@ -90,8 +132,9 @@ export const parseSkill = (folder: string, text: string): ReviewSkill => {
     model: fields.get('model') || undefined,
     sizes: sizes !== undefined && sizes.length > 0 ? sizes : undefined,
     paths: paths !== undefined && paths.length > 0 ? paths : undefined,
-    ...(parseChanges(fields.get('changes')) === undefined ? {} : { changes: parseChanges(fields.get('changes')) }),
-    ...(unknownChanges(fields.get('changes')).length === 0 ? {} : { unknownChanges: unknownChanges(fields.get('changes')) }),
+    ...(parseChanges(changesText) === undefined ? {} : { changes: parseChanges(changesText) }),
+    ...(unknownChanges(changesText).length === 0 ? {} : { unknownChanges: unknownChanges(changesText) }),
+    ...(unknownPaths === undefined || unknownPaths.length === 0 ? {} : { unknownPaths }),
     body: (match?.[2] ?? text).trim(),
     ...(fields.get('base') ? { base: fields.get('base') } : {}),
   }
@@ -323,6 +366,24 @@ export async function hereRuns($: EngineInterface): Promise<ReviewRun[]> {
   return (await read($, reviews)).filter(r => madeHere(r, repository))
 }
 
+/** Marks the running runs `pick` chooses failed (not queued: Tick-it hears of a run only from its answer). Answers how many. */
+export async function failRuns($: EngineInterface, pick: (r: ReviewRun) => boolean): Promise<number> {
+  const repository = await repositoryHere($)
+  const mine = (r: ReviewRun) => r.status === 'running' && madeHere(r, repository) && pick(r)
+  const n = (await read($, reviews)).filter(mine).length
+  if (n > 0) await saveReviews($, list => list.map(r => (mine(r) ? { ...r, status: 'failed' as const } : r)))
+  return n
+}
+
+/** A run is running only while its agent can still answer: a ticket's running run whose agent is not listed, or is listed finished, is failed. Unreadable list: nothing changes. */
+export async function failLostRuns($: EngineInterface, ticket: string): Promise<number> {
+  if (!(await hereRuns($)).some(r => r.ticket === ticket && r.status === 'running')) return 0
+  const listed = await $.agent.list().catch(() => undefined)
+  if (listed === undefined) return 0
+  const live = new Set(listed.filter(a => a.status === 'running').map(a => a.id))
+  return failRuns($, r => r.ticket === ticket && !live.has(r.agentId))
+}
+
 export async function saveReviews($: EngineInterface, fn: (list: ReviewRun[]) => ReviewRun[]) {
   const repository = await repositoryHere($)
   // Each run carries the repository it was made in, set when it is saved; one with none yet is taken by the repository it is first read in.
@@ -445,6 +506,8 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
   const carried = Math.max(recorded === undefined ? 0 : lastRecordedRound(recorded), ranHere)
   const round = first ? carried + 1 : fromRound
   const limit = await roundLimit($, t.size, t.id)
+  // A reviewer of an earlier round still running is given up: a late answer from it changes no round.
+  await failRuns($, r => r.ticket === t.id && r.round < round)
   // The fix that followed a round blocked by the pull request alone, with no budget for a reviewer round: no review agent starts, the pull request is read again and settles the round.
   if (trigger === 'after-fix' && (await read($, steward))?.pullRequestOnly === true && (await budgetStop($, t.id, await reviewedRounds($, t.id))) !== undefined) {
     // The stop button pressed while the spend was read: that round does not start.
@@ -621,6 +684,7 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
       model: spawned.model,
       startedAt,
       status: 'running',
+      claudeSession: await $.session.id(),
       ...(head === undefined ? {} : { headSha: head }),
       ...(earlier.length === 0 ? {} : { earlier }),
     })
@@ -643,18 +707,20 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
 
   const ran = new Set(started.map(r => r.skill))
   const reasons = forChanges.filter(line => ran.has(line.slice(0, line.indexOf(' runs for'))))
+  const oddPaths = skills.flatMap(({ folder, skill }) => (skill.unknownPaths === undefined ? [] : [`${folder} lists ${skill.unknownPaths.join(', ')} in paths, which can match no path (no bracket, brace, quote or leading ! in a glob), so ${skill.paths === undefined ? 'it runs on every path' : 'they are left out'}.`]))
   const odd = skills.flatMap(({ folder, skill }) => (skill.unknownChanges === undefined ? [] : [`${folder} lists ${skill.unknownChanges.join(', ')} in changes, which ${skill.unknownChanges.length === 1 ? 'is' : 'are'} no area (${AREA_NAMES.join(', ')}, all, none) and no glob.`]))
 
   await log($, 'debug', 'round-started', { ticket: t.id, round, why: trigger, skills: started.map(r => r.skill).join(','), ...(refused.length === 0 ? {} : { refused: failedRuns.map(r => r.skill).join(',') }), ...(touched.length === 0 ? {} : { touches: touched.map(x => x.area).join(',') }) })
-  return `Round ${round}: ${started.map(r => r.skill).join(', ')} reviewing ${t.id} in this session.${refused.length === 0 ? '' : ` Could not be started, so the round is not clean: ${refused.join('; ')}.`}${[without.trim(), ...reasons, ...odd].filter(x => x !== '').map(x => ` ${x}`).join('')}`
+  return `Round ${round}: ${started.map(r => r.skill).join(', ')} reviewing ${t.id} in this session.${refused.length === 0 ? '' : ` Could not be started, so the round is not clean: ${refused.join('; ')}.`}${[without.trim(), ...reasons, ...odd, ...oddPaths].filter(x => x !== '').map(x => ` ${x}`).join('')}`
 }
 
 /** The stewarding pane's r: the next round starts when the current turn ends, even after the rounds ran out or stewarding stopped. */
 export async function reviewAgain($: EngineInterface): Promise<string> {
   const s = await read($, steward)
   if (s === null) return 'Nothing is being stewarded.'
-  // Stopping does not end the reviewers already running: the next round waits for them.
-  if (s.phase === 'reviewing' || (await hereRuns($)).some(r => r.ticket === s.ticket && r.status === 'running')) return `Round ${s.round} of ${s.ticket} is still being reviewed.`
+  // Stopping does not end the reviewers already running: the next round waits for them. A reviewer whose agent is gone does not count.
+  const lost = await failLostRuns($, s.ticket)
+  if ((s.phase === 'reviewing' && lost === 0) || (await hereRuns($)).some(r => r.ticket === s.ticket && r.status === 'running')) return `Round ${s.round} of ${s.ticket} is still being reviewed.`
   if (s.phase !== 'fixing') {
     // Stopped, or Done: the ticket goes back In review for another round.
     const why = await setStatus($, s.ticket, 'In review')
@@ -796,6 +862,7 @@ async function reviewedRounds($: EngineInterface, ticket: string): Promise<numbe
  * With `withoutReviewers` no reviewer ran for this round (the budget had no room for one after a fix of the pull request alone): the round is settled on the pull request, so it is clean or it stops, and it asks for no further fix.
  */
 export async function settleRound($: EngineInterface, s: Steward, withoutReviewers = false) {
+  await failLostRuns($, s.ticket)
   const runs = (await hereRuns($)).filter(r => r.ticket === s.ticket && r.round === s.round)
   if (runs.some(r => r.status === 'running')) return
   const t = (await read($, tickets)).find(one => one.id === s.ticket)

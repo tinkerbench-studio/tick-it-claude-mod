@@ -83,6 +83,15 @@ test('review skills report their path globs: listed, absent and empty', async ($
   })
 })
 
+test('review skills report the expanded, usable globs only', async ($, on) => {
+  const seen = engine(on, { lines: 10 }, true, {
+    '.tick-it/skills/web/SKILL.md': '---\nname: web\nsizes: [S, M]\npaths: ["src/**/*.{ts,tsx}", "!x", "a[1]"]\n---\nWeb.',
+  })
+  await start($)
+  const sent = seen.ticketCalls.filter(c => c.tool === 'report_review_agents')
+  expect(sent[0]?.args).toEqual({ repository: 'acme/web-app', agents: [{ skill: 'web', description: '', sizes: ['S', 'M'], paths: ['src/**/*.ts', 'src/**/*.tsx'] }] })
+})
+
 test('a repository whose review skills are all gone reports an empty list, so Tick-it drops them', async ($, on) => {
   const seen = engine(on, { lines: 10 }, true, {})
   await start($)

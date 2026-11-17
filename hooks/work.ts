@@ -4,7 +4,7 @@ import type { PendingLink, StartedSession, Ticket, TicketStatus } from '../types
 import { patchFiles } from './security-areas'
 import type { ChangedFile } from './security-areas'
 import { STARTED_KEY, REPORT_EVERY_MS, REPORT_TOOL, SKILLS_DIR, EMPTY_TREE, UNLINKED_KEY, FILE_TYPES, MAX_ATTACH_BYTES, MAX_FILES, MAX_PATH, MAX_FILE_LINES } from './state'
-import { sendTickit, callTickit, repositoryHere } from './tickit'
+import { sendTickit, callTickit, repositoryHere, sameRepository } from './tickit'
 import type { Called } from './tickit'
 import { findCurrent, changeTicket, showStatus, save, fromRemote, readTicket, heldUntil } from './board'
 import type { RemoteTicket } from './board'
@@ -119,6 +119,51 @@ async function diffAgainstBase($: EngineInterface, args: string[]) {
   const head = await $.process.run(['git', 'rev-parse', '--verify', 'HEAD'])
   return head.exitCode === 0 ? null : await $.process.run([...args, EMPTY_TREE])
 }
+
+/** The lines `old` becomes `new` in a file's text: every occurrence with `all`, else the first; the text itself when `old` is not in it. */
+export const applyEdit = (text: string, old: string, replacement: string, all: boolean): string => {
+  if (old === '' || !text.includes(old)) return text
+  return all ? text.split(old).join(replacement) : text.replace(old, () => replacement)
+}
+
+/** How many times `old` is in a text. */
+const occurrences = (text: string, old: string): number => (old === '' ? 0 : text.split(old).length - 1)
+
+/**
+ * What an edit of one file adds to the ticket's diff, in changed lines, or 0
+ * when it adds nothing (a file outside the repository's top level, or one git
+ * ignores). With the file's text at the ticket's base readable, the effect is
+ * its changed lines against the base after the edit less before it; otherwise
+ * the edit's own estimate (lines added plus removed, per occurrence). Never
+ * throws: a measure that fails is 0, as the guard lets the edit through.
+ */
+export async function editEffect(
+  $: EngineInterface,
+  file: string,
+  change: (before: string) => { after: string; estimate: number },
+  count: (before: string, after: string) => number,
+): Promise<number> {
+  try {
+    const top = await $.process.run(['git', 'rev-parse', '--show-toplevel'])
+    if (top.exitCode !== 0) return change(await readText($, file)).estimate
+    const root = top.stdout.trim()
+    if (root === '' || !file.startsWith(`${root}/`)) return 0
+    if ((await $.process.run(['git', 'check-ignore', '-q', '--', file])).exitCode === 0) return 0
+    const before = await readText($, file)
+    const { after, estimate } = change(before)
+    // A file that could not be read, or an edit that finds nothing to change, cannot be measured against the base: the edit's own estimate stands.
+    if (before === '' || after === before) return estimate
+    // A base that cannot be read, by a non-zero exit or by git failing to run, leaves today's estimate.
+    const base = await $.process.run(['git', 'show', `${await measureBase($)}:${file.slice(root.length + 1)}`]).catch(() => null)
+    if (base === null || base.exitCode !== 0) return estimate
+    return count(base.stdout, after) - count(base.stdout, before)
+  } catch {
+    return 0
+  }
+}
+
+/** Occurrences an Edit changes: all of them with replace_all, else one. */
+export const editCount = (before: string, old: string, all: boolean): number => (all ? Math.max(1, occurrences(before, old)) : 1)
 
 /** `git diff --numstat` (with `-z` for the per-file rows) against the ticket's base, or null when it cannot be had. */
 export async function numstat($: EngineInterface, z = false): Promise<string | null> {
@@ -249,6 +294,13 @@ export async function report($: EngineInterface, status: StartedSession['status'
   if (instructions.length > 0) await update($, pendingInstructions, pending => [...pending, ...instructions])
 }
 
+/** The repository's default branch: origin/HEAD's, else main or master. */
+async function defaultBranches($: EngineInterface): Promise<string[]> {
+  const head = await $.process.run(['git', 'symbolic-ref', '--short', 'refs/remotes/origin/HEAD']).catch(() => undefined)
+  const name = head?.exitCode === 0 ? head.stdout.trim().replace(/^origin\//, '') : ''
+  return name === '' ? ['main', 'master'] : [name]
+}
+
 /**
  * Tells Tick-it the branch the ticket was built on and, if one is open, its pull
  * request (from gh), so GitHub's events about it reach the ticket. Best effort:
@@ -258,6 +310,8 @@ export async function recordPullRequest($: EngineInterface, ticket: string) {
   const repository = await repositoryHere($)
   const branch = (await $.process.run(['git', 'rev-parse', '--abbrev-ref', 'HEAD'])).stdout.trim()
   if (repository === undefined || branch === '' || branch === 'HEAD') return
+  // The default branch is no ticket's branch: linking it would tie every later pull request to the ticket.
+  if ((await defaultBranches($)).includes(branch)) return
   const pr = await $.process.run(['gh', 'pr', 'view', '--json', 'number']).catch(() => undefined)
   let number: number | undefined
   try {
@@ -309,6 +363,9 @@ export async function take($: EngineInterface, id: string): Promise<Ticket | str
   const wanted = id.toUpperCase()
   const problem = await readTicket($, wanted)
   if (problem !== undefined) return /\bno ticket\b/i.test(problem) ? `No ticket ${id}. Try /tick-it board.` : `Could not read ${wanted}: ${problem}.`
+  // A mistyped key must not reopen finished work, though Tick-it's move rules allow it: nothing is written.
+  const status = (await read($, tickets)).find(t => t.id === wanted)?.status
+  if (status === 'Done' || status === 'Superseded' || status === 'Dropped') return `${wanted} is finished (${status}), so it was not taken. Check the key; a finished ticket is not reopened here.`
   // A ticket held until a date is not taken: nothing is written, so it stays unassigned and out of In progress (Tick-it refuses its start for the same hold). Only a Backlog or Ready ticket counts, as on the server: one already in flight (In progress, In review) is resumed, never refused for a hold.
   const held = (await read($, tickets)).find(t => t.id === wanted)
   const until = held === undefined || (held.status !== 'Backlog' && held.status !== 'Ready') ? undefined : heldUntil(held)
@@ -452,7 +509,7 @@ async function fixAfterStop($: EngineInterface, key: string, e: ToolCallInput, n
   if (s === null || s.phase !== 'stopped' || s.stoppedBy !== 'mod' || s.afterStop === true || s.ticket !== key) return next(e)
   // The same key in another repository is another ticket.
   const given = (e as { repository?: unknown }).repository
-  if (typeof given === 'string' && given !== (await repositoryHere($))) return next(e)
+  if (typeof given === 'string' && !sameRepository(given, await repositoryHere($))) return next(e)
   const ran = await next(e)
   if (!('result' in ran) || ran.isError === true) return ran
   // The state may have changed while Tick-it answered (the stop button, r): only the stop the mod made is carried on.

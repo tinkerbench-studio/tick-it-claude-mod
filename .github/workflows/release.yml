@@ -5,28 +5,20 @@ on:
     branches: [main]
 
 jobs:
-  # A change to the plugin itself must raise `version`, or installs never see it.
-  version-bumped:
+  # The merge queue's "Plugin version" check: a change to the plugin must end up with a version above main's, or installs never see it.
+  # A pull request does not raise it; the queue's head does (.claude/skills/version-raise). Keep this job out of every `needs`:
+  # the queue acts on a rule's check only when it is the only failure on the commit.
+  plugin-version:
+    name: Plugin version
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Version is raised when the plugin changes
-        run: |
-          base=origin/${{ github.base_ref }}
-          if git diff --quiet "$base"...HEAD -- hooks skills types .claude-plugin/plugin.json; then
-            echo "Plugin files unchanged: no bump needed."
-            exit 0
-          fi
-          old=$(git show "$base:.claude-plugin/plugin.json" | node -p 'JSON.parse(require("fs").readFileSync(0)).version')
-          new=$(node -p 'require("./.claude-plugin/plugin.json").version')
-          if [ "$old" = "$new" ]; then
-            echo "::error file=.claude-plugin/plugin.json::The plugin changed but version is still $old. Raise it."
-            exit 1
-          fi
-          echo "version $old -> $new"
+      - run: node scripts/plugin-version.mjs
+        env:
+          GITHUB_BASE_REF: ${{ github.base_ref }}
 
   # Merged to main with a version that has no tag yet: tag that commit and cut a release.
   tag:
