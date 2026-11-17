@@ -19,6 +19,8 @@ export async function saveResume($: EngineInterface): Promise<void> {
     const repository = await repositoryHere($)
     if (repository === undefined) return
     const state: ResumeState = { claudeSession: await $.session.id(), repository, current: await read($, current), baseCommit: await read($, baseCommit), steward: await read($, steward), reviewNext: await read($, reviewNext) }
+    // Once a ticket is taken the session is the mod's to report for, whatever becomes of that ticket afterwards.
+    if (state.current !== null || state.steward !== null || state.reviewNext !== null) await update($, resumeUntaken, () => false)
     await $.store.set(RESUME_KEY, state)
   } catch {
     // Nothing to resume from is not worse than before.

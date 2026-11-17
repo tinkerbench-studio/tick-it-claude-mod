@@ -153,3 +153,13 @@ test('a resumed session with no taken ticket is denied its own record_runs and r
   expect((await check($, 'record_runs')).decision).toBe('deny')
   expect((await check($, 'report_session')).decision).toBe('deny')
 })
+
+test('a resumed session that took a ticket stays denied its own record_runs and report_session after /tick-it drop', async ($, on) => {
+  engine(on, { lines: 0, stored: store({ current: null, baseCommit: null }) }, true, PRINCIPAL_ONLY)
+  on('tool.check', () => ({ decision: 'allow' as const }))
+  await start($)
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-143' })
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'drop' })
+  expect((await check($, 'record_runs')).decision).toBe('deny')
+  expect((await check($, 'report_session')).decision).toBe('deny')
+})
