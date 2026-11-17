@@ -127,7 +127,7 @@ test('a slim board read keeps what a ticket read whole holds, and a ticket only 
   await board.press({ key: 'open-TCK-149' })
   await board.unmount()
   const reads = seen.ticketCalls.filter(c => c.tool === 'get_ticket' && (c.args as { key?: string }).key === 'TCK-149')
-  expect(reads.map(c => c.args)).toEqual([{ repository: 'acme/web-app', key: 'TCK-149', include: [] }])
+  expect(reads.map(c => c.args)).toEqual([{ repository: 'acme/web-app', key: 'TCK-149', include: ["approvals"] }])
   // The board read again is slim, yet the ticket keeps what it was read with.
   await $.command.run({ ...RUN, command: 'tick-it', args: 'board' })
   const pane = await $.ui.mount({ plugin: 'tick-it', surface: 'terminal', component: 'Pane', requestId: 'tick-it-ticket', props: { title: 'TCK-149', isFocused: true, bodyColumns: 60, placement: 'dock', scroll: { offset: 0, bodyRows: 30 }, view: {} } } as const)

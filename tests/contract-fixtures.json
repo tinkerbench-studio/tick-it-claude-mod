@@ -1,13 +1,14 @@
 {
   "about": "What the mod sends Tick-it and the fields of each answer it reads. Tick-it's CI checks every call against the tool's inputSchema and every answer against its outputSchema (docs/api-compatibility.md in tick-it). An answer lists only the fields the mod reads. Add a call or a field here when the mod starts using it.",
   "calls": [
-    { "tool": "get_mod_config", "args": { "repository": "acme/web-app", "key": "TCK-143", "modVersion": "0.48.0" } },
+    { "tool": "get_mod_config", "args": { "repository": "acme/web-app", "key": "TCK-143", "modVersion": "0.49.0" } },
     { "tool": "get_repository_settings", "args": { "repository": "acme/web-app" } },
     { "tool": "list_tickets", "args": { "repository": "acme/web-app", "slim": true } },
     { "tool": "list_tickets", "args": { "repository": "acme/web-app", "slim": true, "cursor": "50" } },
     { "tool": "list_milestones", "args": { "repository": "acme/web-app" } },
     { "tool": "get_ticket", "args": { "repository": "acme/web-app", "key": "TCK-143", "include": [] } },
     { "tool": "get_ticket", "args": { "repository": "acme/web-app", "key": "TCK-143", "include": ["attachments", "memories"] } },
+    { "tool": "get_ticket", "args": { "repository": "acme/web-app", "key": "TCK-143", "include": ["approvals"] } },
     { "tool": "get_ticket_timeline", "args": { "repository": "acme/web-app", "key": "TCK-143", "types": ["review"] } },
     { "tool": "list_pull_requests", "args": { "repository": "acme/web-app", "key": "TCK-143" } },
     { "tool": "list_screenshots", "args": { "repository": "acme/web-app", "ticket": "TCK-143" } },

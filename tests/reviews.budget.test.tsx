@@ -161,8 +161,8 @@ test('every get_ticket the hooks send names the parts it reads: the status, the 
   const reads = seen.ticketCalls.filter(c => c.tool === 'get_ticket')
   expect(reads.length).toBeGreaterThan(2)
   for (const c of reads) expect(Array.isArray(c.args.include)).toBe(true)
-  // Only the attachments and memories of a taken ticket are more than the core.
-  for (const c of reads.filter(c => (c.args.include as string[]).length > 0)) expect(c.args.include).toEqual(['attachments', 'memories'])
+  // Only the attachments and memories of a taken ticket, and the approvals of the one taken or shown, are more than the core.
+  for (const c of reads.filter(c => (c.args.include as string[]).length > 0)) expect([['attachments', 'memories'], ['approvals']]).toContainEqual(c.args.include)
   expect(reads.filter(c => (c.args.include as string[]).length === 0).length).toBeGreaterThan(1)
   // The unticked checks were read (the fake gives acceptanceItems, none ticked) and asked for with the core only.
   expect(seen.submitted.join('\n')).toContain('Step stored in session on each transition')

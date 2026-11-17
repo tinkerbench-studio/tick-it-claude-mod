@@ -26,6 +26,24 @@ export type Ticket = {
   notBefore?: string
   /** Read whole (get_ticket or update_ticket); a slim board row has no description, acceptance, links or url. */
   whole?: boolean
+  /** The open approval request and the latest answered one (get_ticket's approvals part), read only for the taken ticket and the one the pane shows; absent when Tick-it did not answer the part. */
+  approvals?: Approval[]
+}
+
+/** An approval request as the ticket pane shows it; TCK-45 takes the answer. */
+export type Approval = {
+  id: string
+  state: 'open' | 'confirmed' | 'rejected' | 'rethink'
+  subject: string
+  items: { name: string; kind: string }[]
+  /** GitHub login of the person who may answer (and who did, once answered). */
+  reviewer: string
+  /** Why the request no longer holds; absent while it does. */
+  staleReason?: string
+  askedAt: string
+  /** When it was answered, if Tick-it says. */
+  answeredAt?: string
+  questions: { text: string; answer: string | null }[]
 }
 
 /** Token counts as the API reports them, summed over a review agent's run. */
