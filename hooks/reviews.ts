@@ -390,6 +390,28 @@ export async function changedSince($: EngineInterface, sha: string): Promise<str
   return [...diff.stdout.split('\0'), ...others.stdout.split('\0')].filter(f => f !== '')
 }
 
+/**
+ * What stops a round before any reviewer starts (TCK-51): the checkout is not at the head of the ticket's open pull request, or the change against the base is empty.
+ * `stop` says why; `note` is set when the head could not be checked (Tick-it unreadable, or it gave no head), and the round then runs as before.
+ */
+export async function roundGate($: EngineInterface, ticket: string): Promise<{ stop?: string; why?: 'head-differs' | 'empty-diff'; note?: string; changed: string[] | null }> {
+  await refreshPullRequest($, ticket).catch(() => update($, pullRequestError, () => 'could not read the pull request'))
+  const pr = await read($, pullRequest)
+  // Listed once for the round: the paths of the reviewers use it too.
+  const changed = await changedSinceBase($).catch(() => null)
+  if ((await read($, pullRequestError)) !== null) return { note: 'The pull request head could not be checked: Tick-it could not be read.', changed }
+  // A ticket with no open pull request is reviewed as before.
+  if (pr !== null && pr.state === 'open') {
+    if (pr.headSha === undefined) return { note: 'The pull request head could not be checked: Tick-it gave no head commit.', changed }
+    const here = (await $.process.run(['git', 'rev-parse', 'HEAD']).catch(() => undefined))?.stdout.trim()
+    if (here === undefined || here === '') return { note: 'The pull request head could not be checked: git did not say which commit is checked out.', changed }
+    if (here !== pr.headSha) return { why: 'head-differs', stop: `No review started: the checkout is at ${here}, but pull request #${pr.number} is at ${pr.headSha}. Check out or push the pull request's head, then review again.`, changed }
+  }
+  // Nothing changed against the base branch (the working tree, untracked files included): there is nothing to review. A listing that cannot be had does not stop the round.
+  if (changed !== null && changed.length === 0) return { stop: 'No review started: git diff against the base branch is empty, so there is nothing to review.', why: 'empty-diff', changed }
+  return { changed }
+}
+
 /** Starts one review round: every skill that applies to the ticket's size and whose paths match a changed file, each as a subagent (from round 2, only those with work left). */
 export async function startRound($: EngineInterface, t: Ticket, fromRound: number, ticking?: boolean, trigger: RoundTrigger = 'done-command'): Promise<string> {
   // The ticket may not have been taken in this session: the repository's settings are read afresh as its rounds begin, before the stop check below.
@@ -432,6 +454,19 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
     await settleRound($, next, true)
     return `Round ${round}: no reviewer started for ${t.id} (the review budget has no room); the pull request is read again.`
   }
+  // The checkout must be the pull request's head and the change not empty: otherwise no reviewer starts and no run is recorded.
+  const gate = await roundGate($, t.id)
+  if (gate.stop !== undefined) {
+    // The round never ran: the steward keeps the last one that did, so r tries this round number again.
+    const ran = first ? carried : fromRound - 1
+    await setSteward($, { ticket: t.id, round: ran, phase: 'stopped', maxRounds: Math.max(limit, ran), note: gate.stop, fixing: false })
+    await log($, 'warn', 'round-not-started', { ticket: t.id, round, why: gate.why ?? 'head-differs' })
+    return gate.stop
+  }
+  if (gate.note !== undefined) {
+    $.ui.toast(`tick-it: ${gate.note}`)
+    await log($, 'debug', 'head-not-checked', { ticket: t.id, round })
+  }
   const earlierRuns = await hereRuns($)
   // The ticket's open required findings in Tick-it, from any session: a fresh container has no local state for them.
   const remote = (await tickitBlockers($, t.id)) ?? new Map<string, Earlier[]>()
@@ -443,7 +478,7 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
   const bySize = (skill: ReviewSkill) => skill.sizes === undefined || skill.sizes.includes(t.size)
   const sized = all.filter(({ skill }) => bySize(skill))
   // A reviewer of the size runs only when a changed file matches its paths; when the files cannot be listed, every reviewer of the size runs.
-  const changedPaths = sized.some(({ skill }) => skill.paths !== undefined) ? await changedSinceBase($).catch(() => null) : null
+  const changedPaths = sized.some(({ skill }) => skill.paths !== undefined) ? gate.changed : null
   const pathsMatch = (skill: ReviewSkill) => skill.paths === undefined || changedPaths === null || changedPaths.some(f => (skill.paths ?? []).some(g => globMatches(g, f)))
   // A skill also runs, when it lists `changes`, for what the change touches whatever the size. The change is read only when a skill asks.
   const listing = all.some(({ skill }) => skill.changes !== undefined)
@@ -529,7 +564,7 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
     await settleRound($, steward)
     return `${t.id}: round ${last} already reviewed this head with nothing blocking, so no reviewer starts; settling from the pull request and the acceptance checks.`
   }
-  await setSteward($, { ticket: t.id, round, phase: 'reviewing', maxRounds: Math.max(limit, round), ...(ticking === true ? { ticking } : {}), ...(trigger === 'after-stop' ? { afterStop: true } : {}) })
+  await setSteward($, { ticket: t.id, round, phase: 'reviewing', maxRounds: Math.max(limit, round), ...(ticking === true ? { ticking } : {}), ...(trigger === 'after-stop' ? { afterStop: true } : {}), ...(gate.note === undefined ? {} : { note: gate.note }) })
   const started: ReviewRun[] = []
   const refused: string[] = []
   // A reviewer that applies but could not be started is part of the round: a failed run, with the refusal as its reason.
