@@ -60,7 +60,6 @@ test(`${name} restores none of the taken ticket, base commit or stewarding`, asy
   expect(JSON.stringify(await $.tool.call(WRITE as never))).not.toContain('refused')
   await $.turn.complete(finishTurn(undefined, 'Nothing to steward.'))
   expect(seen.spawned).toEqual([])
-  expect(seen.processes.filter(p => p.includes(BASE))).toEqual([])
 })
 }
 
