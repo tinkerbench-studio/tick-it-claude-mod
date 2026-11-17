@@ -216,3 +216,8 @@ test('README and the plan-epic skill describe the date hold: marker, refusal and
   for (const words of ['is refused with that date', 'with `Waiting until <date>` under the title of a ticket whose `notBefore` hold is still in the future', 'a held Backlog or Ready ticket is refused with its date, as `/tick-it take` refuses it', 'every 15 minutes', 'clears a hold itself once its date passes', 'the release rule allows it (no open blocker or question, autoReady on, its epic in a prioritised milestone, an approved plan, no need)', 'otherwise leaving it in the Backlog']) expect(readme).toContain(words, `README no longer says "${words}"`)
   expect(read('skills/plan-epic/SKILL.md')).toContain('`notBefore` date', 'plan-epic skill no longer mentions the date hold')
 })
+
+test('README names the copies:check script, how a repository adds one, and what the mod does with it', () => {
+  const readme = read('README.md')
+  for (const words of ['`copies:check` script', '"scripts": { "copies:check":', 'npm run copies:check', 'refuses the move', 'A check that cannot be started', 'says the check could not run']) expect(readme).toContain(words, `README no longer says "${words}"`)
+})
