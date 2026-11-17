@@ -183,3 +183,10 @@ test('when git show fails to run the guard falls back to the edit alone and does
   expect(refused(await edit($, { old_string: 'a', new_string: lines(12) }))).toBe(true)
   expect(refused(await edit($, { old_string: 'a', new_string: 'b' }))).toBe(false)
 })
+
+test('when the file cannot be read the edit is estimated by its own lines, not let through', async ($, on) => {
+  // The base is readable but the file's text is not: the edit is not measured as no change.
+  await taken($, on, { lines: 90, base: { 'api/a.ts': 'a' } })
+  expect(refused(await edit($, { old_string: 'a', new_string: lines(12) }))).toBe(true)
+  expect(refused(await edit($, { old_string: 'a', new_string: 'b' }))).toBe(false)
+})

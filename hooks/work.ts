@@ -112,6 +112,8 @@ export async function editEffect(
     if ((await $.process.run(['git', 'check-ignore', '-q', '--', file])).exitCode === 0) return 0
     const before = await readText($, file)
     const { after, estimate } = change(before)
+    // A file that could not be read, or an edit that finds nothing to change, cannot be measured against the base: the edit's own estimate stands.
+    if (before === '' || after === before) return estimate
     // A base that cannot be read, by a non-zero exit or by git failing to run, leaves today's estimate.
     const base = await $.process.run(['git', 'show', `${(await read($, baseCommit)) ?? 'HEAD'}:${file.slice(root.length + 1)}`]).catch(() => null)
     if (base === null || base.exitCode !== 0) return estimate
