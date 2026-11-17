@@ -10,6 +10,8 @@ export const PANE = 'tick-it-board'
 export const TICKET_PANE = 'tick-it-ticket'
 export const STORE_KEY = 'tickets'
 export const STARTED_KEY = 'started-session'
+/** The taken ticket, its base commit and the stewarding, kept beside the started session so a resumed session has them (hooks/resume.ts). */
+export const RESUME_KEY = 'resume-state'
 /** The first line of a session Tick-it started for a ticket. A routine session receives it inside a routine-fire-payload block, indented, so spaces or tabs may come before it; text before it on the line may not. */
 export const START_LINE = /^[ \t]*Tick-it session (s_[a-z0-9]{8,40}): work on ([A-Z]{3}-[1-9]\d*) in ([A-Za-z0-9-]+\/[A-Za-z0-9._-]+)\.$/m
 /** The first line of a session Tick-it started to carry on a ticket already In review or Ready to merge (a conflict, failing CI, a failing merge check, a released CI fix, a head no review has seen): the mod takes the ticket into the session without moving its status. Written like START_LINE, indented where a routine session receives it. */
@@ -110,7 +112,7 @@ export const MAX_FINDINGS = 200
 // ---- Tick-it, the server -----------------------------------------------------
 
 /** This mod's version, sent with get_mod_config (the server requires it). Kept equal to `version` in .claude-plugin/plugin.json: checks/contract-fixtures.test.mjs fails when they differ. */
-export const MOD_VERSION = '0.49.2'
+export const MOD_VERSION = '0.50.0'
 
 /** The server's key in this mod's manifest (.claude-plugin/plugin.json). */
 export const TICKIT_SERVER = 'tickit'

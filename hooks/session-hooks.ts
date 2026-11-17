@@ -7,6 +7,7 @@ import { refreshBoard, showStatus } from './board'
 import { reportsForItself, instructionsOf, take, resume } from './work'
 import { reportAgents, flush } from './outbox'
 import { log } from './log'
+import { restoreResume, resumedUntaken } from './resume'
 
 // Declared in this file: the engine reads an atom only where it is written (a module cannot use one imported from state.ts).
 const tickets = atom({ plugin: 'tick-it', key: 'tickets' } as const, [])
@@ -50,6 +51,7 @@ export const registerSession: Register = on => {
       // Only into the Claude Code session it belongs to (a resume), never a new one.
       if (typeof saved === 'object' && saved !== null && saved.claudeSession === (await $.session.id())) await update($, startedSession, () => saved)
     }
+    await restoreResume($)
     if ((await read($, breakdownSession)) === null) {
       const saved = (await $.store.get(BREAKDOWN_KEY)) as { id: string; claudeSession: string } | null | undefined
       // Only into the Claude Code session it belongs to (a resume), never a new one.
@@ -73,6 +75,11 @@ export const registerSession: Register = on => {
   // rest of Tick-it's tools (tickets, epics, costs) stay the model's to use.
   on('tool.check', async ($, e, next) => {
     const isTickit = /tick-?it/i.test(e.tool)
+    // A resumed session whose started session came back with no taken ticket or stewarding: as for a start line the mod could not take, its own calls are let through.
+    if (isTickit && next.origin.plugin === 'engine' && (await resumedUntaken($)) && [RECORD_TOOL, REPORT_TOOL, AGENTS_TOOL].some(t => e.tool.endsWith(`__${t}`))) {
+      await log($, 'warn', 'tool-allowed-untaken', { tool: e.tool, why: 'resumed' })
+      return next(e)
+    }
     // A session Tick-it started whose ticket the mod could not take (the take was refused, or the start line named another repository): nothing is recorded or reported for it, so it reports for itself and these calls are its own.
     if (isTickit && next.origin.plugin === 'engine' && (await read($, takeFailed)) !== null && (await read($, current)) === null && (await read($, startedSession)) === null && [RECORD_TOOL, REPORT_TOOL, AGENTS_TOOL].some(t => e.tool.endsWith(`__${t}`))) {
       await log($, 'warn', 'tool-allowed-untaken', { tool: e.tool })

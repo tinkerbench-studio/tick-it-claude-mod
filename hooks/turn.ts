@@ -6,6 +6,7 @@ import { findCurrent, refreshPullRequest, statusOnTickit, showStatus } from './b
 import { refreshDiff, report, recordPullRequest, firstLine, finish } from './work'
 import { withoutStopMarks, costOf, openVerdictLines, readFindings, readVerdicts, parseFinding, saveReviews, setSteward, startRound, settleRound } from './reviews'
 import { queue, flush } from './outbox'
+import { saveResume } from './resume'
 
 // Declared in this file: the engine reads an atom only where it is written (a module cannot use one imported from state.ts).
 const tickets = atom({ plugin: 'tick-it', key: 'tickets' } as const, [])
@@ -77,6 +78,7 @@ export const registerTurn: Register = on => {
           if (continued) {
             await update($, current, () => null)
             await update($, baseCommit, () => null)
+            await saveResume($)
             await showStatus($)
           } else {
             const moved = await finish($, 'In review')
@@ -105,6 +107,7 @@ export const registerTurn: Register = on => {
       }
       if (toReview !== null) {
         await update($, reviewNext, () => null)
+        await saveResume($)
         const t = (await read($, tickets)).find(one => one.id === toReview)
         try {
           if (t === undefined) throw new Error(`${toReview} is not on the board this session has`)
@@ -116,7 +119,10 @@ export const registerTurn: Register = on => {
       }
       // Read again: the stop button may have been pressed while this turn's end was handled.
       const fixingNow = await read($, steward)
-      if (fixingNow?.fixing === true && fixingNow.phase === 'stopped') await update($, steward, v => (v === null ? v : { ...v, fixing: false }))
+      if (fixingNow?.fixing === true && fixingNow.phase === 'stopped') {
+        await update($, steward, v => (v === null ? v : { ...v, fixing: false }))
+        await saveResume($)
+      }
       const suggested = fixingNow?.phase === 'fixing' ? (await read($, pendingInstructions)).filter(i => i.startsWith(BREAKDOWN_SUGGESTION)) : []
       if (fixingNow?.phase === 'fixing' && suggested.length > 0) {
         // Tick-it suggests breaking the ticket down: no further fix round starts. Claude offers the breakdown to the person, and r starts the next round if they decline.
