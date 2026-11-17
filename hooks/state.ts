@@ -9,6 +9,8 @@ export const PANE = 'tick-it-board'
 /** The taken ticket's details, opened from its key or pull request in the band. */
 export const TICKET_PANE = 'tick-it-ticket'
 export const STORE_KEY = 'tickets'
+/** The repository (owner/name) the cached board belongs to. */
+export const STORE_REPOSITORY_KEY = 'tickets-repository'
 export const STARTED_KEY = 'started-session'
 /** The first line of a session Tick-it started for a ticket. A routine session receives it inside a routine-fire-payload block, indented, so spaces or tabs may come before it; text before it on the line may not. */
 export const START_LINE = /^[ \t]*Tick-it session (s_[a-z0-9]{8,40}): work on ([A-Z]{3}-[1-9]\d*) in ([A-Za-z0-9-]+\/[A-Za-z0-9._-]+)\.$/m
