@@ -119,7 +119,7 @@ export type Net = {
 /** The engine beneath the mod: a store, a repo whose diff is `diff.lines` lines, and quiet UI calls. */
 export const engine = (
   on: On,
-  diff: { lines: number; merged?: boolean; byCommit?: Record<string, { lines?: number; numstatZ?: string; patch?: string }>; failDiff?: boolean; siblings?: Record<string, string> | 'unlistable'; pr?: number; origin?: string | null; noCommit?: boolean; numstatZ?: string; failFiles?: boolean; changed?: string[] | null; since?: string[] | null; failUntracked?: boolean; truncateNames?: boolean; bases?: string[]; failNames?: 'exit' | 'throw'; subdir?: string; stored?: Record<string, unknown>; refuse?: (model: string | undefined, description: string) => string | undefined; patch?: string; dirty?: boolean; untracked?: Record<string, string>; binary?: Record<string, string>; gh?: (argv: string[]) => { exitCode: number; stdout: string; stderr: string } | undefined; pictures?: { key: string; name: string }[] | 'unreachable' | 'odd'; copies?: { exitCode: number; stdout: string; stderr: string } | 'hang' | 'throw' },
+  diff: { lines: number; merged?: boolean; byCommit?: Record<string, { lines?: number; numstatZ?: string; patch?: string }>; failDiff?: boolean; branch?: string; defaultBranch?: string; branchThrows?: boolean; siblings?: Record<string, string> | 'unlistable'; pr?: number; origin?: string | null; noCommit?: boolean; numstatZ?: string; failFiles?: boolean; changed?: string[] | null; since?: string[] | null; failUntracked?: boolean; truncateNames?: boolean; bases?: string[]; failNames?: 'exit' | 'throw'; subdir?: string; stored?: Record<string, unknown>; refuse?: (model: string | undefined, description: string) => string | undefined; patch?: string; dirty?: boolean; untracked?: Record<string, string>; binary?: Record<string, string>; gh?: (argv: string[]) => { exitCode: number; stdout: string; stderr: string } | undefined; pictures?: { key: string; name: string }[] | 'unreachable' | 'odd'; copies?: { exitCode: number; stdout: string; stderr: string } | 'hang' | 'throw' },
   isPlaced = true,
   skills: Record<string, string> = {},
   net: Net = {},
@@ -311,6 +311,8 @@ export const engine = (
       const origin = typeof diff.siblings === 'object' ? diff.siblings[e.argv[2]?.slice(1) ?? ''] : undefined
       return { value: { exitCode: origin === undefined ? 128 : 0, stdout: origin ?? '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     }
+    if (cmd === 'git' && sub === 'symbolic-ref') return { value: { exitCode: diff.defaultBranch === undefined ? 1 : 0, stdout: `origin/${diff.defaultBranch ?? ''}\n`, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    if (cmd === 'git' && sub === 'rev-parse' && e.argv.includes('--abbrev-ref') && diff.branchThrows === true) throw new Error('git rev-parse failed')
     if (cmd === 'git' && sub === 'ls-files' && diff.failUntracked === true) return { value: { exitCode: 1, stdout: '', stderr: 'fatal', isStdoutTruncated: false, isStderrTruncated: false } }
     if (cmd === 'git' && sub === 'ls-files') {
       // As git does: the session folder (`subdir`, below the root) only, unless the `:/` pathspec names the whole repository; --full-name changes only how paths print.
@@ -346,7 +348,7 @@ export const engine = (
           : cmd === 'git' && sub === 'rev-parse' && e.argv.includes('--show-toplevel')
             ? '/repo\n'
             : cmd === 'git' && sub === 'rev-parse' && e.argv.includes('--abbrev-ref')
-              ? 'tck-151-picker\n'
+              ? `${diff.branch ?? 'tck-151-picker'}\n`
               : cmd === 'git' && sub === 'rev-parse'
                 ? `${'ab12'.repeat(10)}\n`
                 : cmd === 'git' && sub === 'status' && diff.dirty === true

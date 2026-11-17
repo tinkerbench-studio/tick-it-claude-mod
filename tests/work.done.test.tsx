@@ -113,10 +113,11 @@ test('a link_pull_request that fails is kept and sent again on sync', async ($, 
 test('a newer link for the same ticket replaces a waiting one', async ($, on) => {
   const net: Net = { linkRefused: true }
   const diff: { lines: number; pr?: number } = { lines: 10 }
-  const seen = engine(on, diff, true, {}, net)
+  const seen = engine(on, diff, true, { '.tick-it/skills/principal/SKILL.md': SKILLS['.tick-it/skills/principal/SKILL.md'] ?? '' }, net)
   await start($)
   await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-143' })
   await $.command.run({ ...RUN, command: 'tick-it', args: 'done' })
+  // With a review skill the ticket stays In review (finished work is not taken again).
   // The pull request is opened, and the second link fails too: it replaces the first.
   diff.pr = 42
   await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-143' })
