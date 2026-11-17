@@ -47,3 +47,17 @@ for (const [name, odd] of [['not an array and a list', { beforeReview: 'not an a
     expect(fix).toBe(NOTHING)
   })
 }
+
+test('the brief carries a served wake line before the line that says how to finish', async ($, on) => {
+  const served = await run($, on, { modConfig: { ...base, briefLines: { ...lines, wake: 'SERVED wake: subscribe to your pull request.' } } })
+  expect(served.brief).toContain('SERVED wake: subscribe to your pull request.')
+  expect(served.brief.indexOf('SERVED wake')).toBeLessThan(served.brief.indexOf('When it is built and its checks pass'))
+})
+
+for (const [name, extra] of [['no wake line', {}], ['a blank wake line', { wake: '   ' }]] as const) {
+  test(`an older Tick-it that serves ${name} leaves the brief without it`, async ($, on) => {
+    const { brief } = await run($, on, { modConfig: { ...base, briefLines: { ...lines, ...extra } } })
+    expect(brief).not.toContain('wake')
+    expect(brief).toMatch(/refusal\.\\nWhen it is built and its checks pass, move TCK-143 to In review/)
+  })
+}

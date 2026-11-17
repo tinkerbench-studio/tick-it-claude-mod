@@ -19,7 +19,7 @@ const pullRequestError = atom({ plugin: 'tick-it', key: 'pullRequestError' } as 
 /** The pull request whose failing CI the mod has already told about ("TCK-34#12"), so it speaks once per failure. */
 const ciNoticed = atom({ plugin: 'tick-it', key: 'ciNoticed' } as const, null)
 /** What get_mod_config last served: the size budgets and the brief lines for the ticket it was asked about. Until it answers, the mod's own copies below are used. */
-export type BriefLines = { memories: string; memoryTools: string; deferredTools: string; done: string; branch: string; addToTicket: string[]; beforeReview?: string[]; afterFix?: string }
+export type BriefLines = { memories: string; memoryTools: string; deferredTools: string; done: string; branch: string; addToTicket: string[]; beforeReview?: string[]; afterFix?: string; wake?: string }
 export type Served = { sizeBudgets: Record<TicketSize, number>; ticket: string; briefLines: BriefLines }
 const served = atom({ plugin: 'tick-it', key: 'served' } as const, null as Served | null)
 const steward = atom({ plugin: 'tick-it', key: 'steward' } as const, null)
@@ -198,6 +198,7 @@ export const brief = (t: Ticket, board: Ticket[] = [], instructions = '', files:
     SECURE_CODING_LINE,
     `Size ${t.size}: keep the whole diff under ${budget} changed lines. ` + 'Edits past that are refused by the tick-it mod; if the work does not fit, ' + 'say so and offer the choices in the refusal.',
     ...(lines?.beforeReview ?? []),
+    ...(lines?.wake === undefined ? [] : [lines.wake]),
     ...(reviewBudget === null ? [] : [budgetLine(reviewRounds, reviewBudget)]),
     `When it is built and its checks pass, move ${t.id} to In review yourself with Tick-it's update_ticket, without waiting to be asked: tick-it then runs its review agents on it.`,
     ...(lines?.addToTicket ?? addToTicketLines(t.id)),
