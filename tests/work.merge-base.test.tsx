@@ -76,7 +76,7 @@ const login = { numstatZ: '3\t0\tapi/login.ts\0', patch: patch('api/login.ts', '
 
 test('changedContent leaves out the files that came in with the merge, so the areas they touch run no security reviewer', async ($, on) => {
   const byCommit = { [A]: login, [B]: { numstatZ: '1\t0\tapi/a.ts\0', patch: patch('api/a.ts', 'const label = "Save"') } }
-  const seen = engine(on, { lines: 10, changed: [], merged: true, byCommit }, true, SECURITY)
+  const seen = engine(on, { lines: 10, changed: ['api/a.ts'], merged: true, byCommit }, true, SECURITY)
   await take($, 'TCK-143')
   seen.processes.length = 0
   await $.command.run({ ...RUN, command: 'tick-it', args: 'steward TCK-143' })
@@ -86,7 +86,7 @@ test('changedContent leaves out the files that came in with the merge, so the ar
 })
 
 test('with no merge, changedContent reads the taken commit, where the same file is the ticket’s own and runs the security reviewer', async ($, on) => {
-  const seen = engine(on, { lines: 10, changed: [], merged: false, byCommit: { [A]: login, [B]: { numstatZ: '1\t0\tapi/a.ts\0' } } }, true, SECURITY)
+  const seen = engine(on, { lines: 10, changed: ['api/a.ts'], merged: false, byCommit: { [A]: login, [B]: { numstatZ: '1\t0\tapi/a.ts\0' } } }, true, SECURITY)
   await take($, 'TCK-143')
   seen.processes.length = 0
   await $.command.run({ ...RUN, command: 'tick-it', args: 'steward TCK-143' })
