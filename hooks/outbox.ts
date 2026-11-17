@@ -2,9 +2,9 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 import type { DroppedRun, OutboxRun } from '../types'
 import { OUTBOX_KEY, DROPPED_KEY, KEEP_DROPPED, BATCH_SIZE, RECORD_TOOL, AGENTS_TOOL } from './state'
-import { sendTickit, textOf, repositoryHere } from './tickit'
+import { sendTickit, textOf, repositoryHere, madeHere } from './tickit'
 import { sendWaitingLinks } from './work'
-import { findSkills } from './reviews'
+import { findSkills, saveReviews } from './reviews'
 import { log } from './log'
 
 // Declared in this file: the engine reads an atom only where it is written (a module cannot use one imported from state.ts).
@@ -37,8 +37,11 @@ export const readAnswer = (result: { content: readonly { type: string; text?: st
 /** "TCK-143 principal round 1", "TCK-143 build turn": how a run is named in /tick-it reviews. */
 export const describeRun = (run: OutboxRun): string => ('kind' in run ? `${run.ticket} ${run.kind} turn` : `${run.ticket} ${run.skill} round ${run.round}`)
 
+/** A run carries the repository it was made in; one with none is stamped with the repository it is first read in. */
+const stamp = (runs: OutboxRun[], repository: string | undefined): OutboxRun[] => runs.map(r => (r.repository === undefined && repository !== undefined ? { ...r, repository } : r))
+
 export async function queue($: EngineInterface, runs: OutboxRun[]) {
-  const list = [...(await read($, outbox)), ...runs]
+  const list = stamp([...(await read($, outbox)), ...runs], await repositoryHere($))
   await update($, outbox, () => list)
   await $.store.set(OUTBOX_KEY, list)
 }
@@ -64,8 +67,8 @@ export async function reportAgents($: EngineInterface): Promise<void> {
 }
 
 /** A run as Tick-it takes it: its findings are its items, without an earlier blocker verified open (Tick-it adds those to the blocking count itself, from the run's verdicts). */
-export const sendable = ({ epic: _epic, ...run }: OutboxRun) => {
-  // The epic's title stays here: Tick-it knows the ticket's epic, and no title goes to its tools.
+export const sendable = ({ epic: _epic, repository: _repository, ...run }: OutboxRun) => {
+  // The epic's title stays here: Tick-it knows the ticket's epic, and no title goes to its tools. The repository is the call's own field, not each run's.
   if (!('findings' in run || 'items' in run)) return run
   const { findings: _findings, items, ...rest } = run as typeof run & { items?: { open?: true }[]; blocking?: number }
   if (items === undefined) return rest
@@ -73,17 +76,40 @@ export const sendable = ({ epic: _epic, ...run }: OutboxRun) => {
   return { ...rest, ...(held === 0 || rest.blocking === undefined ? {} : { blocking: rest.blocking - held }), findings: items.filter(i => i.open !== true) }
 }
 
-/** Sends the outbox to Tick-it; answers what happened, for /tick-it sync. */
+/** Takes the runs an older mod stored with no repository for the repository they are first read in: the outbox, the dropped runs and the review history. */
+export async function adoptRuns($: EngineInterface): Promise<void> {
+  const repository = await repositoryHere($)
+  if (repository === undefined) return
+  const waiting = await read($, outbox)
+  if (waiting.some(r => r.repository === undefined)) {
+    const list = stamp(waiting, repository)
+    await update($, outbox, () => list)
+    await $.store.set(OUTBOX_KEY, list)
+  }
+  const gone = await read($, dropped)
+  if (gone.some(d => d.run.repository === undefined)) {
+    const list = gone.map(d => ({ ...d, run: stamp([d.run], repository)[0]! }))
+    await update($, dropped, () => list)
+    await $.store.set(DROPPED_KEY, list)
+  }
+  await saveReviews($, list => list)
+}
+
+/** Sends this repository's part of the outbox to Tick-it; answers what happened, for /tick-it sync. Runs made in other repositories stay waiting. */
 export async function flush($: EngineInterface): Promise<string> {
   await sendWaitingLinks($).catch(() => undefined)
-  const waiting = await read($, outbox)
+  await adoptRuns($)
+  const repository = await repositoryHere($)
+  const all = await read($, outbox)
+  const waiting = all.filter(r => madeHere(r, repository))
+  const elsewhere = all.length - waiting.length
+  const other = elsewhere === 0 ? '' : ` ${plural(elsewhere, 'run')} ${elsewhere === 1 ? 'waits' : 'wait'} for other repositories.`
   const links = (await read($, unlinked)).length
-  if (waiting.length === 0) return links === 0 ? 'Nothing waiting to send to Tick-it.' : `${plural(links, 'pull request link')} still waiting to send to Tick-it.`
+  if (waiting.length === 0) return `${links === 0 ? 'Nothing waiting to send to Tick-it.' : `${plural(links, 'pull request link')} still waiting to send to Tick-it.`}${other}`
 
   const accepted = new Set<string>()
   const refused: DroppedRun[] = []
   let failure: string | null = null
-  const repository = await repositoryHere($)
   if (repository === undefined) {
     failure = 'this folder has no GitHub origin remote, so Tick-it would not know the repository'
   } else {
@@ -152,16 +178,20 @@ export async function flush($: EngineInterface): Promise<string> {
   const sentCount = waiting.filter(r => accepted.has(r.agentId)).length
   if (refused.length > 0) await log($, 'error', 'runs-dropped', { dropped: refused.length })
   await log($, failure === null ? 'info' : 'warn', 'outbox-send', { sent: sentCount, dropped: refused.length, waiting: left.length, failed: failure !== null })
-  const parts = [sentCount > 0 ? `Sent ${plural(sentCount, 'review run')} to Tick-it.` : '', refused.length > 0 ? `Dropped ${plural(refused.length, 'review run')} Tick-it rejected: ${refused.map(d => `${describeRun(d.run)} (${d.reason})`).join('; ')}.` : '', failure !== null ? `${plural(left.length, 'review run')} still waiting: ${failure}.` : '']
+  const parts = [sentCount > 0 ? `Sent ${plural(sentCount, 'review run')} to Tick-it.` : '', refused.length > 0 ? `Dropped ${plural(refused.length, 'review run')} Tick-it rejected: ${refused.map(d => `${describeRun(d.run)} (${d.reason})`).join('; ')}.` : '', failure !== null ? `${plural(left.filter(r => madeHere(r, repository)).length, 'review run')} still waiting: ${failure}.` : '', other.trim()]
 
   return parts.filter(p => p !== '').join(' ')
 }
 
 export async function syncLine($: EngineInterface): Promise<string> {
-  const waiting = (await read($, outbox)).length
+  const repository = await repositoryHere($)
+  const everyRun = await read($, outbox)
+  const waiting = everyRun.filter(r => madeHere(r, repository)).length
+  const elsewhere = everyRun.length - waiting
+  const other = elsewhere === 0 ? '' : ` ${plural(elsewhere, 'run')} ${elsewhere === 1 ? 'waits' : 'wait'} for other repositories.`
   const error = await read($, syncError)
-  const gone = await read($, dropped)
-  const status = waiting === 0 ? (gone.length === 0 ? 'Tick-it has every review run.' : 'Nothing waiting to send to Tick-it.') : `${plural(waiting, 'review run')} waiting to send to Tick-it${error === null ? '' : `: ${error}`}. /tick-it sync to try again.`
+  const gone = (await read($, dropped)).filter(d => madeHere(d.run, repository))
+  const status = (waiting === 0 ? (gone.length === 0 ? 'Tick-it has every review run.' : 'Nothing waiting to send to Tick-it.') : `${plural(waiting, 'review run')} waiting to send to Tick-it${error === null ? '' : `: ${error}`}. /tick-it sync to try again.`) + other
   if (gone.length === 0) return status
 
   return [status, `Dropped: ${plural(gone.length, 'run')} Tick-it rejected, so ${gone.length === 1 ? 'it is' : 'they are'} not in its costs.`, ...gone.slice(-5).map(d => `  ✗ ${describeRun(d.run)}  ${d.reason}`)].join('\n')

@@ -2,7 +2,7 @@
 
 Tick-it in your Claude session. The board comes from Tick-it's MCP server for the repository you are in, read from its GitHub `origin` remote. `/tick-it take <id>` works on a ticket (a Backlog or Ready ticket held until a `notBefore` date that is still ahead (as on Tick-it, a ticket already In progress or In review is not refused) is refused with that date, and nothing is moved or assigned; a Done, Superseded or Dropped ticket is refused as finished, and `take` with no key prints its usage line, calling no Tick-it tool), and `/tick-it done` moves it to In review, with the lines its change touched since it was taken, and **stewards it to completion**.
 
-Every move happens on Tick-it first: take, done, drop, Done after a clean review round with every acceptance check ticked (a check flagged after-deploy is left out), and `/tick-it add`. `/tick-it attach <id> <note> <file>` moves nothing: it attaches a file, such as a log or screenshot, to a note on a ticket's acceptance check (the mod reads it as bytes, so any type up to 3 MB). The board is cached, so when Tick-it can't be reached `/tick-it board` shows the last board read and says why, and nothing moves.
+Every move happens on Tick-it first: take, done, drop, Done after a clean review round with every acceptance check ticked (a check flagged after-deploy is left out), and `/tick-it add`. `/tick-it attach <id> <note> <file>` moves nothing: it attaches a file, such as a log or screenshot, to a note on a ticket's acceptance check (the mod reads it as bytes, so any type up to 3 MB). The board is cached with the repository it was read for, so when Tick-it can't be reached `/tick-it board` shows the last board read for this repository and says why, and nothing moves (a board cached for another repository is not shown).
 
 The manifest points at Tick-it on `https://mcp.tick-it.dev/mcp`. To use a local `tickit-mcp` instead (see the repository README), start Claude Code with `TICKIT_MCP_URL=http://localhost:8787/mcp`. Sign in once with `/mcp`.
 
@@ -250,7 +250,7 @@ For each reviewer run, tick-it records the following from its `turn.complete`:
 
 The cost is what those tokens would cost at API list prices. On a Claude plan they count against the plan's usage instead. Prices are in `PRICES` in `hooks/state.ts`, and a model with no price there shows `—`.
 
-`/tick-it reviews [id]` shows each run, then totals by reviewer and overall. The history is kept in the mod's store across sessions (the last 500 runs).
+`/tick-it reviews [id]` shows each run, then totals by reviewer and overall. The history is kept in the mod's store across sessions (the last 500 runs). Each run carries the repository it was made in, and the list, the round numbers and the earlier blockers read only this repository's runs (names compared without regard to letter case); runs of other repositories are counted apart. A run an older mod stored with no repository belongs to the repository it is first read in.
 
 ## Review spend budget and the stopping rule
 
@@ -296,5 +296,5 @@ Tick-it is an MCP server, and this mod lists it in `.claude-plugin/plugin.json` 
   - Accepted runs leave the outbox.
   - Rejected runs are dropped and listed under "Dropped" in `/tick-it reviews` with Tick-it's reason, because sent again they would only be rejected again.
   - A run the answer doesn't mention stays waiting.
-- **When the call fails as a whole** (not signed in, server down, an error result): every run stays waiting. They go with the next finished run, at session start and end, and on `/tick-it sync`. Tick-it keys a run by its `agentId`, so a run sent twice counts once.
+- **When the call fails as a whole** (not signed in, server down, an error result): every run stays waiting. They go with the next finished run, at session start and end, and on `/tick-it sync`. A session sends only the runs of its own repository: the runs of others stay waiting, and `/tick-it sync` counts them. Tick-it keys a run by its `agentId`, so a run sent twice counts once.
 - **The model can't write runs:** the mod refuses the model's own calls to `record_runs` and `report_review_agents` (the mod sends the repository's review skills itself at session start). Tick-it's other tools (tickets, epics, costs) are the model's to use.
