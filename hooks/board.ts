@@ -268,7 +268,7 @@ export const fromRemote = (r: RemoteTicket): Ticket => ({
   ...(typeof r.notBefore === 'string' ? { notBefore: r.notBefore } : {}),
   // A slim board row has no acceptance: only a ticket read whole (get_ticket, update_ticket) has it.
   ...(Array.isArray(r.acceptance) ? { whole: true } : {}),
-  ...(approvalsOf(r.approvals) === undefined ? {} : { approvals: approvalsOf(r.approvals) }),
+  ...(approvalsOf(r.approvals) === undefined ? {} : { approvals: approvalsOf(r.approvals) as Approval[] }),
 })
 
 /** A slim board row, keeping what a ticket already read whole holds that the row lacks (description, acceptance, links, url). */

@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { PANE, engine, start } from './helpers'
+import { PANE, RUN, engine, start } from './helpers'
 import type { Net } from './helpers'
 import { waited } from '../hooks/approval-pane'
 
@@ -88,4 +88,12 @@ test('the approvals part is read only for the ticket shown or taken, never for t
   const withApprovals = seen.ticketCalls.filter(c => Array.isArray(c.args.include) && c.args.include.includes('approvals'))
   expect(withApprovals.map(c => [c.tool, c.args.key])).toEqual([['get_ticket', 'TCK-149']])
   expect(seen.ticketCalls.filter(c => c.tool === 'list_tickets').every(c => c.args.include === undefined)).toBe(true)
+})
+
+test('taking a ticket reads its approvals; a ticket neither taken nor shown is not read with them', async ($, on) => {
+  const seen = engine(on, { lines: 0 })
+  await start($)
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-143' })
+  const withApprovals = seen.ticketCalls.filter(c => Array.isArray(c.args.include) && c.args.include.includes('approvals'))
+  expect(withApprovals.map(c => c.args.key)).toEqual(['TCK-143'])
 })
