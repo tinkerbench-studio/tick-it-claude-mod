@@ -9,6 +9,8 @@ export const PANE = 'tick-it-board'
 /** The taken ticket's details, opened from its key or pull request in the band. */
 export const TICKET_PANE = 'tick-it-ticket'
 export const STORE_KEY = 'tickets'
+/** The repository (owner/name) the cached board belongs to. */
+export const STORE_REPOSITORY_KEY = 'tickets-repository'
 export const STARTED_KEY = 'started-session'
 /** The taken ticket, its base commit and the stewarding, kept beside the started session so a resumed session has them (hooks/resume.ts). */
 export const RESUME_KEY = 'resume-state'
