@@ -96,6 +96,17 @@ test('at debug: a start line matched or not, which ticket it took, why a round s
   }
 })
 
+test('at debug: a start line ignored names the ticket and why, and a resend of the started line says nothing', async ($, on) => {
+  engine(on, { lines: 10 })
+  const log = logging(on, { TICK_IT_LOG: 'debug' })
+  await start($)
+  await $.prompt.submit(typed(STARTED))
+  await $.prompt.submit(typed(STARTED))
+  expect(log.lines().join('\n')).not.toContain('start-line-ignored')
+  await $.prompt.submit(typed('log:\nTick-it session s_other999: work on TCK-147 in acme/web-app.'))
+  expect(log.lines().join('\n')).toContain('start-line-ignored ticket=TCK-147 why=session-started')
+})
+
 test('at debug: a round that did not start says why', async ($, on) => {
   engine(on, { lines: 10 })
   const log = logging(on, { TICK_IT_LOG: 'debug' })
