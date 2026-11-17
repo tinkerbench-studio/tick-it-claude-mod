@@ -337,10 +337,11 @@ export async function uiRefusal($: EngineInterface, ticket: string): Promise<str
   )
 }
 
-/** The refusal for the current ticket's failing copies:check, or undefined (also when it passed or could not run). */
-export async function copiesGate($: EngineInterface, ticket: string): Promise<string | undefined> {
+/** The current ticket's copies:check as the steward command needs it: the refusal when it fails, or the note when it could not run; neither when it passed or there is none. */
+export async function copiesGate($: EngineInterface, ticket: string): Promise<{ refusal?: string; note?: string }> {
   const copies = await runCopiesCheck($)
-  return copies.kind === 'failed' ? copiesRefusal(ticket, copies.output) : undefined
+  if (copies.kind === 'failed') return { refusal: copiesRefusal(ticket, copies.output) }
+  return copies.kind === 'unrun' ? { note: copiesNote(copies.why) } : {}
 }
 
 export async function finish($: EngineInterface, status: TicketStatus): Promise<string> {

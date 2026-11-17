@@ -91,6 +91,15 @@ test('a check that times out does not refuse the move and the pane says it could
   expect(inReview(seen)).toBe(true)
 })
 
+test('/tick-it steward says the check could not run and still moves the ticket', async ($, on) => {
+  const seen = engine(on, { lines: 5, copies: 'throw' }, true, WITH)
+  await start($)
+  await $.prompt.submit(typed(STARTED))
+  const stewarded = (await $.command.run({ ...RUN, command: 'tick-it', args: 'steward TCK-151' })) as { text: string }
+  expect(stewarded.text).toContain('could not run: it could not be started')
+  expect(inReview(seen)).toBe(true)
+})
+
 test("Claude's own move to review is told when the check could not run", async ($, on) => {
   const seen = engine(on, { lines: 5, copies: 'throw' }, true, WITH)
   await start($)
@@ -99,4 +108,30 @@ test("Claude's own move to review is told when the check could not run", async (
   expect(moved.deny).toBeUndefined()
   expect(moved.context?.join('\n') ?? '').toContain('could not run')
   expect(inReview(seen)).toBe(true)
+})
+
+test('an npm that is not found (exit 127) is a check that could not run, not a failure', async ($, on) => {
+  const seen = engine(on, { lines: 5, copies: { exitCode: 127, stdout: '', stderr: 'npm: not found' } }, true, WITH)
+  await start($)
+  await $.prompt.submit(typed(STARTED))
+  const done = (await $.command.run({ ...RUN, command: 'tick-it', args: 'done' })) as { text: string }
+  expect(done.text).toContain('could not run: npm could not be started')
+  expect(inReview(seen)).toBe(true)
+})
+
+test('a failure with no output says it printed nothing, and a long one is cut', async ($, on) => {
+  const quiet = engine(on, { lines: 5, copies: { exitCode: 1, stdout: '', stderr: '' } }, true, WITH)
+  await start($)
+  await $.prompt.submit(typed(STARTED))
+  expect((await finishReview($ as never)).deny).toContain('(it printed nothing)')
+  expect(inReview(quiet)).toBe(false)
+})
+
+test('a long hit list is cut at 4000 characters and says so', async ($, on) => {
+  engine(on, { lines: 5, copies: { exitCode: 1, stdout: 'x'.repeat(5000), stderr: '' } }, true, WITH)
+  await start($)
+  await $.prompt.submit(typed(STARTED))
+  const denied = (await finishReview($ as never)).deny ?? ''
+  expect(denied).toContain('… (output cut)')
+  expect(denied).not.toContain('x'.repeat(4001))
 })

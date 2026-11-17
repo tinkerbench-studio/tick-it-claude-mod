@@ -58,11 +58,12 @@ export const registerCommand: Register = on => {
         // The changed files can be measured only for the ticket being built here.
         const missing = (await findCurrent($))?.id === t.id ? await uiRefusal($, t.id) : undefined
         if (missing !== undefined) return { text: missing }
-        const stale = (await findCurrent($))?.id === t.id ? await copiesGate($, t.id) : undefined
-        if (stale !== undefined) return { text: stale }
+        const stale = (await findCurrent($))?.id === t.id ? await copiesGate($, t.id) : {}
+        if (stale.refusal !== undefined) return { text: stale.refusal }
         const why = await setStatus($, t.id, 'In review')
         if (why !== undefined) return { text: `Could not move ${t.id} to In review: ${why}.` }
-        return { text: await startRound($, t, 1, undefined, 'steward-command') }
+        const started = await startRound($, t, 1, undefined, 'steward-command')
+        return { text: stale.note === undefined ? started : `${stale.note}\n${started}` }
       }
       case 'reviews':
         return { text: `${await reviewReport($, rest[0])}\n${await syncLine($)}` }
