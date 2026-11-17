@@ -63,9 +63,9 @@ export type ReviewRun = {
   /** Every BLOCKING and OPTIONAL line as a finding, sent to Tick-it as the run's findings. */
   items?: { severity: 'blocking' | 'optional'; file?: string; line?: number; text: string; /** An earlier blocker the reviewer verified still open: counted and listed in the pane, not sent as a finding. */ open?: true }[]
   /** The open blocking findings of earlier rounds this reviewer was given, numbered from 1 in this order. */
-  earlier?: { file?: string; line?: number; text: string }[]
+  earlier?: { id?: string; file?: string; line?: number; text: string }[]
   /** The reviewer's verdict on each of those, sent to Tick-it as the run's verdicts. */
-  verdicts?: { file?: string; text: string; verdict: 'fixed' | 'open' | 'gone'; reason: string }[]
+  verdicts?: { /** The Tick-it id of the finding, when it came from Tick-it: Tick-it closes that finding on a fixed or gone verdict. */ finding?: string; file?: string; text: string; verdict: 'fixed' | 'open' | 'gone'; reason: string }[]
 }
 
 /**
