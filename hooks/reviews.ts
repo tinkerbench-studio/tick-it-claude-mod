@@ -456,7 +456,9 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
   // The checkout must be the pull request's head and the change not empty: otherwise no reviewer starts and no run is recorded.
   const gate = await roundGate($, t.id)
   if (gate.stop !== undefined) {
-    await setSteward($, { ticket: t.id, round, phase: 'stopped', maxRounds: Math.max(limit, round), note: gate.stop, fixing: false })
+    // The round never ran: the steward keeps the last one that did, so r tries this round number again.
+    const ran = first ? carried : fromRound - 1
+    await setSteward($, { ticket: t.id, round: ran, phase: 'stopped', maxRounds: Math.max(limit, ran), note: gate.stop, fixing: false })
     await log($, 'warn', 'round-not-started', { ticket: t.id, round, why: gate.why ?? 'head-differs' })
     return gate.stop
   }

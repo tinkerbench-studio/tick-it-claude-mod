@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { RUN, SKILLS, engine, start } from './helpers'
+import { PANE, RUN, SKILLS, engine, start } from './helpers'
 
 const HEAD = 'ab12'.repeat(10)
 const OTHER = 'cd34'.repeat(10)
@@ -19,6 +19,12 @@ test('a checkout that is not the pull request head starts no reviewer, records n
   expect(out.text).toContain(`pull request #12 is at ${OTHER}`)
   expect(seen.spawned).toEqual([])
   expect(seen.recorded).toEqual([])
+  // The stopped round never ran: r tries round 1 again, not round 2.
+  const board = await $.ui.mount({ plugin: 'tick-it', surface: 'terminal', ...PANE })
+  await board.press({ key: 'review-again' })
+  expect(seen.toasts.some(t => t.includes('Round 1 starts'))).toBe(true)
+  expect(seen.toasts.some(t => t.includes('Round 2'))).toBe(false)
+  await board.unmount()
 })
 
 test('a checkout at the pull request head starts the reviewers as before', async ($, on) => {
@@ -47,6 +53,9 @@ test('when Tick-it cannot be read the round runs and the pane says the head coul
   await run($)
   expect(seen.spawned.length).toBeGreaterThan(0)
   expect(seen.toasts.some(t => t.includes('pull request head could not be checked'))).toBe(true)
+  const pane = await $.ui.mount({ plugin: 'tick-it', surface: 'terminal', ...PANE })
+  expect(await pane.find({ type: 'Text', text: /pull request head could not be checked/ })).toBeDefined()
+  await pane.unmount()
 })
 
 test('a pull request that gives no head commit does not stop the round, and the pane says the head could not be checked', async ($, on) => {
@@ -55,6 +64,9 @@ test('a pull request that gives no head commit does not stop the round, and the 
   await run($)
   expect(seen.spawned.length).toBeGreaterThan(0)
   expect(seen.toasts.some(t => t.includes('Tick-it gave no head commit'))).toBe(true)
+  const pane = await $.ui.mount({ plugin: 'tick-it', surface: 'terminal', ...PANE })
+  expect(await pane.find({ type: 'Text', text: /Tick-it gave no head commit/ })).toBeDefined()
+  await pane.unmount()
 })
 
 test('a merged pull request whose head differs does not stop the round', async ($, on) => {
