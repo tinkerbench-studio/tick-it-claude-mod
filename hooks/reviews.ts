@@ -545,6 +545,15 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
     await log($, 'warn', 'round-not-started', { ticket: t.id, round, why: gate.why ?? 'head-differs' })
     return gate.stop
   }
+  // Another session's round on this ticket's head is still being recorded (TCK-75): a second round would repeat its number and review its own checkout, so none starts here.
+  const other = await otherReviewingSession($, t.id)
+  if (other !== undefined) {
+    const why = `No review started: session ${other} is running a review round on ${t.id}'s head. Wait for it to finish, then review again.`
+    const ran = first ? carried : fromRound - 1
+    await setSteward($, { ticket: t.id, round: ran, phase: 'stopped', maxRounds: Math.max(limit, ran), note: why, fixing: false })
+    await log($, 'warn', 'round-not-started', { ticket: t.id, round, why: 'other-session-reviewing' })
+    return why
+  }
   if (gate.note !== undefined) {
     $.ui.toast(`tick-it: ${gate.note}`)
     await log($, 'debug', 'head-not-checked', { ticket: t.id, round })
@@ -868,8 +877,19 @@ export async function recordedReviews($: EngineInterface, ticket: string): Promi
   return rounds
 }
 
-/** How many review rounds Tick-it has recorded for the ticket: one timeline entry per round per session, and round numbers repeat across sessions, so entries are counted, not the highest number. */
-export const lastRecordedRound = (rounds: RecordedRound[]): number => rounds.length
+/** The ticket's latest recorded round (TCK-75): Tick-it refuses a duplicate round number, so a round is numbered after the highest one recorded, whichever session recorded it. */
+export const lastRecordedRound = (rounds: RecordedRound[]): number => rounds.reduce((most, r) => Math.max(most, r.round), 0)
+
+/** The id of another session of this ticket that is reviewing it now (list_sessions: a live build session whose status is reviewing), or undefined when none is or the sessions cannot be read (the round then starts as before). */
+export async function otherReviewingSession($: EngineInterface, ticket: string): Promise<string | undefined> {
+  const repository = await repositoryHere($)
+  if (repository === undefined) return undefined
+  const got = await callTickit($, 'list_sessions', { repository, key: ticket, kind: 'build' }).catch(() => undefined)
+  const sessions = got?.ok === true ? got.value.sessions : undefined
+  if (!Array.isArray(sessions)) return undefined
+  const mine = (await read($, startedSession))?.id
+  return (sessions as { id?: unknown; status?: unknown; live?: unknown }[]).find(s => typeof s.id === 'string' && s.id !== mine && s.status === 'reviewing' && s.live === true)?.id as string | undefined
+}
 
 /** Whether the skill's newest recorded run (the last in the timeline, which is oldest first) saw this head commit with no blocking finding; a run recorded as not applicable counts when it names this head too. */
 export const reviewedClean = (rounds: RecordedRound[], skill: string, head: string): boolean => {

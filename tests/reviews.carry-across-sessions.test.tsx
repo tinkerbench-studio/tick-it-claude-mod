@@ -100,17 +100,17 @@ test('a not-applicable run on an earlier head does not skip the review of this o
   expect(seen.spawned).toHaveLength(1)
 })
 
-test('round numbers repeat across sessions: the entries are counted, and the newest entry of a skill decides', async ($, on) => {
-  // As on TCK-29: three entries all numbered 1, so the next round is 4; the last one is clean on this head, an older blocking one does not count.
+test('round numbers repeat across sessions: the newest entry of a skill decides', async ($, on) => {
+  // As on TCK-29: three entries all numbered 1; the last one is clean on this head, an older blocking one does not count.
   const seen = run(on, { timeline: [entry(1, 1, 'cafe'), entry(1, 1, 'f00d'), entry(1, 0, HEAD)] })
   await done($)
   expect(seen.spawned).toHaveLength(0)
 })
 
-test('with entries all numbered 1, the first round is the number of entries plus one', async ($, on) => {
+test('with entries all numbered 1 (recorded before Tick-it refused duplicates), the first round is 2: after the latest recorded round, not the entry count', async ($, on) => {
   const seen = run(on, { timeline: [entry(1, 1, 'cafe'), entry(1, 1, 'f00d'), entry(1, 1, 'beef')] })
   await done($)
-  expect(seen.spawned[0]?.description).toContain('round 4')
+  expect(seen.spawned[0]?.description).toContain('round 2')
 })
 
 test('budgetStop counts entries, not distinct round numbers: three entries numbered 1 fit $0.80 left of $3', async ($, on) => {
@@ -169,4 +169,40 @@ test('with the timeline unreadable too, a second start in the session still neve
   expect(seen.spawned[0]?.description).toContain('round 1')
   await $.command.run({ ...RUN, command: 'tick-it', args: 'steward TCK-143' })
   expect(seen.spawned.at(-1)?.description).toContain('round 2')
+})
+
+test('rounds recorded as 1, 1 and 3 (a duplicate number, a gap): the next round is numbered 4, after the latest', async ($, on) => {
+  const seen = run(on, { timeline: [entry(1, 1, 'cafe'), entry(3, 1, 'f00d'), entry(3, 1, 'beef')] })
+  await done($)
+  expect(seen.spawned[0]?.description).toContain('round 4')
+})
+
+test('rounds recorded as 1 and 5: the next round is 6, after the latest recorded round', async ($, on) => {
+  const seen = run(on, { timeline: [entry(1, 1, 'cafe'), entry(5, 1, 'f00d')] })
+  await done($)
+  expect(seen.spawned[0]?.description).toContain('round 6')
+})
+
+const session = (id: string, status: string, live = true) => ({ id, status, live, kind: 'build', ticket: 'TCK-143' })
+
+test('another live session of the ticket is reviewing: no reviewer starts, nothing is recorded, and the stop says which session', async ($, on) => {
+  const seen = run(on, { timeline: [entry(1, 1, 'cafe')], sessions: [session('s_other12345678', 'reviewing')] })
+  await done($)
+  expect(seen.spawned).toHaveLength(0)
+  expect(seen.recorded).toHaveLength(0)
+  expect(seen.ticketCalls.some(c => c.tool === 'set_needs_human')).toBe(false)
+  // The stop names the session: the pane carries the note of the stopped steward.
+  expect(JSON.stringify(seen.toasts) + JSON.stringify(seen.ticketCalls.filter(c => c.tool === 'report_session').map(c => c.args))).toContain('s_other12345678')
+})
+
+test('another session of the ticket that is only working, or reviewing but no longer live, does not stop the round', async ($, on) => {
+  const seen = run(on, { timeline: [], sessions: [session('s_other12345678', 'working'), session('s_old123456789', 'reviewing', false)] })
+  await done($)
+  expect(seen.spawned).toHaveLength(1)
+})
+
+test('the sessions cannot be read: the round starts as before', async ($, on) => {
+  const seen = run(on, { timeline: [] })
+  await done($)
+  expect(seen.spawned).toHaveLength(1)
 })
