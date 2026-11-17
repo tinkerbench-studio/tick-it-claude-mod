@@ -108,6 +108,7 @@ test('Claude moving a same-key ticket of another repository to In review leaves 
   await $.turn.complete(finishTurn(undefined, 'Done.'))
   // The turn-end heartbeat is 'working'; nothing for the taken ticket says reviewing, done or stopped.
   expect(reports(seen).slice(reported).filter(r => r.status !== 'working')).toEqual([])
+  expect(seen.ticketCalls.slice(calls).filter(c => c.tool === 'update_ticket' || c.tool === 'link_pull_request')).toEqual([])
   expect(seen.spawned).toEqual([])
 })
 
