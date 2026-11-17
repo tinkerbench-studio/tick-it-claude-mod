@@ -255,7 +255,7 @@ export const withKnown = (row: Ticket, known: Ticket | undefined): Ticket =>
     ? { ...row, ...(known.description === undefined ? {} : { description: known.description }), acceptance: known.acceptance, blockedBy: known.blockedBy ?? [], blocks: known.blocks ?? [], ...(known.labels === undefined ? {} : { labels: known.labels }), ...(known.url === undefined ? {} : { url: known.url }), ...(known.approvals === undefined ? {} : { approvals: known.approvals }), whole: true }
     : row
 
-/** Reads the one ticket by its key with get_ticket (the core only) and puts it in the cache: its reason when Tick-it cannot say. */
+/** Reads the one ticket by its key with get_ticket (the core and the approvals part) and puts it in the cache: its reason when Tick-it cannot say. */
 export async function readTicket($: EngineInterface, wanted: string): Promise<string | undefined> {
   const repository = await repositoryHere($)
   if (repository === undefined) return 'this folder has no GitHub origin remote, so tick-it does not know which repository it is'
@@ -471,10 +471,11 @@ export async function changeTicket($: EngineInterface, id: string, changes: Reco
   if (!changed.ok) return changed.why
   if (onSession !== undefined && typeof changed.value.session === 'string') await onSession(changed.value.session)
   const ticket = fromRemote(changed.value.ticket as RemoteTicket)
-  // update_ticket does not answer the approvals part: the ones read stay.
+  // update_ticket does not answer the approvals part: the ones read stay, but Tick-it withdraws the open request when a ticket moves back to Ready, Backlog or Dropped.
+  const withdrawn = ticket.status === 'Ready' || ticket.status === 'Backlog' || ticket.status === 'Dropped'
   await save(
     $,
-    (await read($, tickets)).map(t => (t.id === ticket.id ? { ...ticket, ...(t.approvals === undefined ? {} : { approvals: t.approvals }) } : t)),
+    (await read($, tickets)).map(t => (t.id === ticket.id ? { ...ticket, ...(t.approvals === undefined ? {} : { approvals: withdrawn ? t.approvals.filter(a => a.state !== 'open') : t.approvals }) } : t)),
   )
   return undefined
 }

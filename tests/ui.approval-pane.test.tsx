@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { PANE, engine, start } from './helpers'
+import { PANE, RUN, engine, start } from './helpers'
 
 const TICKET = { plugin: 'tick-it', surface: 'terminal', component: 'Pane', requestId: 'tick-it-ticket', props: { title: 'TCK-149', isFocused: true, bodyColumns: 60, placement: 'dock', scroll: { offset: 0, bodyRows: 30 }, view: {} } } as const
 const URL = 'https://app.tick-it.dev/r/acme/web-app/t/TCK-149'
@@ -61,4 +61,15 @@ test('the approvals part is asked for only on the ticket read for the pane or th
   const includes = seen.ticketCalls.filter(c => c.tool === 'get_ticket' && Array.isArray(c.args.include) && c.args.include.includes('approvals'))
   expect(includes.map(c => c.args.key)).toEqual(['TCK-149'])
   expect(seen.ticketCalls.filter(c => c.tool === 'list_tickets').every(c => c.args.include === undefined)).toBe(true)
+})
+
+test('an open request is withdrawn on Tick-it when the ticket goes back to Ready, so the pane stops showing it', async ($, on) => {
+  const { pane, seen } = await open($, on, [request({})])
+  expect(await texts(pane, 'WAITING FOR APPROVAL')).toBeDefined()
+  await pane.unmount()
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-149' })
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-147' })
+  expect(seen.server.find(t => t.key === 'TCK-149')?.status).toBe('Ready')
+  const again = await $.ui.mount(TICKET)
+  expect(await texts(again, 'WAITING FOR APPROVAL')).toBeUndefined()
 })
