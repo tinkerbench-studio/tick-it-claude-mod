@@ -242,3 +242,14 @@ test('README names the copies:check script, how a repository adds one, and what 
   const readme = read('README.md')
   for (const words of ['`copies:check` script', '"scripts": { "copies:check":', 'npm run copies:check', 'refuses the move', 'A check that cannot be started', 'says the check could not run']) expect(readme).toContain(words, `README no longer says "${words}"`)
 })
+
+test('the version-raise skill acts only on a failing Plugin version check and names the three copies and the checks', () => {
+  const skill = read('.claude/skills/version-raise/SKILL.md')
+  for (const words of ['Act only when Tick-it reports the `Plugin version` check failing', '`.claude-plugin/plugin.json`', '`hooks/state.ts`', '`tests/contract-fixtures.json`', 'above', 'node --test checks/*.test.mjs']) expect(skill).toContain(words, `the version-raise skill no longer says "${words}"`)
+})
+
+test('tests reviewer keeps a README-only criterion optional and a skill-dependent wording check blocking', () => {
+  const tests = read('.tick-it/skills/tests/SKILL.md')
+  expect(tests).toContain('A criterion that only asks the README, or other prose no skill or hook reads, to say something needs no test, and a missing wording check for it is OPTIONAL at most.')
+  expect(tests).toContain('A wording check in `checks/skills.test.mjs` stays BLOCKING for wording a skill or hook depends on.')
+})

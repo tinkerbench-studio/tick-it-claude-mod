@@ -54,6 +54,9 @@ export type Seen = {
   ticketCalls: { tool: string; args: Record<string, unknown>; server: string }[]
   /** Every command the mod ran, as one line. */
   processes: string[]
+  /** Agents the agent list does not show (gone), and agents it shows running that this session did not spawn. */
+  unlisted?: string[]
+  listedExtra?: string[]
 }
 
 /**
@@ -268,7 +271,7 @@ export const engine = (
     return { model: e.model ?? 'claude-opus-5-5', agentId }
   })
   on('agent.list', () => ({
-    value: seen.spawned.map(s => ({ id: s.agentId, description: s.description, type: 'general-purpose', status: 'running' as const, spawnedBy: 'tick-it' })),
+    value: [...seen.spawned.map(s => ({ id: s.agentId, description: s.description })), ...(seen.listedExtra ?? []).map(id => ({ id, description: id }))].filter(a => !(seen.unlisted ?? []).includes(a.id)).map(a => ({ ...a, type: 'general-purpose', status: 'running' as const, spawnedBy: 'tick-it' })),
   }))
   on('prompt.submit', (_$, e) => {
     seen.submitted.push(e.text)
