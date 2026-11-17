@@ -120,20 +120,22 @@ test('every page of the board is read slim', async ($, on) => {
 
 test('a slim board read keeps what a ticket read whole holds, and a ticket only on the board is read whole when opened', async ($, on) => {
   const seen = engine(on, { lines: 0 })
-  Object.assign(seen.server[3]!, { description: 'Why the migration is needed', blockedBy: ['TCK-147'], url: 'https://app.tick-it.dev/r/acme/web-app/t/TCK-149' })
+  Object.assign(seen.server[3]!, { description: 'Why the migration is needed', blockedBy: ['TCK-147'], url: 'https://app.tick-it.dev/r/acme/web-app/t/TCK-149', approvals: [{ id: 'a1', state: 'open', subject: 'Ship the picker?', items: [{ kind: 'picture' }], questions: [], reviewer: 'maddiecs84', staleReason: null, askedAt: new Date().toISOString() }] })
   await start($)
-  // Opened from the board: only a slim row is known, so get_ticket (the core only) reads it whole.
+  // Opened from the board: only a slim row is known, so get_ticket (the core and the approvals part) reads it whole.
   const board = await $.ui.mount({ plugin: 'tick-it', surface: 'terminal', ...PANE })
   await board.press({ key: 'open-TCK-149' })
   await board.unmount()
   const reads = seen.ticketCalls.filter(c => c.tool === 'get_ticket' && (c.args as { key?: string }).key === 'TCK-149')
-  expect(reads.map(c => c.args)).toEqual([{ repository: 'acme/web-app', key: 'TCK-149', include: [] }])
+  expect(reads.map(c => c.args)).toEqual([{ repository: 'acme/web-app', key: 'TCK-149', include: ['approvals'] }])
   // The board read again is slim, yet the ticket keeps what it was read with.
   await $.command.run({ ...RUN, command: 'tick-it', args: 'board' })
   const pane = await $.ui.mount({ plugin: 'tick-it', surface: 'terminal', component: 'Pane', requestId: 'tick-it-ticket', props: { title: 'TCK-149', isFocused: true, bodyColumns: 60, placement: 'dock', scroll: { offset: 0, bodyRows: 30 }, view: {} } } as const)
   expect(JSON.stringify(await pane.drawn())).toContain('Why the migration is needed')
   expect(JSON.stringify(await pane.drawn())).toContain('https://app.tick-it.dev/r/acme/web-app/t/TCK-149')
   expect(await pane.find({ type: 'Text', text: 'WAITING ON' })).toBeDefined()
+  // The approvals read with it stay through the slim board read.
+  expect(await pane.find({ type: 'Text', text: 'WAITING FOR APPROVAL' })).toBeDefined()
   await pane.unmount()
   // A ticket read whole may have changed on Tick-it: opened again, it is read again.
   Object.assign(seen.server[3]!, { description: 'Edited on Tick-it' })

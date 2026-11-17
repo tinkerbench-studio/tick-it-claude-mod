@@ -6,6 +6,28 @@ export type AttachmentRef = { id: string; name: string; type: string }
 /** A memory Tick-it recalled for a ticket (get_ticket), as the brief lists it. */
 export type MemoryRef = { key: string; kind: string; body: string; status: string; strength: number }
 
+/** A question of an approval request, with the answer once given (get_ticket's approvals part). */
+export type ApprovalQuestion = { id: string; text: string; recommended: string | null; state: string; answer: string | null }
+/**
+ * An approval request as get_ticket's `approvals` part lists it: the open one and the latest answered one.
+ * The pane draws it read-only (TCK-66); who answered and when is added by the next ticket.
+ */
+export type Approval = {
+  id: string
+  /** open, or the decision once answered. */
+  state: 'open' | 'confirmed' | 'rejected' | 'rethink'
+  subject: string
+  /** What the request names; the pane counts them by kind (board, page, pull-request, picture, link). */
+  items: { kind: string }[]
+  questions: ApprovalQuestion[]
+  /** GitHub login of the person who may answer, and of whom the request was asked. */
+  reviewer: string
+  /** Why the request no longer holds; null while it does (a request with a reason is stale). */
+  staleReason: string | null
+  /** ISO time the request was asked. */
+  askedAt: string
+}
+
 export type Ticket = {
   id: string
   title: string
@@ -24,6 +46,8 @@ export type Ticket = {
   url?: string
   /** ISO time the ticket is held until (Tick-it's notBefore); absent when it has no hold. */
   notBefore?: string
+  /** The approvals part of get_ticket, read only for the taken ticket and the one the pane shows; absent when Tick-it did not answer it (an older Tick-it). */
+  approvals?: Approval[]
   /** Read whole (get_ticket or update_ticket); a slim board row has no description, acceptance, links or url. */
   whole?: boolean
 }

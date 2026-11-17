@@ -3,7 +3,7 @@ import type { EngineInterface } from 'claude-code'
 import { withUiEvidence } from './ui-evidence'
 import { SECURE_CODING_LINE } from './security-areas'
 import type { UiPaths } from './ui-evidence'
-import type { AttachmentRef, MemoryRef, MilestoneView, PullRequestView, Ticket, TicketSize, TicketStatus } from '../types'
+import type { Approval, AttachmentRef, MemoryRef, MilestoneView, PullRequestView, Ticket, TicketSize, TicketStatus } from '../types'
 import { PANE, STORE_KEY, STORE_REPOSITORY_KEY, BUDGET, SIZES, MONTHS } from './state'
 import { callTickit, repositoryHere } from './tickit'
 
@@ -229,7 +229,7 @@ export async function save($: EngineInterface, list: Ticket[]) {
 }
 
 /** A ticket as Tick-it's tools spell it. */
-export type RemoteTicket = { key: string; title: string; epic: string | null; epicId?: string | null; size: TicketSize; status: TicketStatus; description?: string | null; acceptance?: string[]; blockedBy?: string[]; blocks?: string[]; labels?: string[]; url?: string; notBefore?: string | null }
+export type RemoteTicket = { key: string; title: string; epic: string | null; epicId?: string | null; size: TicketSize; status: TicketStatus; description?: string | null; acceptance?: string[]; blockedBy?: string[]; blocks?: string[]; labels?: string[]; url?: string; notBefore?: string | null; approvals?: Approval[] }
 export const fromRemote = (r: RemoteTicket): Ticket => ({
   id: r.key,
   title: r.title,
@@ -244,6 +244,7 @@ export const fromRemote = (r: RemoteTicket): Ticket => ({
   ...(r.labels === undefined ? {} : { labels: r.labels }),
   ...(r.url === undefined ? {} : { url: r.url }),
   ...(typeof r.notBefore === 'string' ? { notBefore: r.notBefore } : {}),
+  ...(Array.isArray(r.approvals) ? { approvals: r.approvals } : {}),
   // A slim board row has no acceptance: only a ticket read whole (get_ticket, update_ticket) has it.
   ...(Array.isArray(r.acceptance) ? { whole: true } : {}),
 })
@@ -251,14 +252,15 @@ export const fromRemote = (r: RemoteTicket): Ticket => ({
 /** A slim board row, keeping what a ticket already read whole holds that the row lacks (description, acceptance, links, url). */
 export const withKnown = (row: Ticket, known: Ticket | undefined): Ticket =>
   known?.whole === true && !row.whole
-    ? { ...row, ...(known.description === undefined ? {} : { description: known.description }), acceptance: known.acceptance, blockedBy: known.blockedBy ?? [], blocks: known.blocks ?? [], ...(known.labels === undefined ? {} : { labels: known.labels }), ...(known.url === undefined ? {} : { url: known.url }), whole: true }
+    ? { ...row, ...(known.description === undefined ? {} : { description: known.description }), acceptance: known.acceptance, blockedBy: known.blockedBy ?? [], blocks: known.blocks ?? [], ...(known.labels === undefined ? {} : { labels: known.labels }), ...(known.url === undefined ? {} : { url: known.url }), ...(known.approvals === undefined ? {} : { approvals: known.approvals }), whole: true }
     : row
 
-/** Reads the one ticket by its key with get_ticket (the core only) and puts it in the cache: its reason when Tick-it cannot say. */
+/** Reads the one ticket by its key with get_ticket (the core and the approvals part) and puts it in the cache: its reason when Tick-it cannot say. */
 export async function readTicket($: EngineInterface, wanted: string): Promise<string | undefined> {
   const repository = await repositoryHere($)
   if (repository === undefined) return 'this folder has no GitHub origin remote, so tick-it does not know which repository it is'
-  const one = await callTickit($, 'get_ticket', { repository, key: wanted, include: [] })
+  // The approvals part is asked for here only: this reads the ticket taken and the ticket the pane opens, never the board.
+  const one = await callTickit($, 'get_ticket', { repository, key: wanted, include: ['approvals'] })
   if (!one.ok) return one.why
   const remote = one.value.ticket as RemoteTicket | undefined
   if (remote === undefined || remote.key?.toUpperCase() !== wanted) return `Tick-it's answer to get_ticket was not ${wanted}`
@@ -469,9 +471,11 @@ export async function changeTicket($: EngineInterface, id: string, changes: Reco
   if (!changed.ok) return changed.why
   if (onSession !== undefined && typeof changed.value.session === 'string') await onSession(changed.value.session)
   const ticket = fromRemote(changed.value.ticket as RemoteTicket)
+  // update_ticket does not answer the approvals part: the ones read stay, but Tick-it withdraws the open request when a ticket moves back to Ready, Backlog or Dropped.
+  const withdrawn = ticket.status === 'Ready' || ticket.status === 'Backlog' || ticket.status === 'Dropped'
   await save(
     $,
-    (await read($, tickets)).map(t => (t.id === ticket.id ? ticket : t)),
+    (await read($, tickets)).map(t => (t.id === ticket.id ? { ...ticket, ...(t.approvals === undefined ? {} : { approvals: withdrawn ? t.approvals.filter(a => a.state !== 'open') : t.approvals }) } : t)),
   )
   return undefined
 }
@@ -484,4 +488,20 @@ export async function showStatus($: EngineInterface) {
   const t = await findCurrent($)
   const s = await read($, steward)
   $.ui.status(t !== undefined ? `tick-it ${t.id} · ${await read($, diffLines)}/${await budgetOf($, t.size)} lines` : s !== null && (s.phase === 'reviewing' || s.phase === 'fixing') ? `tick-it ${s.ticket} · stewarding round ${s.round}` : undefined)
+}
+
+/** The items of an approval request counted by kind: `2 pull-request, 1 picture`. */
+export const itemCounts = (a: Approval): string => {
+  const counts = new Map<string, number>()
+  for (const { kind } of a.items) counts.set(kind, (counts.get(kind) ?? 0) + 1)
+  return [...counts].map(([kind, n]) => `${n} ${kind}`).join(', ')
+}
+
+/** How long a request has waited, from its askedAt: `3 days`, `2 hours`, `5 minutes`; empty when the time cannot be read. */
+export const waitedFor = (askedAt: string, now: number): string => {
+  const ms = now - Date.parse(askedAt)
+  if (!Number.isFinite(ms) || ms < 0) return ''
+  const unit = (n: number, name: string) => `${n} ${name}${n === 1 ? '' : 's'}`
+  const minutes = Math.floor(ms / 60_000)
+  return minutes >= 1440 ? unit(Math.floor(minutes / 1440), 'day') : minutes >= 60 ? unit(Math.floor(minutes / 60), 'hour') : unit(minutes, 'minute')
 }
