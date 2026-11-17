@@ -4,7 +4,7 @@ import type { PullRequestView, ReviewRun, ReviewUsage, Steward, Ticket, TicketSi
 import { SIZES, REVIEWS_KEY, SKILLS_DIR, OLD_SKILLS_DIR, BASES_DIR, KEEP_REVIEWS, MAX_FINDING_TEXT, PRICES } from './state'
 import { callTickit, fetchInstructions, fetchModConfig, hasModLimits, repositoryHere, reviewBudgetOf, roundLimit } from './tickit'
 import { setStatus, showStatus, refreshPullRequest, servedConfig } from './board'
-import { report, changedContent } from './work'
+import { report, changedContent, mergeBaseOfDefault } from './work'
 import { queue, flush } from './outbox'
 import { AREA_SKILL_DIR, AREA_NAMES, areaSkill, changesFor, parseChanges, touchedAreas, touchedLine, unknownChanges } from './security-areas'
 import type { Changes, Touched } from './security-areas'
@@ -347,20 +347,16 @@ export const globMatches = (glob: string, path: string): boolean => {
 
 /** The files the branch changed against its merge base with the remote's default branch (the working tree, untracked files included), or null when they cannot be listed. */
 export async function changedSinceBase($: EngineInterface): Promise<string[] | null> {
-  for (const base of ['origin/HEAD', 'origin/main', 'origin/master']) {
-    const mb = await $.process.run(['git', 'merge-base', 'HEAD', base]).catch(() => undefined)
-    const sha = mb?.exitCode === 0 ? mb.stdout.trim() : ''
-    if (!/^[0-9a-f]{40}$/.test(sha)) continue
-    const diff = await $.process.run(['git', 'diff', '--name-only', '--no-renames', '-z', sha]).catch(() => undefined)
-    if (diff === undefined || diff.exitCode !== 0 || diff.isStdoutTruncated) return null
-    // --full-name gives root-relative paths, as git diff does, and the :/ pathspec lists the whole repository, not only the session folder, so a folder below the root matches the same globs.
-    // The working tree against the merge base, as the reviewers and the size budget see the change: uncommitted edits and untracked files count too.
-    const others = await $.process.run(['git', 'ls-files', '--others', '--exclude-standard', '--full-name', '-z', '--', ':/']).catch(() => undefined)
-    // An untracked listing that failed or was cut short is a listing that cannot be had in full.
-    if (others === undefined || others.exitCode !== 0 || others.isStdoutTruncated) return null
-    return [...diff.stdout.split('\0'), ...others.stdout.split('\0')].filter(f => f !== '')
-  }
-  return null
+  const sha = await mergeBaseOfDefault($)
+  if (sha === null) return null
+  const diff = await $.process.run(['git', 'diff', '--name-only', '--no-renames', '-z', sha]).catch(() => undefined)
+  if (diff === undefined || diff.exitCode !== 0 || diff.isStdoutTruncated) return null
+  // --full-name gives root-relative paths, as git diff does, and the :/ pathspec lists the whole repository, not only the session folder, so a folder below the root matches the same globs.
+  // The working tree against the merge base, as the reviewers and the size budget see the change: uncommitted edits and untracked files count too.
+  const others = await $.process.run(['git', 'ls-files', '--others', '--exclude-standard', '--full-name', '-z', '--', ':/']).catch(() => undefined)
+  // An untracked listing that failed or was cut short is a listing that cannot be had in full.
+  if (others === undefined || others.exitCode !== 0 || others.isStdoutTruncated) return null
+  return [...diff.stdout.split('\0'), ...others.stdout.split('\0')].filter(f => f !== '')
 }
 
 /** What began a round, as the log says it: the done command, the steward command, Claude's own move to In review, or the fix turn ending. */
