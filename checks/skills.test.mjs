@@ -228,6 +228,13 @@ test('README and the plan-epic skill describe the date hold: marker, refusal and
   expect(read('skills/plan-epic/SKILL.md')).toContain('`notBefore` date', 'plan-epic skill no longer mentions the date hold')
 })
 
+test('the README and the review-agents skill describe how paths and sizes are written', () => {
+  for (const file of ['README.md', 'skills/review-agents/SKILL.md']) {
+    const text = read(file)
+    for (const words of ['inline list', 'block list', 'brace group', 'leading `!`', 'applies to every path']) expect(text).toContain(words, `${file} lacks "${words}"`)
+  }
+})
+
 test('the README says when a review round is not started', () => {
   const readme = read('README.md')
   for (const words of ['**When a round is not started.**', 'no reviewer starts and no run is recorded', 'The checkout is not the pull request\'s head', 'Nothing differs from the base branch', 'the pull request head could not be checked']) expect(readme).toContain(words, `README no longer says "${words}"`)
