@@ -3,6 +3,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 import { PANE, TICKET_PANE, WARN_AT, groupsOf, COLOR } from './state'
 import { budgetOf, linkTickets, boardStops, heldUntil, nextToTake, pickMilestone, nextMilestone, milestoneLine, milestoneOf, findCurrent, readTicket, pullRequestLine, startSession, fixCi, rerunFailed, openPullRequest } from './board'
+import { approvalSection } from './approval-pane'
 import { take } from './work'
 import { reviewAgain, stopStewarding, summarise, reviewLine, findingRows } from './reviews'
 
@@ -286,6 +287,7 @@ export const registerUi: Register = on => {
         </Box>
         {waitingOn.length > 0 && section('WAITING ON', waitingOn.map(ref))}
         {blocks.length > 0 && section('BLOCKS', blocks.map(ref))}
+        {(t.approvals ?? []).length > 0 && approvalSection({ Box, Text, Link }, t, await $.clock.now())}
         {t.description !== undefined && section('DESCRIPTION', <Markdown key="description" text={t.description} />)}
         {t.acceptance.length > 0 && section('ACCEPTANCE', <Markdown key="acceptance" text={t.acceptance.map(a => `- ${a}`).join('\n')} />)}
         {labels.length > 0 && section('LABELS', <Text>{labels.join(' · ')}</Text>)}

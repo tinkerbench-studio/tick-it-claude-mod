@@ -3,7 +3,7 @@ import type { EngineInterface } from 'claude-code'
 import { withUiEvidence } from './ui-evidence'
 import { SECURE_CODING_LINE } from './security-areas'
 import type { UiPaths } from './ui-evidence'
-import type { AttachmentRef, MemoryRef, MilestoneView, PullRequestView, Ticket, TicketSize, TicketStatus } from '../types'
+import type { Approval, AttachmentRef, MemoryRef, MilestoneView, PullRequestView, Ticket, TicketSize, TicketStatus } from '../types'
 import { PANE, STORE_KEY, BUDGET, SIZES, MONTHS } from './state'
 import { callTickit, repositoryHere } from './tickit'
 
@@ -227,7 +227,36 @@ export async function save($: EngineInterface, list: Ticket[]) {
 }
 
 /** A ticket as Tick-it's tools spell it. */
-export type RemoteTicket = { key: string; title: string; epic: string | null; epicId?: string | null; size: TicketSize; status: TicketStatus; description?: string | null; acceptance?: string[]; blockedBy?: string[]; blocks?: string[]; labels?: string[]; url?: string; notBefore?: string | null }
+export type RemoteTicket = { key: string; title: string; epic: string | null; epicId?: string | null; size: TicketSize; status: TicketStatus; description?: string | null; acceptance?: string[]; blockedBy?: string[]; blocks?: string[]; labels?: string[]; url?: string; notBefore?: string | null; approvals?: unknown }
+
+const APPROVAL_STATES = ['open', 'confirmed', 'rejected', 'rethink']
+/** The approvals part of a get_ticket reply as the pane keeps it: undefined when the reply has none (an older Tick-it), else each request that reads as one. */
+export const approvalsOf = (raw: unknown): Approval[] | undefined =>
+  !Array.isArray(raw)
+    ? undefined
+    : raw.flatMap((r: Record<string, unknown>): Approval[] =>
+        r === null || typeof r !== 'object' || typeof r.id !== 'string' || typeof r.subject !== 'string' || !APPROVAL_STATES.includes(r.state as string)
+          ? []
+          : [
+              {
+                id: r.id,
+                state: r.state as Approval['state'],
+                subject: r.subject,
+                items: (Array.isArray(r.items) ? r.items : []).map((i: Record<string, unknown>) => ({ name: String(i?.name ?? ''), kind: String(i?.kind ?? 'link') })),
+                reviewer: typeof r.reviewer === 'string' ? r.reviewer : '',
+                ...(typeof r.staleReason === 'string' ? { staleReason: r.staleReason } : {}),
+                askedAt: typeof r.askedAt === 'string' ? r.askedAt : '',
+                ...(typeof r.answeredAt === 'string' ? { answeredAt: r.answeredAt } : {}),
+                questions: (Array.isArray(r.questions) ? r.questions : []).map((q: Record<string, unknown>) => ({ text: String(q?.text ?? ''), answer: typeof q?.answer === 'string' ? q.answer : null })),
+              },
+            ],
+      )
+
+const approvalsField = (raw: unknown): { approvals?: Approval[] } => {
+  const approvals = approvalsOf(raw)
+  return approvals === undefined ? {} : { approvals }
+}
+
 export const fromRemote = (r: RemoteTicket): Ticket => ({
   id: r.key,
   title: r.title,
@@ -244,19 +273,22 @@ export const fromRemote = (r: RemoteTicket): Ticket => ({
   ...(typeof r.notBefore === 'string' ? { notBefore: r.notBefore } : {}),
   // A slim board row has no acceptance: only a ticket read whole (get_ticket, update_ticket) has it.
   ...(Array.isArray(r.acceptance) ? { whole: true } : {}),
+  ...approvalsField(r.approvals),
 })
 
 /** A slim board row, keeping what a ticket already read whole holds that the row lacks (description, acceptance, links, url). */
 export const withKnown = (row: Ticket, known: Ticket | undefined): Ticket =>
   known?.whole === true && !row.whole
-    ? { ...row, ...(known.description === undefined ? {} : { description: known.description }), acceptance: known.acceptance, blockedBy: known.blockedBy ?? [], blocks: known.blocks ?? [], ...(known.labels === undefined ? {} : { labels: known.labels }), ...(known.url === undefined ? {} : { url: known.url }), whole: true }
+    ? { ...row, ...(known.description === undefined ? {} : { description: known.description }), acceptance: known.acceptance, blockedBy: known.blockedBy ?? [], blocks: known.blocks ?? [], ...(known.labels === undefined ? {} : { labels: known.labels }), ...(known.url === undefined ? {} : { url: known.url }), ...(known.approvals === undefined ? {} : { approvals: known.approvals }), whole: true }
     : row
 
 /** Reads the one ticket by its key with get_ticket (the core only) and puts it in the cache: its reason when Tick-it cannot say. */
 export async function readTicket($: EngineInterface, wanted: string): Promise<string | undefined> {
   const repository = await repositoryHere($)
   if (repository === undefined) return 'this folder has no GitHub origin remote, so tick-it does not know which repository it is'
-  const one = await callTickit($, 'get_ticket', { repository, key: wanted, include: [] })
+  // The approvals part is read only here: for the ticket taken and the ticket the pane shows. An older Tick-it refuses an include it does not know, and the ticket is then read without it.
+  let one = await callTickit($, 'get_ticket', { repository, key: wanted, include: ['approvals'] })
+  if (!one.ok && /include/i.test(one.why)) one = await callTickit($, 'get_ticket', { repository, key: wanted, include: [] })
   if (!one.ok) return one.why
   const remote = one.value.ticket as RemoteTicket | undefined
   if (remote === undefined || remote.key?.toUpperCase() !== wanted) return `Tick-it's answer to get_ticket was not ${wanted}`
@@ -469,7 +501,8 @@ export async function changeTicket($: EngineInterface, id: string, changes: Reco
   const ticket = fromRemote(changed.value.ticket as RemoteTicket)
   await save(
     $,
-    (await read($, tickets)).map(t => (t.id === ticket.id ? ticket : t)),
+    // update_ticket does not answer the approvals part: the one already read stays.
+    (await read($, tickets)).map(t => (t.id === ticket.id ? { ...ticket, ...(ticket.approvals === undefined && t.approvals !== undefined ? { approvals: t.approvals } : {}) } : t)),
   )
   return undefined
 }

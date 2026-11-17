@@ -69,6 +69,8 @@ export type Net = {
   tooLarge?: 'list_tickets' | 'get_ticket'
   /** get_ticket answers acceptanceItems, none ticked (a ticket's checks are then unticked). */
   acceptanceItems?: boolean
+  /** An older Tick-it: get_ticket refuses an include that names approvals. */
+  noApprovals?: boolean
   /** get_ticket answers with text that holds no result (not JSON, no structured content). */
   ticketNoResult?: boolean
   /** Only this server connects (a cloud session: the claude.ai connector, not the plugin's own). */
@@ -167,6 +169,7 @@ export const engine = (
       if (e.tool === 'list_milestones') return answer({ milestones: net.milestones ?? [], withoutMilestone: [] })
       if (e.tool === 'get_ticket') {
         if (seen.failTicketReads === true) return refuse('Tick-it is down')
+        if (net.noApprovals === true && Array.isArray(a.include) && a.include.includes('approvals')) return refuse('include: Invalid option: expected one of "findings"|"suggestions"|"comments"')
         if (net.ticketNoResult === true) return { value: { isError: false, content: [{ type: 'text', text: 'Tick-it is busy, try again later. ' + 'x'.repeat(200) }, { type: 'image' }] } }
         const ticket = seen.server.find(t => t.key === a.key)
         return ticket === undefined ? refuse(`No ticket ${String(a.key)} in acme/web-app.`) : answer({ ticket: { ...ticket, ...(net.acceptanceItems === true ? { acceptanceItems: ticket.acceptance.map((text, i) => ({ id: `c${i}`, text, checked: false, afterDeploy: false })) } : {}), ...(net.reviewSpend === undefined ? {} : { reviewSpend: net.reviewSpend }), ...(net.findings === undefined || !Array.isArray(a.include) || !a.include.includes('findings') ? {} : { findings: net.findings }) } })
