@@ -116,7 +116,7 @@ export type Net = {
 /** The engine beneath the mod: a store, a repo whose diff is `diff.lines` lines, and quiet UI calls. */
 export const engine = (
   on: On,
-  diff: { lines: number; siblings?: Record<string, string> | 'unlistable'; pr?: number; origin?: string | null; noCommit?: boolean; numstatZ?: string; failFiles?: boolean; changed?: string[] | null; since?: string[] | null; failUntracked?: boolean; truncateNames?: boolean; bases?: string[]; failNames?: 'exit' | 'throw'; subdir?: string; stored?: Record<string, unknown>; refuse?: (model: string | undefined, description: string) => string | undefined; patch?: string; dirty?: boolean; untracked?: Record<string, string>; binary?: Record<string, string>; gh?: (argv: string[]) => { exitCode: number; stdout: string; stderr: string } | undefined; pictures?: { key: string; name: string }[] | 'unreachable' | 'odd' },
+  diff: { lines: number; siblings?: Record<string, string> | 'unlistable'; pr?: number; origin?: string | null; noCommit?: boolean; numstatZ?: string; failFiles?: boolean; changed?: string[] | null; since?: string[] | null; failUntracked?: boolean; truncateNames?: boolean; bases?: string[]; failNames?: 'exit' | 'throw'; subdir?: string; stored?: Record<string, unknown>; kept?: Map<string, unknown>; refuse?: (model: string | undefined, description: string) => string | undefined; patch?: string; dirty?: boolean; untracked?: Record<string, string>; binary?: Record<string, string>; gh?: (argv: string[]) => { exitCode: number; stdout: string; stderr: string } | undefined; pictures?: { key: string; name: string }[] | 'unreachable' | 'odd' },
   isPlaced = true,
   skills: Record<string, string> = {},
   net: Net = {},
@@ -221,7 +221,14 @@ export const engine = (
     }
   })
   let clock = 1_000
-  mock.store(on, diff.stored)
+  if (diff.kept === undefined) mock.store(on, diff.stored)
+  else {
+    // A store the test can read: what the mod wrote, as a later session would find it.
+    const kept = diff.kept
+    for (const [k, v] of Object.entries(diff.stored ?? {})) kept.set(k, v)
+    on('store.get', (_$, e) => ({ value: kept.get((e as { key: string }).key) }))
+    on('store.set', (_$, e) => (kept.set((e as { key: string }).key, (e as { value: unknown }).value), { value: undefined }))
+  }
   on('clock.now', () => ({ value: (clock += 1000 + (net.skip ?? 0)) }))
   // The engine hands the paths over resolved against the working directory.
   // A base review skill is read from the plugin's own folder, wherever that is: the map names it from skills/review-agents/bases on.

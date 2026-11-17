@@ -89,3 +89,43 @@ for (const command of ['done', 'drop']) {
     expect(JSON.stringify(await $.tool.call(WRITE as never))).not.toContain('refused')
   })
 }
+
+const kept = async (on: Parameters<typeof engine>[0], stored: Record<string, unknown> = {}, skills = PRINCIPAL_ONLY) => {
+  const map = new Map<string, unknown>()
+  const seen = engine(on, { lines: 4, stored, kept: map }, true, skills)
+  return { map, seen, state: () => map.get('resume-state') as Record<string, unknown> | undefined }
+}
+
+test('taking a ticket keeps it and its base commit in the store, stamped with the session and repository', async ($, on) => {
+  const { state } = await kept(on)
+  await start($)
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-143' })
+  expect(state()).toMatchObject({ claudeSession: 'session-1', repository: 'acme/web-app', current: 'TCK-143', baseCommit: 'ab12'.repeat(10), steward: null, reviewNext: null })
+})
+
+test('a stewarding round keeps the steward in the store as it changes', async ($, on) => {
+  const { state } = await kept(on)
+  await start($)
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-143' })
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'done' })
+  expect(state()).toMatchObject({ current: null, baseCommit: null, steward: { ticket: 'TCK-143', round: 1, phase: 'reviewing' } })
+  await $.turn.complete(finishTurn('agent-1', 'BLOCKING: wrong'))
+  expect(state()).toMatchObject({ steward: { ticket: 'TCK-143', round: 1, phase: 'fixing' } })
+})
+
+test("Claude's own move to In review keeps reviewNext in the store until the turn ends", async ($, on) => {
+  const { state } = await kept(on, store())
+  await start($)
+  await $.tool.call({ tool: UPDATE, tool_use_id: 'tu-1', repository: 'acme/web-app', key: 'TCK-143', status: 'In review' } as never)
+  expect(state()).toMatchObject({ current: null, baseCommit: null, reviewNext: 'TCK-143' })
+  await $.turn.complete(finishTurn(undefined, 'Built it.'))
+  expect(state()).toMatchObject({ reviewNext: null })
+})
+
+test('a reviewNext kept in the store has its review agents start when the next turn ends', async ($, on) => {
+  const { seen } = await kept(on, store({ current: null, baseCommit: null, reviewNext: 'TCK-143' }))
+  seen.server.find(t => t.key === 'TCK-143')!.status = 'In review'
+  await start($)
+  await $.turn.complete(finishTurn(undefined, 'Carried on.'))
+  expect(seen.spawned.map(a => a.description)).toEqual(['tick-it review: principal on TCK-143, round 1'])
+})
