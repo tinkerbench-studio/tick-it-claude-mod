@@ -4,7 +4,7 @@ import { withUiEvidence } from './ui-evidence'
 import { SECURE_CODING_LINE } from './security-areas'
 import type { UiPaths } from './ui-evidence'
 import type { AttachmentRef, MemoryRef, MilestoneView, PullRequestView, Ticket, TicketSize, TicketStatus } from '../types'
-import { PANE, STORE_KEY, BUDGET, SIZES, MONTHS } from './state'
+import { PANE, STORE_KEY, STORE_REPOSITORY_KEY, BUDGET, SIZES, MONTHS } from './state'
 import { callTickit, repositoryHere } from './tickit'
 
 // Declared in this file: the engine reads an atom only where it is written (a module cannot use one imported from state.ts).
@@ -224,6 +224,7 @@ export async function findCurrent($: EngineInterface): Promise<Ticket | undefine
 export async function save($: EngineInterface, list: Ticket[]) {
   await update($, tickets, () => list)
   await $.store.set(STORE_KEY, list)
+  await $.store.set(STORE_REPOSITORY_KEY, (await repositoryHere($)) ?? null)
 }
 
 /** A ticket as Tick-it's tools spell it. */
