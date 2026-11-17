@@ -116,3 +116,12 @@ test('readVerdict reads the VERDICT line in the same markdown shapes as the BLOC
   expect(readVerdict('## VERDICT: changes')).toBe('changes')
   expect(readVerdict('I could not read the diff.')).toBeUndefined()
 })
+
+test('a BLOCKING or OPTIONAL line that only says nothing is wrong is no finding', () => {
+  for (const body of ['none.', '**None**', 'N/A', 'Nothing', 'no issues.', 'No blocking findings', '_Not applicable_']) {
+    const found = readFindings(`BLOCKING: ${body}\nOPTIONAL: ${body}\n- **BLOCKING:** ${body}`)
+    expect(found, body).toEqual({ blocking: [], optional: [] })
+  }
+  expect(readFindings('BLOCKING: none of the tests cover X').blocking).toEqual(['BLOCKING: none of the tests cover X'])
+  expect(readFindings('BLOCKING: none.\nBLOCKING: src/a.ts:3 bug\nOPTIONAL: none').blocking).toEqual(['BLOCKING: src/a.ts:3 bug'])
+})

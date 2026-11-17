@@ -5,7 +5,7 @@ import { PANE, groupsOf, SIZES, USAGE } from './state'
 import { callTickit, repositoryHere, briefOf, freshBriefOf } from './tickit'
 import { budgetOf, findCurrent, save, fromRemote, refreshBoard, setStatus } from './board'
 import type { RemoteTicket } from './board'
-import { attachFile, recordPullRequest, take, finish, uiRefusal } from './work'
+import { attachFile, recordPullRequest, take, finish, uiRefusal, copiesGate } from './work'
 import { startRound, reviewReport } from './reviews'
 import { flush, syncLine } from './outbox'
 
@@ -58,9 +58,12 @@ export const registerCommand: Register = on => {
         // The changed files can be measured only for the ticket being built here.
         const missing = (await findCurrent($))?.id === t.id ? await uiRefusal($, t.id) : undefined
         if (missing !== undefined) return { text: missing }
+        const stale = (await findCurrent($))?.id === t.id ? await copiesGate($, t.id) : {}
+        if (stale.refusal !== undefined) return { text: stale.refusal }
         const why = await setStatus($, t.id, 'In review')
         if (why !== undefined) return { text: `Could not move ${t.id} to In review: ${why}.` }
-        return { text: await startRound($, t, 1, undefined, 'steward-command') }
+        const started = await startRound($, t, 1, undefined, 'steward-command')
+        return { text: stale.note === undefined ? started : `${stale.note}\n${started}` }
       }
       case 'reviews':
         return { text: `${await reviewReport($, rest[0])}\n${await syncLine($)}` }

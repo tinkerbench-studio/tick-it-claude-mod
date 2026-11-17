@@ -170,3 +170,12 @@ test('a round with one clean reviewer and one failed reviewer is not clean', asy
   await $.turn.complete(finishTurn(undefined, 'Fixed it.'))
   expect(seen.spawned.filter(s => s.description.endsWith('round 2')).length).toBeGreaterThan(0)
 })
+
+test('a round whose only BLOCKING line says none settles as clean', async ($, on) => {
+  const seen = engine(on, { lines: 10 }, true, { '.tick-it/skills/principal/SKILL.md': SKILLS['.tick-it/skills/principal/SKILL.md'] ?? '' })
+  await start($)
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-143' })
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'done' })
+  await $.turn.complete(finishTurn('agent-1', 'BLOCKING: **None.**\nVERDICT: clean'))
+  expect(seen.server.find(t => t.key === 'TCK-143')?.status).toBe('Done')
+})
