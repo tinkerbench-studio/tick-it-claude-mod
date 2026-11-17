@@ -104,7 +104,7 @@ export type Net = {
   /** Tick-it answers link_pull_request with an error while this is true. */
   linkRejected?: boolean
   /** What list_pull_requests answers; 'unreachable' makes it fail. */
-  pullRequests?: 'unreachable' | { number: number; state: string; draft: boolean; ci: string | null; behind?: boolean | null; mergeState?: string; mergeQueue?: unknown; ciInstructed?: boolean }[]
+  pullRequests?: 'unreachable' | { number: number; state: string; draft: boolean; ci: string | null; behind?: boolean | null; mergeState?: string; mergeQueue?: unknown; ciInstructed?: boolean; headSha?: string }[]
   /** What list_milestones answers; no milestones when absent. */
   milestones?: { title: string; dueOn: string | null; epics: { id?: string; title: string; tickets: number; done: number }[]; tickets: number; done: number }[]
   /** list_tickets answers this many tickets a page with a nextCursor (the page's offset); `failAt` refuses the page with that cursor. */
