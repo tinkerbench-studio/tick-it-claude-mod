@@ -12,6 +12,7 @@ import { findSkills, setSteward } from './reviews'
 import { uiEvidenceRefusal } from './ui-check'
 import { runCopiesCheck, copiesRefusal, copiesNote } from './copies-check'
 import { log } from './log'
+import { saveResume } from './resume'
 
 // Declared in this file: the engine reads an atom only where it is written (a module cannot use one imported from state.ts).
 const tickets = atom({ plugin: 'tick-it', key: 'tickets' } as const, [])
@@ -391,6 +392,7 @@ export async function take($: EngineInterface, id: string): Promise<Ticket | str
     const head = await $.process.run(['git', 'rev-parse', 'HEAD'])
     await update($, baseCommit, () => (head.exitCode === 0 && /^[0-9a-f]{40}$/.test(head.stdout.trim()) ? head.stdout.trim() : null))
   }
+  await saveResume($)
   await refreshDiff($)
 
   return (await read($, tickets)).find(one => one.id === wanted) ?? `No ticket ${id}.`
@@ -409,6 +411,7 @@ export async function resume($: EngineInterface, id: string): Promise<Ticket | s
     const head = await $.process.run(['git', 'rev-parse', 'HEAD'])
     await update($, baseCommit, () => (head.exitCode === 0 && /^[0-9a-f]{40}$/.test(head.stdout.trim()) ? head.stdout.trim() : null))
   }
+  await saveResume($)
   await refreshDiff($)
   return (await read($, tickets)).find(one => one.id === wanted) ?? `No ticket ${id}.`
 }
@@ -457,6 +460,7 @@ export async function finish($: EngineInterface, status: TicketStatus): Promise<
   if (why !== undefined) return `${t.id} is still yours: ${why}.`
   await update($, current, () => null)
   await update($, baseCommit, () => null)
+  await saveResume($)
   await showStatus($)
   if ((await read($, startedSession))?.ticket === t.id) {
     await report($, status === 'In review' ? 'reviewing' : 'stopped', status === 'In review' ? `Moved to In review.` : 'Put back in Ready.', true)
@@ -491,6 +495,7 @@ export async function finishedByClaude($: EngineInterface, e: ToolCallInput, nex
     return next(e)
   }
   await update($, reviewNext, () => t.id)
+  await saveResume($)
   if ((await read($, startedSession))?.ticket === t.id) await report($, 'reviewing', `Claude moved ${t.id} to In review; its review agents start when this turn ends.`, true)
   const ran = await next(e)
   if (!('result' in ran) || ran.isError === true) return ran
