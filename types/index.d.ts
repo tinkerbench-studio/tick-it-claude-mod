@@ -10,7 +10,7 @@ export type MemoryRef = { key: string; kind: string; body: string; status: strin
 export type ApprovalQuestion = { id: string; text: string; recommended: string | null; state: string; answer: string | null }
 /**
  * An approval request as get_ticket's `approvals` part lists it: the open one and the latest answered one.
- * The pane draws it read-only (TCK-66); who answered and when is added by the next ticket.
+ * The pane draws it read-only, an answered one with who answered and when.
  */
 export type Approval = {
   id: string
@@ -26,6 +26,10 @@ export type Approval = {
   staleReason: string | null
   /** ISO time the request was asked. */
   askedAt: string
+  /** GitHub login of the person who answered (not the one asked); null while open, or when Tick-it does not name them. */
+  answeredBy: string | null
+  /** ISO time the request was answered; null while open, or when Tick-it does not give it. */
+  answeredAt: string | null
 }
 
 export type Ticket = {

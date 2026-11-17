@@ -38,15 +38,29 @@ test('a stale request shows changed since asked and no waiting line', async ($, 
   expect(await pane.find({ key: 'approval-waiting' })).toBeUndefined()
 })
 
-test('an answered request shows its decision, who it was asked of and the answers, but no answerer or time', async ($, on) => {
-  const { pane } = await open($, on, [request({ state: 'rejected', questions: [{ id: 'q1', text: 'Which size?', recommended: 'S', state: 'answered', answer: 'M' }] })])
+test('an answered request shows its decision, who it was asked of, who answered, when, and the answers', async ($, on) => {
+  const { pane } = await open($, on, [request({ state: 'rejected', answeredBy: 'jo-reviewer', answeredAt: '2026-11-17T12:00:00Z', questions: [{ id: 'q1', text: 'Which size?', recommended: 'S', state: 'answered', answer: 'M' }] })])
   expect(await texts(pane, 'APPROVAL ANSWERED')).toBeDefined()
   expect(await texts(pane, 'Decision: rejected')).toBeDefined()
   expect(await texts(pane, 'Asked of: maddiecs84')).toBeDefined()
   expect(await texts(pane, 'Which size? → M')).toBeDefined()
   expect(await texts(pane, 'WAITING FOR APPROVAL')).toBeUndefined()
-  expect(await texts(pane, /Waiting \d|Answered by|Answered at/)).toBeUndefined()
+  expect(await texts(pane, 'Answered by: jo-reviewer')).toBeDefined()
+  expect(await texts(pane, 'Answered at: 2026-11-17T12:00:00Z')).toBeDefined()
+  expect(await texts(pane, /Waiting \d/)).toBeUndefined()
 })
+
+for (const [name, more] of [['answeredBy', { answeredBy: null, answeredAt: '2026-11-17T12:00:00Z' }], ['answeredAt', { answeredBy: 'jo-reviewer', answeredAt: null }], ['both', { answeredBy: null, answeredAt: null }]] as const) {
+  test(`an answered request with null ${name} still shows the decision and answers, with no blank or null`, async ($, on) => {
+    const { pane } = await open($, on, [request({ state: 'confirmed', ...more, questions: [{ id: 'q1', text: 'Which size?', recommended: 'S', state: 'answered', answer: 'M' }] })])
+    expect(await texts(pane, 'Decision: confirmed')).toBeDefined()
+    expect(await texts(pane, 'Which size? → M')).toBeDefined()
+    expect(await texts(pane, /null/)).toBeUndefined()
+    expect(await texts(pane, /^Answered (by|at): ?$/)).toBeUndefined()
+    expect(await texts(pane, /Answered by/) !== undefined).toBe(more.answeredBy !== null)
+    expect(await texts(pane, /Answered at/) !== undefined).toBe(more.answeredAt !== null)
+  })
+}
 
 for (const [name, approvals] of [['no request', []], ['a reply without approvals (an older Tick-it)', undefined]] as const) {
   test(`${name}: the pane shows neither approval section`, async ($, on) => {
