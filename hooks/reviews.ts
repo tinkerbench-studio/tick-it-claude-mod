@@ -4,7 +4,7 @@ import type { PullRequestView, ReviewRun, ReviewUsage, Steward, Ticket, TicketSi
 import { SIZES, REVIEWS_KEY, SKILLS_DIR, OLD_SKILLS_DIR, BASES_DIR, KEEP_REVIEWS, MAX_FINDING_TEXT, PRICES } from './state'
 import { callTickit, fetchInstructions, fetchModConfig, hasModLimits, madeHere, repositoryHere, reviewBudgetOf, roundLimit } from './tickit'
 import { setStatus, showStatus, refreshPullRequest, servedConfig } from './board'
-import { report, changedContent, mergeBaseOfDefault } from './work'
+import { report, changedContent, mergeBaseOfDefault, defaultBase } from './work'
 import { queue, flush, plural } from './outbox'
 import { AREA_SKILL_DIR, AREA_NAMES, areaSkill, changesFor, parseChanges, touchedAreas, touchedLine, unknownChanges } from './security-areas'
 import type { Changes, Touched } from './security-areas'
@@ -335,13 +335,15 @@ export const changeLines = (t: Ticket, skill: ReviewSkill, review: ChangeReview 
         '',
       ]
 
-export const reviewPrompt = (t: Ticket, skill: ReviewSkill, round: number, earlier: Earlier[] = [], head?: string, change?: ChangeReview): string =>
+export const reviewPrompt = (t: Ticket, skill: ReviewSkill, round: number, earlier: Earlier[] = [], head?: string, change?: ChangeReview, base?: string): string =>
   [
     `You are the "${skill.name}" reviewer for ticket ${t.id}: ${t.title} (epic: ${t.epic}), review round ${round}.`,
     `Ticket size: ${t.size}.`,
     'Acceptance:',
     ...t.acceptance.map(a => `- ${a}`),
-    `Review the change in the working tree against HEAD (git diff HEAD and the untracked files). Do not change any file.`,
+    base === undefined
+      ? `Review the change in the working tree against HEAD (git diff HEAD and the untracked files). Do not change any file.`
+      : `Review the whole change of this ticket against its base branch ${base}: the diff from the merge base to the working tree (git diff $(git merge-base ${base} HEAD)) and the untracked files. Committed work counts, so an empty diff of the working tree alone is not a reason to report nothing to review. Do not change any file.`,
     '',
     ...skillLines(skill),
     '',
@@ -608,6 +610,7 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
     return `${none} ${t.id} is Done without review.${all.length === 0 ? ' /tick-it:review-agents sets some up.' : ''}`
   }
   const head = (await $.process.run(['git', 'rev-parse', 'HEAD'])).stdout.trim() || undefined
+  const base = (await defaultBase($).catch(() => null))?.ref
   // Every applicable skill already reviewed this head with nothing blocking: no reviewer starts, and the round settles from the pull request and the acceptance ticks alone.
   // A command cannot submit a prompt, and a settle that finds a check unticked or the pull request failing submits one: from a command the round settles here only when it ends clean, and is reviewed as before otherwise.
   const fromCommand = trigger === 'done-command' || trigger === 'steward-command'
@@ -651,7 +654,7 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
     const description = `tick-it review: ${skill.name} on ${t.id}, round ${round}`
     const spawn = async (model: string | undefined) => {
       try {
-        return await $.agent.spawn({ prompt: reviewPrompt(t, skill, round, earlier, head, change), description, subagentType: 'general-purpose', ...(model === undefined ? {} : { model }) })
+        return await $.agent.spawn({ prompt: reviewPrompt(t, skill, round, earlier, head, change, base), description, subagentType: 'general-purpose', ...(model === undefined ? {} : { model }) })
       } catch (error) {
         return { deny: error instanceof Error ? error.message : String(error) }
       }
