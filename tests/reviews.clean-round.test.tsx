@@ -164,4 +164,9 @@ test('a round with one clean reviewer and one failed reviewer is not clean', asy
   await $.turn.complete({ ...finishTurn('agent-3', 'VERDICT: clean'), reason: 'error' as never } as never)
   expect(seen.server.find(t => t.key === 'TCK-143')?.status).toBe('In review')
   expect(noReview(seen)).toEqual([{ repository: 'acme/web-app', key: 'TCK-143', kind: 'no-clean-round', note: 'security failed or gave no VERDICT, twice in round 1: not a clean review, so the round is not read as clean.' }])
+  // Stopped by the mod itself, so a later move to In review has its fix reviewed once.
+  expect(reports(seen).at(-1)).toMatchObject({ status: 'stopped' })
+  await $.tool.call({ tool: 'mcp__plugin_tick-it_tickit__update_ticket', tool_use_id: 'tu-again', repository: 'acme/web-app', key: 'TCK-143', status: 'In review' } as never)
+  await $.turn.complete(finishTurn(undefined, 'Fixed it.'))
+  expect(seen.spawned.filter(s => s.description.endsWith('round 2')).length).toBeGreaterThan(0)
 })
