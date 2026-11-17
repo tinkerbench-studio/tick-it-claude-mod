@@ -43,7 +43,7 @@ The mod logs the decisions it makes, so a cause can be read afterwards: whether 
 
 The marketplace (`tinkerbench-studio/marketplace`) pins this plugin to a git tag, `v<version>`, so an install gets a release and not whatever is on `main`. To release:
 
-1. Raise `version` in `.claude-plugin/plugin.json` in the change that is released. CI fails a pull request that changes `hooks/`, `skills/`, `types/` or `plugin.json` without raising it.
+1. A pull request leaves `version` as it is. The merge queue's `Plugin version` check (`scripts/plugin-version.mjs`, the rule in `.tick-it/config.json`) fails a head that changes `hooks/`, `skills/`, `types/` or `plugin.json` without a `version` above main's, and the ticket's session raises it (`.claude/skills/version-raise`) in `plugin.json`, `MOD_VERSION` in `hooks/state.ts` and `tests/contract-fixtures.json`.
 2. Merge it. CI tags the merge commit `v<version>` and creates a GitHub release (`.github/workflows/release.yml`); nothing is done by hand.
 3. In the marketplace, set `ref` of the `tick-it` entry to `v<version>` and merge that.
 
