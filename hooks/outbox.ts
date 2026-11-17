@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 import type { DroppedRun, OutboxRun } from '../types'
-import { OUTBOX_KEY, DROPPED_KEY, KEEP_DROPPED, RECORD_TOOL, AGENTS_TOOL } from './state'
+import { OUTBOX_KEY, DROPPED_KEY, KEEP_DROPPED, BATCH_SIZE, RECORD_TOOL, AGENTS_TOOL } from './state'
 import { sendTickit, textOf, repositoryHere, madeHere } from './tickit'
 import { sendWaitingLinks } from './work'
 import { findSkills, saveReviews } from './reviews'
@@ -107,7 +107,8 @@ export async function flush($: EngineInterface): Promise<string> {
   const links = (await read($, unlinked)).length
   if (waiting.length === 0) return `${links === 0 ? 'Nothing waiting to send to Tick-it.' : `${plural(links, 'pull request link')} still waiting to send to Tick-it.`}${other}`
 
-  let answer: RecordAnswer | undefined
+  const accepted = new Set<string>()
+  const refused: DroppedRun[] = []
   let failure: string | null = null
   if (repository === undefined) {
     failure = 'this folder has no GitHub origin remote, so Tick-it would not know the repository'
@@ -115,33 +116,42 @@ export async function flush($: EngineInterface): Promise<string> {
     const session = await $.session.id()
     // The Tick-it session (s_…) the session took a ticket for: Tick-it's review hold matches a run on it, since a routine-started session's Claude Code id there is the claude.ai one. Left out when no ticket was taken.
     const tickitSession = (await read($, startedSession))?.id
-    const sent = await sendTickit($, RECORD_TOOL, place => ({
-      session,
-      ...(tickitSession === undefined ? {} : { tickitSession }),
-      // owner/name, as Tick-it knows the repository: not the remote's URL.
-      repository,
-      // Each review run carries its findings with their text, parsed from its BLOCKING and OPTIONAL lines.
-      runs: waiting.map(run => ({
-        place,
-        ...sendable(run),
-      })),
-    }))
-    if (!sent.ok) failure = sent.why
-    else if (sent.result.isError) failure = `Tick-it refused the call${textOf(sent.result) ? `: ${textOf(sent.result)}` : ''}`
-    else {
-      answer = readAnswer(sent.result)
-      if (answer === undefined) failure = `Tick-it's answer did not say which runs it took`
+    // Tick-it takes at most 500 runs a call: they go in calls of BATCH_SIZE, and a call that fails leaves only its own runs waiting.
+    for (let from = 0; from < waiting.length; from += BATCH_SIZE) {
+      const batch = waiting.slice(from, from + BATCH_SIZE)
+      const sent = await sendTickit($, RECORD_TOOL, place => ({
+        session,
+        ...(tickitSession === undefined ? {} : { tickitSession }),
+        // owner/name, as Tick-it knows the repository: not the remote's URL.
+        repository,
+        // Each review run carries its findings with their text, parsed from its BLOCKING and OPTIONAL lines.
+        runs: batch.map(run => ({
+          place,
+          ...sendable(run),
+        })),
+      }))
+      let why: string | null = null
+      let answer: RecordAnswer | undefined
+      if (!sent.ok) why = sent.why
+      else if (sent.result.isError) why = `Tick-it refused the call${textOf(sent.result) ? `: ${textOf(sent.result)}` : ''}`
+      else {
+        answer = readAnswer(sent.result)
+        if (answer === undefined) why = `Tick-it's answer did not say which runs it took`
+      }
+      const at = await $.clock.now()
+      const took = answer?.accepted ?? []
+      for (const id of took) accepted.add(id)
+      const rejected = (answer?.rejected ?? []).flatMap(r => {
+        const run = batch.find(w => w.agentId === r.agentId)
+        return run === undefined ? [] : [{ run, reason: r.reason.slice(0, 200), at }]
+      })
+      refused.push(...rejected)
+      const unanswered = answer === undefined ? 0 : batch.filter(r => !took.includes(r.agentId) && !rejected.some(d => d.run.agentId === r.agentId)).length
+      if (why === null && unanswered > 0) why = `Tick-it did not answer for ${plural(unanswered, 'run')}`
+      failure ??= why
     }
   }
 
-  const accepted = new Set(answer?.accepted ?? [])
-  const at = await $.clock.now()
-  const refused: DroppedRun[] = (answer?.rejected ?? []).flatMap(r => {
-    const run = waiting.find(w => w.agentId === r.agentId)
-    return run === undefined ? [] : [{ run, reason: r.reason.slice(0, 200), at }]
-  })
-  const unanswered = answer === undefined ? 0 : waiting.filter(r => !accepted.has(r.agentId) && !refused.some(d => d.run.agentId === r.agentId)).length
-  if (failure === null && unanswered > 0) failure = `Tick-it did not answer for ${plural(unanswered, 'run')}`
   await update($, syncError, () => failure)
 
   // Only what was settled leaves the outbox: a run queued while the call ran stays.

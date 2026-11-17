@@ -3,7 +3,7 @@ import type { EngineInterface, Register } from 'claude-code'
 import type { TicketSize } from '../types'
 import { SIZES } from './state'
 import { areaNudge, touchedAreas } from './security-areas'
-import { repositoryHere, freshBriefOf } from './tickit'
+import { repositoryHere, freshBriefOf, sameRepository } from './tickit'
 import { budgetOf, changedLines, nextSize, findCurrent, save, showStatus } from './board'
 import { measureDiff, refreshDiff, take, finishedByClaude, editEffect, applyEdit, editCount } from './work'
 
@@ -89,7 +89,7 @@ export const registerTools: Register = on => {
     const input = e as { key?: unknown; repository?: unknown; status?: unknown; assignee?: unknown }
     if (input.status === 'In review') return finishedByClaude($, e, next)
     const resized = (e as { size?: unknown }).size
-    if (typeof input.key === 'string' && typeof resized === 'string' && (SIZES as string[]).includes(resized) && input.repository === (await repositoryHere($)) && (await read($, current)) === input.key.toUpperCase()) {
+    if (typeof input.key === 'string' && typeof resized === 'string' && (SIZES as string[]).includes(resized) && sameRepository(input.repository, await repositoryHere($)) && (await read($, current)) === input.key.toUpperCase()) {
       const ran = await next(e)
       if (!('result' in ran) || ran.isError === true) return ran
       // The guard measures against the new budget from the next edit on.
@@ -101,7 +101,7 @@ export const registerTools: Register = on => {
       return ran
     }
     if (input.status !== 'In progress' || input.assignee !== 'me') return next(e)
-    if (typeof input.key !== 'string' || input.repository !== (await repositoryHere($)) || (await read($, current)) === input.key.toUpperCase()) return next(e)
+    if (typeof input.key !== 'string' || !sameRepository(input.repository, await repositoryHere($)) || (await read($, current)) === input.key.toUpperCase()) return next(e)
     const t = await take($, input.key)
     const ran = await next(e)
     if (typeof t === 'string' || !('result' in ran) || ran.isError === true) return ran
