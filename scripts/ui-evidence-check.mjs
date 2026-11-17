@@ -10,15 +10,12 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { DEFAULT_UI_PATH, globToRegExp } from './ui-paths.mjs'
+import { globToRegExp, isUiPath } from './ui-paths.mjs'
 
 const DEFAULT_PICTURES = 'docs/change-screenshots/'
 const IMAGE = /\.(png|jpe?g|gif|webp)$/i
 
-export { globToRegExp }
-
-/** With the repository's design.uiPaths a path matches one of those globs; with none, the default rule the `/tick-it done` gate uses (scripts/ui-paths.mjs). */
-export const isUiPath = (path, uiPaths) => (uiPaths.length === 0 ? DEFAULT_UI_PATH.test(path) : uiPaths.some(g => globToRegExp(g).test(path)))
+export { globToRegExp, isUiPath }
 
 /** Reads .tick-it/config.json's design.uiPaths; answers the list (empty when the file gives none) or throws with what is wrong. */
 export function parseConfig(text) {

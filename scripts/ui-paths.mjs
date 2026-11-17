@@ -24,3 +24,6 @@ export function globToRegExp(glob) {
   }
   return new RegExp(`^${re}$`)
 }
+
+/** With the repository's design.uiPaths a path matches one of those globs; with none, the default rule. */
+export const isUiPath = (path, uiPaths) => (uiPaths.length === 0 ? DEFAULT_UI_PATH.test(path) : uiPaths.some(g => globToRegExp(g).test(path)))

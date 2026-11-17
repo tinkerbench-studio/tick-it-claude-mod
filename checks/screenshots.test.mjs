@@ -7,6 +7,7 @@ import { cpSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
+import { isUiPath as sharedIsUiPath } from '../scripts/ui-paths.mjs'
 import { plan, put } from '../scripts/upload-screenshots.mjs'
 import { checkEvidence, globToRegExp, isUiPath, parseConfig } from '../scripts/ui-evidence-check.mjs'
 
@@ -196,4 +197,5 @@ test('the evidence script runs with node alone: its folder holds the shared modu
   assert.match(ran.stderr, /^usage: node scripts\/ui-evidence-check\.mjs/)
   assert.deepEqual([...readFileSync(CHECK, 'utf8').matchAll(/^import .* from '(.*)'/gm)].map(m => m[1]).filter(s => !s.startsWith('node:')), ['./ui-paths.mjs'])
   assert.equal(isUiPath('apps/web/src/pages.tsx', []), true)
+  assert.equal(isUiPath, sharedIsUiPath)
 })

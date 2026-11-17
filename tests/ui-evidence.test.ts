@@ -2,7 +2,7 @@ import { expect, test } from 'claude-code/testing'
 
 import { UI_EVIDENCE_CHECKLIST, hasUiEvidence, touchesUi, withUiEvidence } from '../hooks/ui-evidence'
 import { uiPathsOf } from '../hooks/tickit'
-import { isUiPath } from '../scripts/ui-evidence-check.mjs'
+import { isUiPath } from '../scripts/ui-paths.mjs'
 
 test('the UI-evidence checklist is added to the criteria of a ticket that touches apps/web pages or design files, and left off one that does not', () => {
   const page = ['Header shows the account menu on every page in apps/web/src/pages.tsx']
