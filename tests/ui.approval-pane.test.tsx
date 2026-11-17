@@ -47,6 +47,12 @@ test('an answered request: the decision, who answered and the answers to its que
   await pane.unmount()
 })
 
+test('an answered request shows when it was answered, once Tick-it says', async ($, on) => {
+  const { pane } = await shown($, on, [{ ...answered, answeredAt: '2026-11-17T08:00:00.000Z' }])
+  expect(await pane.find({ type: 'Text', text: 'Confirmed by maddiecs84 at 2026-11-17T08:00:00.000Z' })).toBeDefined()
+  await pane.unmount()
+})
+
 test('a request marked stale says changed since asked in place of waiting', async ($, on) => {
   const { pane } = await shown($, on, [{ ...open, staleReason: 'the pull request changed' }])
   expect(await pane.find({ type: 'Text', text: 'APPROVAL CHANGED SINCE ASKED' })).toBeDefined()
