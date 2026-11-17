@@ -9,3 +9,4 @@ How this repository makes the evidence:
 - Pages that are not in Storybook are drawn and screenshotted the way [this repository does it].
 - Pictures are uploaded to the ticket with `[how this repository uploads pictures]`.
 - The base branch is `[main]`.
+- What this repository's ux-evidence reviewer owns beyond its base, and what it leaves to the others: [...]. Acceptance decides what must exist; ux-evidence decides how it is worded and drawn. A defect another reviewer owns is raised once, by that reviewer.
