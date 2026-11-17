@@ -37,7 +37,8 @@ export const registerCommand: Register = on => {
         }
       }
       case 'take': {
-        const t = await take($, rest[0] ?? '')
+        if (rest[0] === undefined || rest[0] === '') return { text: 'Usage: /tick-it take <id>' }
+        const t = await take($, rest[0])
         if (typeof t === 'string') return { text: t }
         const fresh = await freshBriefOf($, t)
         const lines = [`◆ ${t.id} ${t.title} · ${t.size} · ${t.epic}`, ...t.acceptance.map(a => `  [ ] ${a}`), `  Budget ${await budgetOf($, t.size)} changed lines. The brief is in Claude's system prompt.`]
@@ -45,7 +46,8 @@ export const registerCommand: Register = on => {
       }
       case 'done': {
         const t = await findCurrent($)
-        if (t !== undefined) await recordPullRequest($, t.id)
+        // Best effort: a git failure must not keep the ticket from moving.
+        if (t !== undefined) await recordPullRequest($, t.id).catch(() => undefined)
         const moved = await finish($, 'In review')
         // Stewarding starts only once Tick-it has the ticket in review.
         if (t === undefined || (await read($, current)) !== null) return { text: moved }

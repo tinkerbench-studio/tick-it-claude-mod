@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { Register } from 'claude-code'
 import type { DroppedRun, OutboxRun, PendingLink, ReviewRun, StartedSession, Ticket } from '../types'
 import { STORE_KEY, STARTED_KEY, START_LINE, CONTINUE_LINE, BREAKDOWN_LINE, BREAKDOWN_KEY, REPORT_TOOL, REVIEWS_KEY, OUTBOX_KEY, DROPPED_KEY, UNLINKED_KEY, RECORD_TOOL, AGENTS_TOOL } from './state'
-import { callTickit, originHere, checkoutBeside, freshBriefOf } from './tickit'
+import { callTickit, originHere, checkoutBeside, freshBriefOf, sameRepository } from './tickit'
 import { refreshBoard, showStatus } from './board'
 import { reportsForItself, instructionsOf, take, resume } from './work'
 import { reportAgents, flush } from './outbox'
@@ -118,7 +118,7 @@ export const registerSession: Register = on => {
     if (line === null || e.command !== undefined) return next(e)
     const [, id = '', ticket = '', repository = ''] = line
     const origin = await originHere($)
-    if (origin !== null && origin !== repository) {
+    if (origin !== null && !sameRepository(origin, repository)) {
       const checkout = await checkoutBeside($, repository)
       await log($, 'debug', 'start-not-taken', { ticket, why: 'other-repository', ...(checkout === undefined ? {} : { checkout }) })
       // As with a refused take, the mod records and reports nothing for this session, so its own calls are let through.

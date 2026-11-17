@@ -83,6 +83,9 @@ export async function callTickit($: EngineInterface, tool: string, args: Record<
   return { ok: false, why: `Tick-it's answer to ${tool} had no result in it (${result.content.length} content blocks: ${result.content.map(b => `${b.type} ${b.type === 'text' ? (b.text ?? '').length : 0} chars`).join(', ') || 'none'}; the text starts: ${textOf(result).slice(0, 80) || 'empty'})` }
 }
 
+/** Whether two repository names (owner/name) are the same one: GitHub names carry no letter case, and Tick-it compares them lower-cased. */
+export const sameRepository = (a: unknown, b: unknown): boolean => typeof a === 'string' && typeof b === 'string' && a.toLowerCase() === b.toLowerCase()
+
 /** The repository this session works in, as owner/name, from its origin remote. */
 /** The folder's origin remote: null when it has none, undefined when it is not a GitHub repository. */
 export async function originHere($: EngineInterface): Promise<string | null | undefined> {
@@ -101,7 +104,7 @@ export async function checkoutBeside($: EngineInterface, repository: string): Pr
       const path = `${parent === '/' ? '' : parent}/${entry.name}`
       if (path === top) continue
       const remote = await $.process.run(['git', '-C', path, 'remote', 'get-url', 'origin'])
-      if (remote.exitCode === 0 && repositoryOf(remote.stdout) === repository) return path
+      if (remote.exitCode === 0 && sameRepository(repositoryOf(remote.stdout), repository)) return path
     }
   } catch {
     // The folders cannot be listed: the decline stands as it was.
@@ -139,13 +142,13 @@ export async function uiPathsHere($: EngineInterface, repository: string): Promi
     return paths
   }
   const held = await read($, uiPathsHeld)
-  return held.repository === repository ? held.paths : null
+  return sameRepository(held.repository, repository) ? held.paths : null
 }
 
 /** The UI globs last fetched, for this repository only: another repository's are not this one's. */
 async function heldUiPaths($: EngineInterface): Promise<UiPaths> {
   const held = await read($, uiPathsHeld)
-  return held.repository === (await repositoryHere($)) ? held.paths : null
+  return sameRepository(held.repository, await repositoryHere($)) ? held.paths : null
 }
 
 /** Fetches the repository's instructions for every brief (get_repository_settings) into the mod's state; kept as they were when Tick-it cannot say. */
@@ -163,7 +166,7 @@ export async function fetchInstructions($: EngineInterface): Promise<void> {
     const held = given as Record<string, unknown>
     // Limits kept from another repository are not this one's: they fall back to the defaults.
     await update($, rounds, kept => {
-      const before = kept.repository === repository ? kept.limits : DEFAULT_ROUNDS
+      const before = sameRepository(kept.repository, repository) ? kept.limits : DEFAULT_ROUNDS
       const limits = Object.fromEntries(SIZES.map(size => [size, typeof held[size] === 'number' && Number.isInteger(held[size]) && held[size] >= 1 ? Math.min(held[size], MAX_ROUND_LIMIT) : before[size]])) as Record<TicketSize, number>
       return { repository, limits }
     })
@@ -196,14 +199,14 @@ export async function roundLimit($: EngineInterface, size: TicketSize, ticket?: 
   const given = await heldLimits($, ticket)
   if (given?.reviewRounds != null) return Math.min(given.reviewRounds, MAX_ROUND_LIMIT)
   const held = await read($, rounds)
-  return (held.repository === (await repositoryHere($)) || held.repository === '' ? held.limits : DEFAULT_ROUNDS)[size]
+  return (sameRepository(held.repository, await repositoryHere($)) || held.repository === '' ? held.limits : DEFAULT_ROUNDS)[size]
 }
 
 /** What get_mod_config last gave for this ticket in this repository; undefined for any other ticket. */
 async function heldLimits($: EngineInterface, ticket: string | undefined) {
   if (ticket === undefined) return undefined
   const held = await read($, modLimits)
-  return held.ticket === ticket && held.repository === ((await repositoryHere($)) ?? '') ? held : undefined
+  return held.ticket === ticket && sameRepository(held.repository, (await repositoryHere($)) ?? '') ? held : undefined
 }
 
 /** The review budget in whole dollars get_mod_config gave for this ticket's size, or null when the size has none (or Tick-it could not say). */
