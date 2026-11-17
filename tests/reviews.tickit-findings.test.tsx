@@ -58,3 +58,16 @@ test('a Tick-it finding this session already answered fixed, still waiting in th
   expect(second?.prompt).not.toContain('no test for expiry')
   expect(second?.prompt).toContain('new problem')
 })
+
+test('a clean skill with an open Tick-it finding is run again in a later round, not carried forward', async ($, on) => {
+  const seen = engine(on, { lines: 10, changed: ['x/a.ts'], since: [] }, true, SKILLS, { timeline: [], findings: [finding('f1', 'principal')] })
+  await done($)
+  // Round 1: the principal reviewer finds nothing new and says nothing of the finding; the other reviewer blocks, so a fix and round 2 follow.
+  await $.turn.complete(finishTurn('agent-1', 'VERDICT: clean'))
+  await $.turn.complete(finishTurn('agent-2', 'BLOCKING: api/b.ts:1 other problem\nVERDICT: changes', 'claude-sonnet-5-5'))
+  await $.turn.complete(finishTurn(undefined, 'Fixed.'))
+  const round2 = seen.spawned.filter(s => s.description.includes('principal') && s.description.includes('round 2'))
+  expect(round2).toHaveLength(1)
+  expect(round2[0]?.prompt).toContain('1. api/a.ts:4 no test for expiry')
+  expect(seen.ticketCalls.some(c => c.tool === 'get_ticket' && Array.isArray(c.args.include) && c.args.include.includes('findings'))).toBe(true)
+})
