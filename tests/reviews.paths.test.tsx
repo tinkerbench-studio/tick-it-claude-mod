@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { globMatches } from '../hooks/register'
+import { globMatches, parseSkill } from '../hooks/register'
 import { RUN, engine, start, reports } from './helpers'
 
 const skill = (name: string, front: string) => ({ [`.tick-it/skills/${name}/SKILL.md`]: `---\nname: ${name}\n${front}\n---\nReview.` })
@@ -125,4 +125,46 @@ test('an untracked file at the root is listed when the session folder is below i
   await done($)
   expect(seen.processes.some(p => p.startsWith('git ls-files') && p.includes(':/'))).toBe(true)
   expect(seen.spawned.map(s => s.description)).toEqual(['tick-it review: top on TCK-143, round 1'])
+})
+
+const front = (lines: string) => parseSkill('x', `---\nname: x\n${lines}\n---\nBody.`)
+
+test('paths and sizes are read from an inline list, quoted or not, and from a block list', () => {
+  expect(front('paths: ["src/**", "apps/**"]').paths).toEqual(['src/**', 'apps/**'])
+  expect(front('paths: [src/**, apps/**]').paths).toEqual(['src/**', 'apps/**'])
+  expect(front('paths:\n  - src/**\n  - "apps/**"\nname: y').paths).toEqual(['src/**', 'apps/**'])
+  expect(front('sizes: [XS, S]').sizes).toEqual(['XS', 'S'])
+  expect(front('sizes:\n  - XS\n  - s').sizes).toEqual(['XS', 'S'])
+  expect(front('changes: [authentication, "src/**"]').changes).toEqual({ areas: ['authentication'], globs: ['src/**'] })
+})
+
+test('a brace group is written out as one glob per alternative, and a round runs that reviewer for src/a.tsx', async ($, on) => {
+  expect(front('paths: src/**/*.{ts,tsx}').paths).toEqual(['src/**/*.ts', 'src/**/*.tsx'])
+  expect(front('paths: [src/{a,b}/*.{ts,tsx}, docs/**]').paths).toEqual(['src/a/*.ts', 'src/a/*.tsx', 'src/b/*.ts', 'src/b/*.tsx', 'docs/**'])
+  const seen = engine(on, { lines: 10, changed: ['src/a.tsx'] }, true, { ...skill('web', 'paths: src/**/*.{ts,tsx}'), ...skill('docs', 'paths: docs/**') })
+  await done($)
+  expect(seen.spawned.map(s => s.description)).toEqual(['tick-it review: web on TCK-143, round 1'])
+})
+
+test('a glob with a bracket, a brace left open, a quote or a leading ! is left out and listed as unknown', () => {
+  const parsed = front('paths: [src/**, "a[1]/*", "!docs/**", b"c]')
+  expect(parsed.paths).toEqual(['src/**'])
+  expect(parsed.unknownPaths).toEqual(['a[1]/*', '!docs/**', 'b"c'])
+  expect(front('paths: src/{ts, lib/**').unknownPaths).toEqual(['src/{ts'])
+  expect(front('paths: src/**').unknownPaths).toBeUndefined()
+})
+
+test('the round names each skill with unusable paths and the entries', async ($, on) => {
+  engine(on, { lines: 10, changed: ['src/a.ts'] }, true, { ...skill('web', 'paths: src/**, !docs/**'), ...skill('api', 'paths: a[1]') })
+  const said = await done($)
+  expect(said.text).toContain('web lists !docs/** in paths, which can match no path')
+  expect(said.text).toContain('web lists !docs/** in paths, which can match no path (no bracket, brace, quote or leading ! in a glob), so they are left out.')
+  expect(said.text).toContain('api lists a[1] in paths, which can match no path (no bracket, brace, quote or leading ! in a glob), so it runs on every path.')
+})
+
+test('a skill whose every path is unusable runs on any changed file and is not skipped', async ($, on) => {
+  const seen = engine(on, { lines: 10, changed: ['apps/x.css'] }, true, skill('odd', 'paths: ["a[1]", "!b"]'))
+  await done($)
+  expect(seen.spawned.map(s => s.description)).toEqual(['tick-it review: odd on TCK-143, round 1'])
+  expect(skipped(seen)).toHaveLength(0)
 })
