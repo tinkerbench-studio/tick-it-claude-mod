@@ -22,7 +22,7 @@ export function uiEvidenceProblems(input: { ticket: string; changed: readonly st
     )
   const boards = input.changed.filter(p => BOARD.test(p))
   if (boards.length > 0 && !input.pictures.some(p => BESIDE_STORY.test(p.name) || BESIDE_STORY.test(p.key)))
-    problems.push(`This branch changes a canvas board or board-map entry (${boards.slice(0, 3).join(', ')}) but list_screenshots shows no picture named board-beside-story-*. Run npm run build-storybook, then npm run design-canvas:shots, copy each reports/design-canvas/shots/<Board>[-light]-side-by-side.png to shots/compare/board-beside-story-<Board>[-light].png (the name the check looks for), and upload those with presign_screenshot_upload and confirm_screenshot. ${how}.`)
+    problems.push(`This branch changes a canvas board or board-map entry (${boards.slice(0, 3).join(', ')}) but list_screenshots shows no picture named board-beside-story-*. Run npm run build-storybook, then npm run design-canvas:shots, copy each reports/design-canvas/dark/shots/<Board>-side-by-side.png to shots/compare/board-beside-story-<Board>.png and each reports/design-canvas/light/shots/<Board>-side-by-side.png to shots/compare/board-beside-story-<Board>-light.png (the name the check looks for), and upload those with presign_screenshot_upload and confirm_screenshot. ${how}.`)
 
   return problems
 }
