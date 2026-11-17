@@ -41,7 +41,8 @@ test('an answered request: the decision, who answered and the answers to its que
   const { pane } = await shown($, on, [answered])
   expect(await pane.find({ type: 'Text', text: 'WAITING FOR APPROVAL' })).toBeUndefined()
   expect(await pane.find({ type: 'Text', text: 'APPROVAL ANSWERED' })).toBeDefined()
-  expect(await pane.find({ type: 'Text', text: 'Confirmed by maddiecs84' })).toBeDefined()
+  expect(await pane.find({ type: 'Text', text: 'Confirmed (asked of maddiecs84)' })).toBeDefined()
+  expect(JSON.stringify(await pane.drawn())).toContain(`${URL}#ar_9z`)
   expect(await pane.find({ type: 'Text', text: 'Dark first?: yes' })).toBeDefined()
   expect(await pane.find({ type: 'Text', text: 'Rethink' })).toBeUndefined()
   await pane.unmount()
@@ -49,7 +50,19 @@ test('an answered request: the decision, who answered and the answers to its que
 
 test('an answered request shows when it was answered, once Tick-it says', async ($, on) => {
   const { pane } = await shown($, on, [{ ...answered, answeredAt: '2026-11-17T08:00:00.000Z' }])
-  expect(await pane.find({ type: 'Text', text: 'Confirmed by maddiecs84 at 2026-11-17T08:00:00.000Z' })).toBeDefined()
+  expect(await pane.find({ type: 'Text', text: 'Confirmed (asked of maddiecs84) at 2026-11-17T08:00:00.000Z' })).toBeDefined()
+  await pane.unmount()
+})
+
+test('a rejected answer says so', async ($, on) => {
+  const { pane } = await shown($, on, [{ ...answered, state: 'rejected' }])
+  expect(await pane.find({ type: 'Text', text: 'Rejected (asked of maddiecs84)' })).toBeDefined()
+  await pane.unmount()
+})
+
+test('a rethink answer says so', async ($, on) => {
+  const { pane } = await shown($, on, [{ ...answered, state: 'rethink' }])
+  expect(await pane.find({ type: 'Text', text: 'Rethink asked for (asked of maddiecs84)' })).toBeDefined()
   await pane.unmount()
 })
 

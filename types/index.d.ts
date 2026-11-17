@@ -36,7 +36,7 @@ export type Approval = {
   state: 'open' | 'confirmed' | 'rejected' | 'rethink'
   subject: string
   items: { name: string; kind: string }[]
-  /** GitHub login of the person who may answer (and who did, once answered). */
+  /** GitHub login of the person who may answer, the one asked; the reply names no answerer. */
   reviewer: string
   /** Why the request no longer holds; absent while it does. */
   staleReason?: string

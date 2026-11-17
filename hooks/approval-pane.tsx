@@ -40,7 +40,7 @@ export function approvalSection({ Box, Text, Link }: Record<'Box' | 'Text' | 'Li
       <Text key="approval-items" color={COLOR.dim}>{itemsLine(a.items)}</Text>
       {open === undefined ? (
         <Box key="approval-answer" flexDirection="column">
-          <Text key="approval-decision">{`${DECISION[a.state] ?? a.state} by ${a.reviewer}${a.answeredAt === undefined ? '' : ` at ${a.answeredAt}`}`}</Text>
+          <Text key="approval-decision">{`${DECISION[a.state] ?? a.state} (asked of ${a.reviewer})${a.answeredAt === undefined ? '' : ` at ${a.answeredAt}`}`}</Text>
           {a.questions.map((q, i) => (
             <Text key={`approval-q-${i}`} wrap="truncate-end">{`${q.text}: ${q.answer ?? 'no answer'}`}</Text>
           ))}
