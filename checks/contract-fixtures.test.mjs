@@ -53,4 +53,8 @@ test("a record_runs run carries no repository: the repository is the call's own 
   const call = fixtures.calls.find(c => c.tool === 'record_runs')
   assert.ok(typeof call.args.repository === 'string')
   for (const run of call.args.runs) assert.ok(!('repository' in run), `${run.agentId} carries a repository of its own`)
+  // tests/outbox.repositories.test.tsx cannot read the fixture: it holds the call's keys itself, which must be the fixture's.
+  const hook = readFileSync(new URL('../tests/outbox.repositories.test.tsx', import.meta.url), 'utf8')
+  const listed = JSON.parse(/FIXTURE_CALL_KEYS = (\[.*\])/.exec(hook)[1].replaceAll("'", '"'))
+  assert.deepEqual([...listed].sort(), Object.keys(call.args).sort())
 })

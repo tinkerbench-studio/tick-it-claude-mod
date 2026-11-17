@@ -18,6 +18,8 @@ const review = (agentId: string, ticket: string, round: number, repository?: str
   findings: ['another repository blocker'],
   ...(repository === undefined ? {} : { repository }),
 })
+/** The keys of the record_runs call in tests/contract-fixtures.json: a test cannot read that file, so checks/contract-fixtures.test.mjs fails when this list and the fixture differ. */
+const FIXTURE_CALL_KEYS = ['repository', 'session', 'tickitSession', 'runs']
 const OTHER = 'git@github.com:acme/other.git\n'
 
 test("a run queued in another repository is not sent by this one's session, and stays in the outbox", async ($, on) => {
@@ -48,12 +50,36 @@ test('/tick-it sync names how many runs wait for other repositories', async ($, 
   expect(reviews.text).toContain('2 runs wait for other repositories.')
 })
 
+/** A folder whose origin the test can change between calls: a session that moves from one repository to another. */
+const movable = (stored: Record<string, unknown>) => {
+  const folder = { origin: 'git@github.com:acme/web-app.git\n' }
+  return { folder, diff: { lines: 0, stored, get origin() { return folder.origin } } }
+}
+
 test("a stored run with no repository is sent under the repository of the session that first reads it", async ($, on) => {
   const seen = engine(on, { lines: 0, stored: { outbox: [work('w-old', 'TCK-999')] } })
   await start($)
   expect(seen.recorded).toHaveLength(1)
   expect(seen.recorded[0]?.args.repository).toBe('acme/web-app')
   expect(seen.recorded[0]?.args.runs.map(r => r.agentId)).toEqual(['w-old'])
+})
+
+test('a run, and a review run, with no repository belong to the repository that first read them: another repository later leaves them alone', async ($, on) => {
+  const { folder, diff } = movable({ outbox: [work('w-old', 'TCK-999')], reviews: [review('r-old', 'TCK-143', 2)] })
+  let up = false
+  const net: Net = { answer: () => (up ? {} : 'unreachable') }
+  const seen = engine(on, diff, true, SKILLS, net)
+  await start($)
+  // The send failed, so the run stays; the session then moves to another repository.
+  folder.origin = OTHER
+  up = true
+  const sync = await $.command.run({ ...RUN, command: 'tick-it', args: 'sync' })
+  // The first call is the failed send at session start; none after it carries the run.
+  expect(seen.recorded.slice(1).flatMap(c => c.args.runs.map(r => r.agentId))).not.toContain('w-old')
+  expect(sync.text).toContain('1 run waits for other repositories.')
+  const reviews = await $.command.run({ ...RUN, command: 'tick-it', args: 'reviews' })
+  expect(reviews.text).not.toContain('TCK-143')
+  expect(reviews.text).toContain('1 review run of other repositories is not listed.')
 })
 
 test('review runs of the same key stamped with another repository change neither the round, the blockers nor the carry-forward', async ($, on) => {
@@ -102,19 +128,18 @@ test("the record_runs payload keeps the repository as the call's own field, as t
   const sent = seen.recorded[0]?.args as unknown as Record<string, unknown> & { runs: Record<string, unknown>[] }
   // The call carries the repository itself; no run does, in the fixture or in what the mod sends.
   expect(Object.keys(sent)).toContain('repository')
+  for (const key of Object.keys(sent)) expect(FIXTURE_CALL_KEYS).toContain(key)
   for (const run of sent.runs) expect(run).not.toHaveProperty('repository')
 })
 
 test("/tick-it sync names the runs of other repositories when it sends this repository's runs too", async ($, on) => {
-  const seen = engine(on, { lines: 0, stored: { outbox: [work('w-other', 'TCK-1', 'acme/other')] } })
+  let call = 0
+  const net: Net = { answer: () => (++call === 1 ? 'unreachable' : {}) }
+  const seen = engine(on, { lines: 0, stored: { outbox: [work('w-other', 'TCK-1', 'acme/other'), work('w-here', 'TCK-143', 'acme/web-app')] } }, true, SKILLS, net)
+  // The send at session start fails, so both runs still wait for the sync.
   await start($)
-  // A run made here joins the one waiting for acme/other.
-  const run = work('w-here', 'TCK-143', 'acme/web-app')
-  await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-143' })
-  await $.command.run({ ...RUN, command: 'tick-it', args: 'done' })
-  await $.turn.complete(finishTurn(undefined, 'Built it.'))
   const sync = await $.command.run({ ...RUN, command: 'tick-it', args: 'sync' })
+  expect(sync.text).toContain('Sent 1 review run to Tick-it.')
   expect(sync.text).toContain('1 run waits for other repositories.')
-  expect(seen.recorded.flatMap(c => c.args.runs.map(r => r.agentId))).not.toContain('w-other')
-  expect(run.repository).toBe('acme/web-app')
+  expect(seen.recorded.at(-1)?.args.runs.map(r => r.agentId)).toEqual(['w-here'])
 })
