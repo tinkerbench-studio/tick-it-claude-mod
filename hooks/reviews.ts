@@ -551,7 +551,7 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
   }
   // The head only merged the base and Tick-it carries the review of the earlier commit over (reviewCarriedOver of list_pull_requests, TCK-52): no reviewer starts, and the round settles from the pull request and the acceptance ticks. An older Tick-it does not say, and the round runs as before.
   const pr = await read($, pullRequest)
-  if (pr !== null && pr.state === 'open' && pr.reviewCarriedOver === true && (await cleanTree()) && (await settlesClean())) {
+  if (pr !== null && (await read($, pullRequestError)) === null && pr.state === 'open' && pr.reviewCarriedOver === true && (await cleanTree()) && (await settlesClean())) {
     const earlier = ((await recordedReviews($, t.id)) ?? []).flatMap(r => r.agents).findLast(a => a.headSha !== undefined)?.headSha
     const last = first ? carried : fromRound - 1
     const note = `Review carried over from the earlier commit${earlier === undefined ? '' : ` ${earlier.slice(0, 7)}`}: the head only merged the base, so no reviewer started.`

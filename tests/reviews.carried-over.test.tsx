@@ -39,3 +39,18 @@ test('reviewCarriedOver absent (an older Tick-it): the round runs as today', asy
   expect(seen.spawned.length).toBeGreaterThan(0)
   await $.turn.complete(finishTurn('agent-1', 'VERDICT: clean'))
 })
+
+test('a pull request that cannot be read now never skips the review, even when the last one read said carried over', async ($, on) => {
+  const net = pr({ reviewCarriedOver: true })
+  const seen = engine(on, { lines: 10 }, true, SKILLS, net)
+  await start($)
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-143' })
+  // A first round reads the pull request (carried over, so no reviewer), and the read then fails: the cached flag is stale.
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'steward TCK-143' })
+  expect(seen.spawned).toHaveLength(0)
+  net.pullRequests = 'unreachable'
+  // Claude's own move to In review starts the round with no command, so only the guard (not settlesClean) sees the failed read.
+  await $.tool.call({ tool: 'mcp__plugin_tick-it_tickit__update_ticket', tool_use_id: 'tu-review', repository: 'acme/web-app', key: 'TCK-143', status: 'In review' } as never)
+  await $.turn.complete(finishTurn(undefined, 'Pushed.'))
+  expect(seen.spawned.length).toBeGreaterThan(0)
+})
