@@ -71,6 +71,7 @@ test('a request marked stale says changed since asked in place of waiting', asyn
   expect(await pane.find({ type: 'Text', text: 'APPROVAL CHANGED SINCE ASKED' })).toBeDefined()
   expect(await pane.find({ type: 'Text', text: 'WAITING FOR APPROVAL' })).toBeUndefined()
   expect(JSON.stringify(await pane.drawn())).toContain('changed since asked (the pull request changed)')
+  expect(JSON.stringify(await pane.drawn())).not.toContain('waiting')
   await pane.unmount()
 })
 

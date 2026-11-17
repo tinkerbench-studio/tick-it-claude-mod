@@ -46,7 +46,7 @@ export function approvalSection({ Box, Text, Link }: Record<'Box' | 'Text' | 'Li
           ))}
         </Box>
       ) : (
-        <Text key="approval-who" color={COLOR.dim}>{`${open.staleReason !== undefined ? `changed since asked (${open.staleReason}) · ` : ''}may answer: ${open.reviewer} · ${waited(open.askedAt, now)}`}</Text>
+        <Text key="approval-who" color={COLOR.dim}>{`${open.staleReason !== undefined ? `changed since asked (${open.staleReason}) · ` : ''}may answer: ${open.reviewer}${open.staleReason !== undefined ? '' : ` · ${waited(open.askedAt, now)}`}`}</Text>
       )}
       {href !== undefined && <Link key="approval-link" href={href} label={open === undefined ? 'Open the request in Tick-it' : 'Answer in Tick-it'} />}
     </Box>
