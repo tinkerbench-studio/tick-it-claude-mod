@@ -82,14 +82,19 @@ export async function measureDiff($: EngineInterface): Promise<number> {
   }
 }
 
-/** The merge base of HEAD and the remote's default branch (origin/HEAD, origin/main, origin/master, the first that has one), or null when there is none. */
-export async function mergeBaseOfDefault($: EngineInterface): Promise<string | null> {
-  for (const base of ['origin/HEAD', 'origin/main', 'origin/master']) {
-    const mb = await $.process.run(['git', 'merge-base', 'HEAD', base]).catch(() => undefined)
+/** The remote's default branch (origin/HEAD, origin/main, origin/master, the first that has a merge base with HEAD) and that merge base, or null when there is none. */
+export async function defaultBase($: EngineInterface): Promise<{ ref: string; sha: string } | null> {
+  for (const ref of ['origin/HEAD', 'origin/main', 'origin/master']) {
+    const mb = await $.process.run(['git', 'merge-base', 'HEAD', ref]).catch(() => undefined)
     const sha = mb?.exitCode === 0 ? mb.stdout.trim() : ''
-    if (/^[0-9a-f]{40}$/.test(sha)) return sha
+    if (/^[0-9a-f]{40}$/.test(sha)) return { ref, sha }
   }
   return null
+}
+
+/** The merge base of HEAD and the remote's default branch, or null when there is none. */
+export async function mergeBaseOfDefault($: EngineInterface): Promise<string | null> {
+  return (await defaultBase($))?.sha ?? null
 }
 
 /**
@@ -114,6 +119,51 @@ async function diffAgainstBase($: EngineInterface, args: string[]) {
   const head = await $.process.run(['git', 'rev-parse', '--verify', 'HEAD'])
   return head.exitCode === 0 ? null : await $.process.run([...args, EMPTY_TREE])
 }
+
+/** The lines `old` becomes `new` in a file's text: every occurrence with `all`, else the first; the text itself when `old` is not in it. */
+export const applyEdit = (text: string, old: string, replacement: string, all: boolean): string => {
+  if (old === '' || !text.includes(old)) return text
+  return all ? text.split(old).join(replacement) : text.replace(old, () => replacement)
+}
+
+/** How many times `old` is in a text. */
+const occurrences = (text: string, old: string): number => (old === '' ? 0 : text.split(old).length - 1)
+
+/**
+ * What an edit of one file adds to the ticket's diff, in changed lines, or 0
+ * when it adds nothing (a file outside the repository's top level, or one git
+ * ignores). With the file's text at the ticket's base readable, the effect is
+ * its changed lines against the base after the edit less before it; otherwise
+ * the edit's own estimate (lines added plus removed, per occurrence). Never
+ * throws: a measure that fails is 0, as the guard lets the edit through.
+ */
+export async function editEffect(
+  $: EngineInterface,
+  file: string,
+  change: (before: string) => { after: string; estimate: number },
+  count: (before: string, after: string) => number,
+): Promise<number> {
+  try {
+    const top = await $.process.run(['git', 'rev-parse', '--show-toplevel'])
+    if (top.exitCode !== 0) return change(await readText($, file)).estimate
+    const root = top.stdout.trim()
+    if (root === '' || !file.startsWith(`${root}/`)) return 0
+    if ((await $.process.run(['git', 'check-ignore', '-q', '--', file])).exitCode === 0) return 0
+    const before = await readText($, file)
+    const { after, estimate } = change(before)
+    // A file that could not be read, or an edit that finds nothing to change, cannot be measured against the base: the edit's own estimate stands.
+    if (before === '' || after === before) return estimate
+    // A base that cannot be read, by a non-zero exit or by git failing to run, leaves today's estimate.
+    const base = await $.process.run(['git', 'show', `${await measureBase($)}:${file.slice(root.length + 1)}`]).catch(() => null)
+    if (base === null || base.exitCode !== 0) return estimate
+    return count(base.stdout, after) - count(base.stdout, before)
+  } catch {
+    return 0
+  }
+}
+
+/** Occurrences an Edit changes: all of them with replace_all, else one. */
+export const editCount = (before: string, old: string, all: boolean): number => (all ? Math.max(1, occurrences(before, old)) : 1)
 
 /** `git diff --numstat` (with `-z` for the per-file rows) against the ticket's base, or null when it cannot be had. */
 export async function numstat($: EngineInterface, z = false): Promise<string | null> {

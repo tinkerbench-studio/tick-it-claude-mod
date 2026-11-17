@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { PANE, RUN, engine, finishTurn, start } from './helpers'
+import { RUN, engine, finishTurn, start } from './helpers'
 import type { Net } from './helpers'
 
 const skill = (name: string, front: string) => ({ [`.tick-it/skills/${name}/SKILL.md`]: `---\nname: ${name}\n${front}\n---\nReview.` })
@@ -135,10 +135,6 @@ test('round 2: a reviewer whose round 1 run failed has no clean verdict to carry
     const name = s.description.split(' ')[2]
     await $.turn.complete(name === 'docs' ? { ...finishTurn(`agent-${i + 1}`, 'crashed'), reason: 'error' as never } : finishTurn(`agent-${i + 1}`, name === 'all' ? 'BLOCKING: all wrong' : 'VERDICT: clean'))
   }
-  // docs failed twice, so round 1 stopped for a person; r starts round 2.
-  const ui = await $.ui.mount({ plugin: 'tick-it', surface: 'terminal', ...PANE })
-  await ui.press({ key: 'review-again' })
-  await ui.unmount()
   await $.turn.complete(finishTurn(undefined, 'Fixed.'))
   // docs failed (nothing to carry forward) and all has a blocker open; code was clean and nothing changed.
   expect(round2(seen)).toEqual(['all', 'docs'])

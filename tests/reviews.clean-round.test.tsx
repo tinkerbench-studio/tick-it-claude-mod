@@ -171,6 +171,27 @@ test('a round with one clean reviewer and one failed reviewer is not clean', asy
   expect(seen.spawned.filter(s => s.description.endsWith('round 2')).length).toBeGreaterThan(0)
 })
 
+test('a reviewer that failed twice does not hide another reviewer\'s BLOCKING lines: they go to Claude to fix, and nobody is asked yet', async ($, on) => {
+  const seen = engine(on, { lines: 10 }, true, TWO_SKILLS)
+  await toReview($)
+  await $.turn.complete(finishTurn('agent-1', 'BLOCKING: api/a.ts:4 no test\nVERDICT: changes'))
+  await $.turn.complete({ ...finishTurn('agent-2', 'VERDICT: clean'), reason: 'error' as never } as never)
+  await $.turn.complete({ ...finishTurn('agent-3', 'VERDICT: clean'), reason: 'error' as never } as never)
+  expect(seen.submitted.join('\n')).toContain('[principal] BLOCKING: api/a.ts:4 no test')
+  expect(noReview(seen)).toEqual([])
+  expect(seen.server.find(t => t.key === 'TCK-143')?.status).toBe('In review')
+})
+
+test('a reviewer whose agent was lost is not started again: the round stops for a person, and the note does not say twice', async ($, on) => {
+  const seen = engine(on, { lines: 10 }, true, TWO_SKILLS)
+  await toReview($)
+  seen.unlisted = ['agent-2']
+  await $.turn.complete(finishTurn('agent-1', 'VERDICT: clean'))
+  expect(seen.spawned).toHaveLength(2)
+  expect(seen.server.find(t => t.key === 'TCK-143')?.status).toBe('In review')
+  expect(noReview(seen)).toEqual([{ repository: 'acme/web-app', key: 'TCK-143', kind: 'no-clean-round', note: 'security failed or gave no VERDICT in round 1: not a clean review, so the round is not read as clean.' }])
+})
+
 test('a round whose only BLOCKING line says none settles as clean', async ($, on) => {
   const seen = engine(on, { lines: 10 }, true, { '.tick-it/skills/principal/SKILL.md': SKILLS['.tick-it/skills/principal/SKILL.md'] ?? '' })
   await start($)

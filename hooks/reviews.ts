@@ -4,7 +4,7 @@ import type { PullRequestView, ReviewRun, ReviewUsage, Steward, Ticket, TicketSi
 import { SIZES, REVIEWS_KEY, SKILLS_DIR, OLD_SKILLS_DIR, BASES_DIR, KEEP_REVIEWS, MAX_FINDING_TEXT, PRICES } from './state'
 import { callTickit, fetchInstructions, fetchModConfig, hasModLimits, madeHere, repositoryHere, reviewBudgetOf, roundLimit } from './tickit'
 import { setStatus, showStatus, refreshPullRequest, servedConfig } from './board'
-import { report, changedContent, mergeBaseOfDefault } from './work'
+import { report, changedContent, mergeBaseOfDefault, defaultBase } from './work'
 import { queue, flush, plural } from './outbox'
 import { AREA_SKILL_DIR, AREA_NAMES, areaSkill, changesFor, parseChanges, touchedAreas, touchedLine, unknownChanges } from './security-areas'
 import type { Changes, Touched } from './security-areas'
@@ -344,13 +344,15 @@ export const changeLines = (t: Ticket, skill: ReviewSkill, review: ChangeReview 
         '',
       ]
 
-export const reviewPrompt = (t: Ticket, skill: ReviewSkill, round: number, earlier: Earlier[] = [], head?: string, change?: ChangeReview): string =>
+export const reviewPrompt = (t: Ticket, skill: ReviewSkill, round: number, earlier: Earlier[] = [], head?: string, change?: ChangeReview, base?: string): string =>
   [
     `You are the "${skill.name}" reviewer for ticket ${t.id}: ${t.title} (epic: ${t.epic}), review round ${round}.`,
     `Ticket size: ${t.size}.`,
     'Acceptance:',
     ...t.acceptance.map(a => `- ${a}`),
-    `Review the change in the working tree against HEAD (git diff HEAD and the untracked files). Do not change any file.`,
+    base === undefined
+      ? `Review the change in the working tree against HEAD (git diff HEAD and the untracked files). Do not change any file.`
+      : `Review the whole change of this ticket against its base branch ${base}: the diff from the merge base to the working tree (git diff $(git merge-base ${base} HEAD)) and the untracked files. Committed work counts, so an empty diff of the working tree alone is not a reason to report nothing to review. Do not change any file.`,
     '',
     ...skillLines(skill),
     '',
@@ -617,6 +619,7 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
     return `${none} ${t.id} is Done without review.${all.length === 0 ? ' /tick-it:review-agents sets some up.' : ''}`
   }
   const head = (await $.process.run(['git', 'rev-parse', 'HEAD'])).stdout.trim() || undefined
+  const base = (await defaultBase($).catch(() => null))?.ref
   // Every applicable skill already reviewed this head with nothing blocking: no reviewer starts, and the round settles from the pull request and the acceptance ticks alone.
   // A command cannot submit a prompt, and a settle that finds a check unticked or the pull request failing submits one: from a command the round settles here only when it ends clean, and is reviewed as before otherwise.
   const fromCommand = trigger === 'done-command' || trigger === 'steward-command'
@@ -658,6 +661,7 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
     if (!bySize(skill) && mine.length > 0) forChanges.push(`${folder} runs for what the change touches: ${mine.map(m => m.area).join(', ')}.`)
     const startedAt = await $.clock.now()
     const description = `tick-it review: ${skill.name} on ${t.id}, round ${round}`
+    const prompt = reviewPrompt(t, skill, round, earlier, head, change, base)
     const spawn = async (model: string | undefined) => {
       try {
         return await $.agent.spawn({ prompt, description, subagentType: 'general-purpose', ...(model === undefined ? {} : { model }) })
@@ -665,7 +669,6 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
         return { deny: error instanceof Error ? error.message : String(error) }
       }
     }
-    const prompt = reviewPrompt(t, skill, round, earlier, head, change)
     let spawned = await spawn(skill.model)
     // A model this session cannot run: the session's own model reviews instead.
     if (spawned.deny !== undefined && skill.model !== undefined) spawned = await spawn(undefined)
@@ -877,7 +880,7 @@ export async function settleRound($: EngineInterface, s: Steward, withoutReviewe
   const t = (await read($, tickets)).find(one => one.id === s.ticket)
   if (t === undefined) return
   // A reviewer that could not be started reviewed nothing: the round is not clean while its failed run stands.
-  const reviewed = runs.flatMap(r => [...(r.reason === undefined ? [] : [`[${r.skill}] BLOCKING: reviewer could not be started: ${r.reason}`]), ...(r.findings ?? []).map(line => `[${r.skill}] ${line}`)])
+  const reviewed = runs.flatMap(r => [...(r.reason === undefined ? [] : [`[${r.skill}] BLOCKING: reviewer could not be started: ${r.reason}`]), ...(r.status === 'failed' && r.reason === undefined ? [] : r.findings ?? []).map(line => `[${r.skill}] ${line}`)])
   // Reviewers that found nothing do not make a round clean while the pull request is failing or behind: that is blocking too.
   // A refresh that throws is an unread pull request too, not a stranded round.
   if (reviewed.length === 0) await refreshPullRequest($, t.id).catch(() => update($, pullRequestError, () => 'could not read the pull request'))
@@ -895,10 +898,13 @@ export async function settleRound($: EngineInterface, s: Steward, withoutReviewe
   const newest = new Map<string, ReviewRun>()
   for (const r of runs) if (r.notApplicable === undefined && r.reason === undefined) newest.set(r.skill, r)
   const unreviewed = [...newest.values()].filter(r => r.status === 'failed').map(r => r.skill)
-  if (unreviewed.length > 0 && !withoutReviewers) {
+  // Reviewers that did find blocking things still send Claude to fix them: the failed reviewer is run again in the next round (a failed run carries no clean verdict forward).
+  if (unreviewed.length > 0 && !withoutReviewers && reviewed.length === 0) {
     if (!(await stillReviewing())) return
     await log($, 'debug', 'round-settled', { ticket: t.id, round: s.round, outcome: 'stopped-no-verdict', skills: unreviewed.join(',') })
-    const note = `${unreviewed.join(', ')} failed or gave no VERDICT, twice in round ${s.round}: not a clean review, so the round is not read as clean.`
+    // "Twice" only where the run was started again: a lost or stopped run, or one saved before retries, ran once.
+    const again = [...newest.values()].filter(r => r.status === 'failed').every(r => r.retry === true)
+    const note = `${unreviewed.join(', ')} failed or gave no VERDICT${again ? ', twice' : ''} in round ${s.round}: not a clean review, so the round is not read as clean.`
     await setSteward($, { ...s, phase: 'stopped', stoppedBy: 'mod', note })
     const repository = await repositoryHere($)
     if (repository !== undefined) await callTickit($, 'set_needs_human', { repository, key: t.id, kind: 'no-clean-round', note: note.slice(0, 200) }).catch(() => undefined)
