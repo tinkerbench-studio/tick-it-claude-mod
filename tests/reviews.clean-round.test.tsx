@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { RUN, SKILLS, engine, finishTurn, start } from './helpers'
+import { RUN, SKILLS, engine, finishTurn, reports, start } from './helpers'
 
 test('a clean review round takes the ticket to Done on Tick-it', async ($, on) => {
   const seen = engine(on, { lines: 10 }, true, { '.tick-it/skills/principal/SKILL.md': SKILLS['.tick-it/skills/principal/SKILL.md'] ?? '' })
@@ -135,6 +135,12 @@ for (const [name, first, second] of [
     expect(seen.server.find(t => t.key === 'TCK-143')?.status).toBe('In review')
     expect(noReview(seen)).toEqual([{ repository: 'acme/web-app', key: 'TCK-143', kind: 'no-clean-round', note: 'principal failed or gave no VERDICT, twice in round 1: not a clean review, so the round is not read as clean.' }])
     expect(seen.submitted).toHaveLength(0)
+    // The mod itself stopped (stoppedBy mod, not the stop button): a later move to In review has its fix reviewed once, which a stop button stop would not.
+    expect(reports(seen).at(-1)).toMatchObject({ status: 'stopped' })
+    await $.tool.call({ tool: 'mcp__plugin_tick-it_tickit__update_ticket', tool_use_id: 'tu-again', repository: 'acme/web-app', key: 'TCK-143', status: 'In review' } as never)
+    await $.turn.complete(finishTurn(undefined, 'Fixed it.'))
+    expect(seen.spawned).toHaveLength(3)
+    expect(seen.spawned[2]?.description).toContain('round 2')
   })
 }
 
