@@ -168,7 +168,7 @@ export async function flush($: EngineInterface): Promise<string> {
   const sentCount = waiting.filter(r => accepted.has(r.agentId)).length
   if (refused.length > 0) await log($, 'error', 'runs-dropped', { dropped: refused.length })
   await log($, failure === null ? 'info' : 'warn', 'outbox-send', { sent: sentCount, dropped: refused.length, waiting: left.length, failed: failure !== null })
-  const parts = [sentCount > 0 ? `Sent ${plural(sentCount, 'review run')} to Tick-it.` : '', refused.length > 0 ? `Dropped ${plural(refused.length, 'review run')} Tick-it rejected: ${refused.map(d => `${describeRun(d.run)} (${d.reason})`).join('; ')}.` : '', failure !== null ? `${plural(left.length, 'review run')} still waiting: ${failure}.` : '']
+  const parts = [sentCount > 0 ? `Sent ${plural(sentCount, 'review run')} to Tick-it.` : '', refused.length > 0 ? `Dropped ${plural(refused.length, 'review run')} Tick-it rejected: ${refused.map(d => `${describeRun(d.run)} (${d.reason})`).join('; ')}.` : '', failure !== null ? `${plural(left.filter(r => madeHere(r, repository)).length, 'review run')} still waiting: ${failure}.` : '', other.trim()]
 
   return parts.filter(p => p !== '').join(' ')
 }

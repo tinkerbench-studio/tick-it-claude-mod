@@ -96,9 +96,25 @@ test('a board cached for this repository still shows while Tick-it cannot be rea
   expect(board.text).toContain('Cached here')
 })
 
-test("the record_runs payload keeps the repository as the call's own field, as tests/contract-fixtures.json records it (checks/contract-fixtures.test.mjs reads the fixture)", async ($, on) => {
+test("the record_runs payload keeps the repository as the call's own field, as tests/contract-fixtures.json records it", async ($, on) => {
   const seen = engine(on, { lines: 0, stored: { outbox: [work('w-here', 'TCK-5', 'acme/web-app')] } })
   await start($)
-  expect(seen.recorded[0]?.args.repository).toBe('acme/web-app')
-  for (const run of seen.recorded[0]?.args.runs ?? []) expect(run).not.toHaveProperty('repository')
+  const sent = seen.recorded[0]?.args as unknown as Record<string, unknown> & { runs: Record<string, unknown>[] }
+  // The call carries the repository itself; no run does, in the fixture or in what the mod sends.
+  expect(Object.keys(sent)).toContain('repository')
+  for (const run of sent.runs) expect(run).not.toHaveProperty('repository')
+})
+
+test("/tick-it sync names the runs of other repositories when it sends this repository's runs too", async ($, on) => {
+  const seen = engine(on, { lines: 0, stored: { outbox: [work('w-other', 'TCK-1', 'acme/other')] } })
+  await start($)
+  // A run made here joins the one waiting for acme/other.
+  const run = work('w-here', 'TCK-143', 'acme/web-app')
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-143' })
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'done' })
+  await $.turn.complete(finishTurn(undefined, 'Built it.'))
+  const sync = await $.command.run({ ...RUN, command: 'tick-it', args: 'sync' })
+  expect(sync.text).toContain('1 run waits for other repositories.')
+  expect(seen.recorded.flatMap(c => c.args.runs.map(r => r.agentId))).not.toContain('w-other')
+  expect(run.repository).toBe('acme/web-app')
 })
