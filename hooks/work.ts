@@ -10,6 +10,7 @@ import { findCurrent, changeTicket, showStatus, save, fromRemote, readTicket, he
 import type { RemoteTicket } from './board'
 import { findSkills, setSteward } from './reviews'
 import { uiEvidenceRefusal } from './ui-check'
+import { runCopiesCheck, copiesRefusal, copiesNote } from './copies-check'
 import { log } from './log'
 
 // Declared in this file: the engine reads an atom only where it is written (a module cannot use one imported from state.ts).
@@ -336,9 +337,16 @@ export async function uiRefusal($: EngineInterface, ticket: string): Promise<str
   )
 }
 
+/** The refusal for the current ticket's failing copies:check, or undefined (also when it passed or could not run). */
+export async function copiesGate($: EngineInterface, ticket: string): Promise<string | undefined> {
+  const copies = await runCopiesCheck($)
+  return copies.kind === 'failed' ? copiesRefusal(ticket, copies.output) : undefined
+}
+
 export async function finish($: EngineInterface, status: TicketStatus): Promise<string> {
   const t = await findCurrent($)
   if (t === undefined) return 'No ticket taken. Try /tick-it board or /tick-it take <id>.'
+  let copiesUnrun: string | undefined
   // A UI change goes to review with its before/after pictures, or not at all: the reviewer would only send it back.
   if (status === 'In review') {
     const missing = await uiEvidenceRefusal(
@@ -347,6 +355,10 @@ export async function finish($: EngineInterface, status: TicketStatus): Promise<
       (await measureFiles($)).map(f => f.path),
     )
     if (missing !== undefined) return missing
+    // The repository's own stale-copy check (its package.json copies:check script) must pass: a failure refuses the move and changes nothing. A check that cannot run is only said, with the move.
+    const copies = await runCopiesCheck($)
+    if (copies.kind === 'failed') return copiesRefusal(t.id, copies.output)
+    if (copies.kind === 'unrun') copiesUnrun = copiesNote(copies.why)
   }
   // Going to review, the ticket's changed lines go with it, for estimate against actual.
   const why = await changeTicket($, t.id, status === 'Ready' ? { status, assignee: null } : { status, changedLines: await measureDiff($), ...(await changedFiles($, status)) })
@@ -358,7 +370,7 @@ export async function finish($: EngineInterface, status: TicketStatus): Promise<
     await report($, status === 'In review' ? 'reviewing' : 'stopped', status === 'In review' ? `Moved to In review.` : 'Put back in Ready.', true)
   }
 
-  return status === 'In review' ? `${t.id} moved to In review.` : `${t.id} put back in Ready.`
+  return status === 'In review' ? `${t.id} moved to In review.${copiesUnrun === undefined ? '' : `\n${copiesUnrun}`}` : `${t.id} put back in Ready.`
 }
 
 /**
@@ -372,10 +384,12 @@ export async function finishedByClaude($: EngineInterface, e: ToolCallInput, nex
   const t = await findCurrent($)
   if (input.status === 'In review' && typeof input.key === 'string' && t === undefined) return fixAfterStop($, input.key.toUpperCase(), e, next)
   if (input.status !== 'In review' || typeof input.key !== 'string' || t === undefined || input.key.toUpperCase() !== t.id) return next(e)
+  let unrun: string | undefined
   try {
     await recordPullRequest($, t.id)
     const moved = await finish($, 'In review')
     if ((await read($, current)) !== null) return { deny: `tick-it: ${moved}` }
+    unrun = moved.split('\n').find(line => line.includes('could not run'))
   } catch (error) {
     // The turn's end looks again: Tick-it will have the ticket In review once Claude's own call runs.
     await report($, 'working', `Could not take ${t.id} to review yet: ${error instanceof Error ? error.message : String(error)}`.slice(0, 450), true)
@@ -388,7 +402,7 @@ export async function finishedByClaude($: EngineInterface, e: ToolCallInput, nex
   const skills = (await findSkills($)).length
   return {
     ...ran,
-    context: [...(ran.context ?? []), skills === 0 ? `tick-it: ${t.id} is In review. There are no review skills in ${SKILLS_DIR}, so when this turn ends it goes to Done without review.` : `tick-it: ${t.id} is In review. When this turn ends tick-it runs its review agents; their blocking findings come back to you to fix.`],
+    context: [...(ran.context ?? []), ...(unrun === undefined ? [] : [`tick-it: ${unrun}`]), skills === 0 ? `tick-it: ${t.id} is In review. There are no review skills in ${SKILLS_DIR}, so when this turn ends it goes to Done without review.` : `tick-it: ${t.id} is In review. When this turn ends tick-it runs its review agents; their blocking findings come back to you to fix.`],
   }
 }
 
