@@ -124,6 +124,14 @@ export const registerSession: Register = on => {
     }
     if (line === null || e.command !== undefined) return next(e)
     const [, id = '', ticket = '', repository = ''] = line
+    // A line counts only while the session has no taken ticket and no started session: later it is text (a pasted log, a quoted message), and the prompt goes on unchanged.
+    const held = await read($, startedSession)
+    const taken = await read($, current)
+    if (held !== null || taken !== null) {
+      // The same line again for the session and ticket already started is a resend: ignored without a note.
+      if (held === null || held.id !== id || held.ticket !== ticket.toUpperCase()) await log($, 'debug', 'start-line-ignored', { ticket, why: held !== null ? 'session-started' : 'ticket-taken' })
+      return next(e)
+    }
     const origin = await originHere($)
     if (origin !== null && origin !== repository) {
       const checkout = await checkoutBeside($, repository)
