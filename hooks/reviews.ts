@@ -334,6 +334,7 @@ export const changeLines = (t: Ticket, skill: ReviewSkill, review: ChangeReview 
 export const reviewPrompt = (t: Ticket, skill: ReviewSkill, round: number, earlier: Earlier[] = [], head?: string, change?: ChangeReview): string =>
   [
     `You are the "${skill.name}" reviewer for ticket ${t.id}: ${t.title} (epic: ${t.epic}), review round ${round}.`,
+    `Ticket size: ${t.size}.`,
     'Acceptance:',
     ...t.acceptance.map(a => `- ${a}`),
     `Review the change in the working tree against HEAD (git diff HEAD and the untracked files). Do not change any file.`,
