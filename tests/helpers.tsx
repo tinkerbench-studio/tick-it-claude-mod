@@ -119,7 +119,7 @@ export type Net = {
 /** The engine beneath the mod: a store, a repo whose diff is `diff.lines` lines, and quiet UI calls. */
 export const engine = (
   on: On,
-  diff: { lines: number; merged?: boolean; byCommit?: Record<string, { lines?: number; numstatZ?: string; patch?: string }>; failDiff?: boolean; branch?: string; defaultBranch?: string; branchThrows?: boolean; siblings?: Record<string, string> | 'unlistable'; pr?: number; origin?: string | null; noCommit?: boolean; numstatZ?: string; failFiles?: boolean; changed?: string[] | null; since?: string[] | null; failUntracked?: boolean; truncateNames?: boolean; bases?: string[]; failNames?: 'exit' | 'throw'; subdir?: string; stored?: Record<string, unknown>; refuse?: (model: string | undefined, description: string) => string | undefined; patch?: string; dirty?: boolean; untracked?: Record<string, string>; binary?: Record<string, string>; gh?: (argv: string[]) => { exitCode: number; stdout: string; stderr: string } | undefined; pictures?: { key: string; name: string }[] | 'unreachable' | 'odd'; copies?: { exitCode: number; stdout: string; stderr: string } | 'hang' | 'throw' },
+  diff: { lines: number; merged?: boolean; byCommit?: Record<string, { lines?: number; numstatZ?: string; patch?: string }>; failDiff?: boolean; branch?: string; defaultBranch?: string; branchThrows?: boolean; siblings?: Record<string, string> | 'unlistable'; pr?: number; origin?: string | null; noCommit?: boolean; numstatZ?: string; failFiles?: boolean; changed?: string[] | null; since?: string[] | null; failUntracked?: boolean; truncateNames?: boolean; bases?: string[]; failNames?: 'exit' | 'throw'; subdir?: string; stored?: Record<string, unknown>; refuse?: (model: string | undefined, description: string) => string | undefined; patch?: string; dirty?: boolean; untracked?: Record<string, string>; binary?: Record<string, string>; gh?: (argv: string[]) => { exitCode: number; stdout: string; stderr: string } | undefined; pictures?: { key: string; name: string }[] | 'unreachable' | 'odd'; copies?: { exitCode: number; stdout: string; stderr: string } | 'hang' | 'throw'; files?: Record<string, string>; base?: Record<string, string>; ignored?: string[]; throwShow?: boolean },
   isPlaced = true,
   skills: Record<string, string> = {},
   net: Net = {},
@@ -258,7 +258,7 @@ export const engine = (
   const untracked = (path: string) => Object.entries(diff.untracked ?? {}).find(([name]) => path === name || path.endsWith(`/${name}`))?.[1]
   const binary = (path: string) => Object.entries(diff.binary ?? {}).find(([name]) => path === name || path.endsWith(`/${name}`))?.[1]
   on('fs.read', (_$, e) => {
-    if (e.as !== 'bytes') return { value: skills[rel(e.path)] ?? untracked(e.path) ?? '' }
+    if (e.as !== 'bytes') return { value: skills[rel(e.path)] ?? diff.files?.[e.path] ?? untracked(e.path) ?? '' }
     const text = untracked(e.path)
     const base64 = binary(e.path) ?? (text === undefined ? undefined : btoa(String.fromCharCode(...new TextEncoder().encode(text))))
     return { value: { base64: base64 ?? '' } }
@@ -310,6 +310,13 @@ export const engine = (
     if (cmd === 'git' && sub === '-C') {
       const origin = typeof diff.siblings === 'object' ? diff.siblings[e.argv[2]?.slice(1) ?? ''] : undefined
       return { value: { exitCode: origin === undefined ? 128 : 0, stdout: origin ?? '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    }
+    // The size guard: a path git ignores, and a file's text at the ticket's base (`base`; absent stands for text that cannot be read).
+    if (cmd === 'git' && sub === 'check-ignore') return { value: { exitCode: (diff.ignored ?? []).includes(e.argv.at(-1) ?? '') ? 0 : 1, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    if (cmd === 'git' && sub === 'show') {
+      if (diff.throwShow === true) throw new Error('git show failed')
+      const text = diff.base?.[(e.argv[2] ?? '').replace(/^[^:]*:/, '')]
+      return { value: { exitCode: text === undefined ? 128 : 0, stdout: text ?? '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     }
     if (cmd === 'git' && sub === 'symbolic-ref') return { value: { exitCode: diff.defaultBranch === undefined ? 1 : 0, stdout: `origin/${diff.defaultBranch ?? ''}\n`, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     if (cmd === 'git' && sub === 'rev-parse' && e.argv.includes('--abbrev-ref') && diff.branchThrows === true) throw new Error('git rev-parse failed')
