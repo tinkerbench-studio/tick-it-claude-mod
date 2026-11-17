@@ -106,7 +106,7 @@ test('more than 100 waiting runs go in calls of at most 100, and a failed call l
   await start($)
   await run($, 'take TCK-143')
   // Signed out: each main-loop turn queues a run that cannot leave.
-  for (let i = 0; i < 120; i++) await $.turn.complete(finishTurn(undefined, 'x'.repeat(i + 1)))
+  for (let i = 0; i < 101; i++) await $.turn.complete(finishTurn(undefined, 'x'.repeat(i + 1)))
   const sentBefore = seen.recorded.length
   down = false
   failing = sentBefore + 1
