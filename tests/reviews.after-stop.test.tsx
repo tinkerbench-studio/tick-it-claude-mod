@@ -158,7 +158,7 @@ test('s after the review of a fix made after a stop stays stopped: a later move 
   await ui.unmount()
 })
 
-for (const [what, ci] of [['still blocks', 'failure'], ['is still pending', 'pending']] as const) {
+for (const [what, ci] of [['still fails', 'failure'], ['is still pending', 'pending']] as const) {
 test(`a pull request that ${what} after the fix when the budget has no room is a stop the mod made: the next fix is reviewed once`, async ($, on) => {
   const net: Net = {
     modConfig: { ...served, reviewBudget: 1 },

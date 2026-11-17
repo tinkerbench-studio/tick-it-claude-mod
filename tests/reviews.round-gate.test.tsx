@@ -60,7 +60,7 @@ test('when Tick-it cannot be read the round runs and the pane says the head coul
 
 test('a pull request that gives no head commit does not stop the round, and the pane says the head could not be checked', async ($, on) => {
   const { headSha: _head, ...noHead } = pr()
-  const seen = engine(on, { lines: 10, changed: ['hooks/a.ts'] }, true, SKILLS, { pullRequests: [noHead] })
+  const seen = engine(on, { lines: 10, changed: ['hooks/a.ts'] }, true, SKILLS, { pullRequests: [noHead], noHeadSha: true })
   await run($)
   expect(seen.spawned.length).toBeGreaterThan(0)
   expect(seen.toasts.some(t => t.includes('Tick-it gave no head commit'))).toBe(true)
