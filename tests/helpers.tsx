@@ -116,7 +116,7 @@ export type Net = {
 /** The engine beneath the mod: a store, a repo whose diff is `diff.lines` lines, and quiet UI calls. */
 export const engine = (
   on: On,
-  diff: { lines: number; siblings?: Record<string, string> | 'unlistable'; pr?: number; origin?: string | null; noCommit?: boolean; numstatZ?: string; failFiles?: boolean; changed?: string[] | null; since?: string[] | null; failUntracked?: boolean; truncateNames?: boolean; bases?: string[]; failNames?: 'exit' | 'throw'; subdir?: string; stored?: Record<string, unknown>; refuse?: (model: string | undefined, description: string) => string | undefined; patch?: string; dirty?: boolean; untracked?: Record<string, string>; binary?: Record<string, string>; gh?: (argv: string[]) => { exitCode: number; stdout: string; stderr: string } | undefined; pictures?: { key: string; name: string }[] | 'unreachable' | 'odd'; files?: Record<string, string>; base?: Record<string, string>; ignored?: string[] },
+  diff: { lines: number; siblings?: Record<string, string> | 'unlistable'; pr?: number; origin?: string | null; noCommit?: boolean; numstatZ?: string; failFiles?: boolean; changed?: string[] | null; since?: string[] | null; failUntracked?: boolean; truncateNames?: boolean; bases?: string[]; failNames?: 'exit' | 'throw'; subdir?: string; stored?: Record<string, unknown>; refuse?: (model: string | undefined, description: string) => string | undefined; patch?: string; dirty?: boolean; untracked?: Record<string, string>; binary?: Record<string, string>; gh?: (argv: string[]) => { exitCode: number; stdout: string; stderr: string } | undefined; pictures?: { key: string; name: string }[] | 'unreachable' | 'odd'; files?: Record<string, string>; base?: Record<string, string>; ignored?: string[]; throwShow?: boolean },
   isPlaced = true,
   skills: Record<string, string> = {},
   net: Net = {},
@@ -306,6 +306,7 @@ export const engine = (
     // The size guard: a path git ignores, and a file's text at the ticket's base (`base`; absent stands for text that cannot be read).
     if (cmd === 'git' && sub === 'check-ignore') return { value: { exitCode: (diff.ignored ?? []).includes(e.argv.at(-1) ?? '') ? 0 : 1, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     if (cmd === 'git' && sub === 'show') {
+      if (diff.throwShow === true) throw new Error('git show failed')
       const text = diff.base?.[(e.argv[2] ?? '').replace(/^[^:]*:/, '')]
       return { value: { exitCode: text === undefined ? 128 : 0, stdout: text ?? '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     }

@@ -87,7 +87,7 @@ export const applyEdit = (text: string, old: string, replacement: string, all: b
   return all ? text.split(old).join(replacement) : text.replace(old, () => replacement)
 }
 
-/** How many times `old` is in a text (at least 1 for the estimate when it cannot be read). */
+/** How many times `old` is in a text. */
 const occurrences = (text: string, old: string): number => (old === '' ? 0 : text.split(old).length - 1)
 
 /**
