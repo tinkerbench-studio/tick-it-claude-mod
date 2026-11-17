@@ -48,3 +48,13 @@ test('the board is read slim and get_ticket names the parts it reads (a reply ov
   assert.ok(gets.some(c => Array.isArray(c.args.include) && c.args.include.length === 0), 'get_ticket include: [] is not recorded')
   for (const c of gets) assert.ok(Array.isArray(c.args.include), 'every get_ticket call records include')
 })
+
+test("a record_runs run carries no repository: the repository is the call's own field", () => {
+  const call = fixtures.calls.find(c => c.tool === 'record_runs')
+  assert.ok(typeof call.args.repository === 'string')
+  for (const run of call.args.runs) assert.ok(!('repository' in run), `${run.agentId} carries a repository of its own`)
+  // tests/outbox.repositories.test.tsx cannot read the fixture: it holds the call's keys itself, which must be the fixture's.
+  const hook = readFileSync(new URL('../tests/outbox.repositories.test.tsx', import.meta.url), 'utf8')
+  const listed = JSON.parse(/FIXTURE_CALL_KEYS = (\[.*\])/.exec(hook)[1].replaceAll("'", '"'))
+  assert.deepEqual([...listed].sort(), Object.keys(call.args).sort())
+})

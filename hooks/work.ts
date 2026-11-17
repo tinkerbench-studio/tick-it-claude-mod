@@ -81,13 +81,43 @@ export async function measureDiff($: EngineInterface): Promise<number> {
   }
 }
 
+/** The merge base of HEAD and the remote's default branch (origin/HEAD, origin/main, origin/master, the first that has one), or null when there is none. */
+export async function mergeBaseOfDefault($: EngineInterface): Promise<string | null> {
+  for (const base of ['origin/HEAD', 'origin/main', 'origin/master']) {
+    const mb = await $.process.run(['git', 'merge-base', 'HEAD', base]).catch(() => undefined)
+    const sha = mb?.exitCode === 0 ? mb.stdout.trim() : ''
+    if (/^[0-9a-f]{40}$/.test(sha)) return sha
+  }
+  return null
+}
+
+/**
+ * The commit the ticket's change is measured against: the commit it was taken at, or, once the base branch has been
+ * merged into the branch, the merge base of HEAD and the base branch when that is a descendant of the taken commit,
+ * so what the merge brought in is not the ticket's. HEAD when no commit was recorded.
+ */
+export async function measureBase($: EngineInterface): Promise<string> {
+  const taken = await read($, baseCommit)
+  if (taken === null) return 'HEAD'
+  const mb = await mergeBaseOfDefault($)
+  if (mb === null || mb === taken) return taken
+  const newer = await $.process.run(['git', 'merge-base', '--is-ancestor', taken, mb]).catch(() => undefined)
+  return newer?.exitCode === 0 ? mb : taken
+}
+
+/** `git diff <args>` against the ticket's base. The empty tree stands in only for a repository with no HEAD; any other failure gives null. */
+async function diffAgainstBase($: EngineInterface, args: string[]) {
+  const tracked = await $.process.run([...args, await measureBase($)])
+  if (tracked.exitCode === 0) return tracked
+  // A repository with no commit yet has no HEAD: what it tracks is all new.
+  const head = await $.process.run(['git', 'rev-parse', '--verify', 'HEAD'])
+  return head.exitCode === 0 ? null : await $.process.run([...args, EMPTY_TREE])
+}
+
 /** `git diff --numstat` (with `-z` for the per-file rows) against the ticket's base, or null when it cannot be had. */
 export async function numstat($: EngineInterface, z = false): Promise<string | null> {
-  const args = z ? ['git', 'diff', '--numstat', '-z'] : ['git', 'diff', '--numstat']
-  let tracked = await $.process.run([...args, (await read($, baseCommit)) ?? 'HEAD'])
-  // A repository with no commit yet has no HEAD: what it tracks is all new.
-  if (tracked.exitCode !== 0) tracked = await $.process.run([...args, EMPTY_TREE])
-  return tracked.exitCode === 0 ? tracked.stdout : null
+  const tracked = await diffAgainstBase($, z ? ['git', 'diff', '--numstat', '-z'] : ['git', 'diff', '--numstat'])
+  return tracked !== null && tracked.exitCode === 0 ? tracked.stdout : null
 }
 
 /**
@@ -167,9 +197,8 @@ const MAX_AREA_TEXT = 200_000
 export async function changedContent($: EngineInterface): Promise<ChangedFile[]> {
   try {
     const args = ['git', 'diff', '-U0', '--no-color', '--no-ext-diff']
-    let patch = await $.process.run([...args, (await read($, baseCommit)) ?? 'HEAD'])
-    if (patch.exitCode !== 0) patch = await $.process.run([...args, EMPTY_TREE])
-    const files = new Map(patchFiles(patch.exitCode === 0 ? patch.stdout : '').map(f => [f.path, f.lines]))
+    const patch = await diffAgainstBase($, args)
+    const files = new Map(patchFiles(patch !== null && patch.exitCode === 0 ? patch.stdout : '').map(f => [f.path, f.lines]))
     for (const path of numstatFiles((await numstat($, true)) ?? '').keys()) if (!files.has(path)) files.set(path, '')
     for (const file of await untrackedFiles($)) files.set(file, (await readText($, file)).slice(0, MAX_AREA_TEXT))
 

@@ -120,6 +120,12 @@ export async function repositoryHere($: EngineInterface): Promise<string | undef
   return (await read($, startedSession))?.repository
 }
 
+/** Repository names are the same without regard to letter case. */
+export const sameRepository = (a: string | undefined, b: string | undefined): boolean => a !== undefined && b !== undefined && a.toLowerCase() === b.toLowerCase()
+
+/** A stored run belongs here when stamped with this repository, or with none (an older mod's, which the repository it is first read in takes). */
+export const madeHere = (run: { repository?: string }, repository: string | undefined): boolean => run.repository === undefined || repository === undefined || sameRepository(run.repository, repository)
+
 /** The design.uiPaths of get_repository_settings' config (one entry per base branch: the first that sets any), or null when none does. */
 export function uiPathsOf(value: Record<string, unknown>): string[] | null {
   if (!Array.isArray(value.config)) return null
