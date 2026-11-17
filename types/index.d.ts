@@ -53,6 +53,8 @@ export type ReviewRun = {
   durationMs?: number
   /** Set on a reviewer skipped because no changed file matches its paths, or (from round 2) because it was clean and no changed file since matches them, so its verdict carries forward: the reason, sent as `notApplicable`. */
   notApplicable?: string
+  /** Set on a failed run of a reviewer that applied but could not be started: the refusal. */
+  reason?: string
   usage?: ReviewUsage
   /** What the run would cost at API list prices; absent for a model with no price. */
   costUsd?: number
@@ -63,9 +65,9 @@ export type ReviewRun = {
   /** Every BLOCKING and OPTIONAL line as a finding, sent to Tick-it as the run's findings. */
   items?: { severity: 'blocking' | 'optional'; file?: string; line?: number; text: string; /** An earlier blocker the reviewer verified still open: counted and listed in the pane, not sent as a finding. */ open?: true }[]
   /** The open blocking findings of earlier rounds this reviewer was given, numbered from 1 in this order. */
-  earlier?: { file?: string; line?: number; text: string }[]
+  earlier?: { id?: string; file?: string; line?: number; text: string }[]
   /** The reviewer's verdict on each of those, sent to Tick-it as the run's verdicts. */
-  verdicts?: { file?: string; text: string; verdict: 'fixed' | 'open' | 'gone'; reason: string }[]
+  verdicts?: { /** The Tick-it id of the finding, when it came from Tick-it: Tick-it closes that finding on a fixed or gone verdict. */ finding?: string; file?: string; text: string; verdict: 'fixed' | 'open' | 'gone'; reason: string }[]
 }
 
 /**

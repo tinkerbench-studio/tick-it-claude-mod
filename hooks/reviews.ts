@@ -61,7 +61,9 @@ export const costOf = (model: string, u: ReviewUsage): number | undefined => {
 
 /** The entries of a front-matter list: an inline list ([a, "b"]), or a comma- or space-separated line. A comma inside a closed brace group does not split. */
 const splitList = (raw: string): string[] => {
-  const body = /^\[([\s\S]*)\]$/.test(raw.trim()) ? raw.trim().slice(1, -1) : raw
+  // A whole line in one pair of quotes (`sizes: "S, M"`) is read as its content, as before.
+  const line = /^(["'])([^"']*)\1$/.exec(raw.trim())?.[2] ?? raw
+  const body = /^\[([\s\S]*)\]$/.test(line.trim()) ? line.trim().slice(1, -1) : line
   const out: string[] = []
   let current = ''
   let depth = 0
@@ -84,7 +86,7 @@ const expandBraces = (glob: string): string[] => {
   if (group === null) return [glob]
   const head = glob.slice(0, group.index)
   const tail = glob.slice(group.index + group[0].length)
-  return group[1].split(',').flatMap(alt => expandBraces(head + alt + tail)).slice(0, 100)
+  return group[1].split(',').flatMap(alt => expandBraces(head + alt.trim() + tail)).slice(0, 100)
 }
 
 /** A glob no path glob can be: one with a bracket, a brace left unexpanded, a quote, or a leading !. */
@@ -176,7 +178,7 @@ export const parseFinding = (line: string): { severity: 'blocking' | 'optional';
 }
 
 /** An earlier blocking finding as a reviewer is given it. */
-export type Earlier = { file?: string; line?: number; text: string }
+export type Earlier = { id?: string; file?: string; line?: number; text: string }
 
 /**
  * The blocking findings earlier rounds of one skill raised that are still open: each round's blocking findings, kept while a later round of the skill
@@ -200,6 +202,31 @@ export const earlierBlockers = (runs: ReviewRun[], ticket: string, skill: string
   return [...open.values()].map(v => v.f)
 }
 
+/** The ticket's open required findings Tick-it holds, per skill: raised by any session, so a fresh container sees them. Undefined when Tick-it cannot say. */
+export async function tickitBlockers($: EngineInterface, ticket: string): Promise<Map<string, Earlier[]> | undefined> {
+  const repository = await repositoryHere($)
+  if (repository === undefined) return undefined
+  const got = await callTickit($, 'get_ticket', { repository, key: ticket, include: ['findings'] }).catch(() => undefined)
+  const list = got?.ok === true ? (got.value.ticket as { findings?: unknown } | undefined)?.findings : undefined
+  if (!Array.isArray(list)) return undefined
+  const bySkill = new Map<string, Earlier[]>()
+  for (const f of list as { id?: unknown; skill?: unknown; file?: unknown; line?: unknown; text?: unknown; required?: unknown; fixed?: unknown }[]) {
+    if (f.required !== true || f.fixed !== false || typeof f.id !== 'string' || typeof f.skill !== 'string' || typeof f.text !== 'string') continue
+    const one: Earlier = { id: f.id, ...(typeof f.file === 'string' ? { file: f.file } : {}), ...(typeof f.line === 'number' ? { line: f.line } : {}), text: f.text.slice(0, MAX_FINDING_TEXT) }
+    bySkill.set(f.skill, [...(bySkill.get(f.skill) ?? []), one])
+  }
+  return bySkill
+}
+
+/** The local earlier blockers plus Tick-it's open ones for the skill: one the local state already has (same file and text) is not given twice, and takes the Tick-it id so its verdict closes it. */
+export const withTickit = (local: Earlier[], remote: Earlier[] = []): Earlier[] => {
+  const same = (a: Earlier, b: Earlier) => (a.file ?? '') === (b.file ?? '') && a.text === b.text
+  const merged = local.map(l => ({ ...l, ...(remote.find(r => same(l, r))?.id === undefined ? {} : { id: remote.find(r => same(l, r))?.id }) }))
+  // Two Tick-it findings alike in file and text are given once.
+  const fresh = remote.filter(r => !local.some(l => same(l, r))).filter((r, i, all) => all.findIndex(o => same(o, r)) === i)
+  return [...merged, ...fresh]
+}
+
 /** The FINDING lines of a reviewer's report ("FINDING: 2 fixed the loop now stops"), as verdicts on the numbered earlier findings it was given. */
 export const readVerdicts = (answer: string, earlier: Earlier[]): NonNullable<ReviewRun['verdicts']> => {
   const given = new Set<number>()
@@ -211,7 +238,7 @@ export const readVerdicts = (answer: string, earlier: Earlier[]): NonNullable<Re
       if (given.has(Number(m[1]))) return []
       given.add(Number(m[1]))
     }
-    return m === null || f === undefined ? [] : [{ ...(f.file === undefined ? {} : { file: f.file }), text: f.text, verdict: m[2]!.toLowerCase() as 'fixed' | 'open' | 'gone', reason: (m[3] ?? '').trim().slice(0, 500) || m[2]!.toLowerCase() }]
+    return m === null || f === undefined ? [] : [{ ...(f.id === undefined ? {} : { finding: f.id }), ...(f.file === undefined ? {} : { file: f.file }), text: f.text, verdict: m[2]!.toLowerCase() as 'fixed' | 'open' | 'gone', reason: (m[3] ?? '').trim().slice(0, 500) || m[2]!.toLowerCase() }]
   })
 }
 
@@ -434,6 +461,13 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
     return `Round ${round}: no reviewer started for ${t.id} (the review budget has no room); the pull request is read again.`
   }
   const earlierRuns = await read($, reviews)
+  // The ticket's open required findings in Tick-it, from any session: a fresh container has no local state for them.
+  const remote = (await tickitBlockers($, t.id)) ?? new Map<string, Earlier[]>()
+  // A Tick-it finding this session's newest verdict on it closed (fixed or gone) may still be waiting in the outbox, so Tick-it lists it open: it is not asked about again.
+  const closedHere = new Set<string>()
+  for (const r of [...earlierRuns].filter(r => r.ticket === t.id).sort((a, b) => a.round - b.round || a.startedAt - b.startedAt))
+    for (const v of r.verdicts ?? []) if (v.finding !== undefined) (v.verdict === 'open' ? closedHere.delete(v.finding) : closedHere.add(v.finding))
+  const blockersOf = (folder: string) => withTickit(earlierBlockers(earlierRuns, t.id, folder, round), (remote.get(folder) ?? []).filter(f => f.id === undefined || !closedHere.has(f.id)))
   const bySize = (skill: ReviewSkill) => skill.sizes === undefined || skill.sizes.includes(t.size)
   const sized = all.filter(({ skill }) => bySize(skill))
   // A reviewer of the size runs only when a changed file matches its paths; when the files cannot be listed, every reviewer of the size runs.
@@ -447,7 +481,7 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
   // Once a skill has reviewed the ticket it stays eligible for every later round: a fix that takes the change out of an area still has that round's findings to answer. From round 2 `forwarded` below then carries a clean one forward unless it has an open blocker or a changed file matches its paths (`changes` areas do not count as work left).
   const ranBefore = (folder: string) => earlierRuns.some(r => r.ticket === t.id && r.skill === folder && r.round < round)
   // A skill with blocking findings still open from an earlier round also runs, whatever its paths: a fix that takes the change out of its paths still has those findings to answer.
-  const eligible = all.filter(({ folder, skill }) => (bySize(skill) && pathsMatch(skill)) || changesFor(skill.changes, touched, paths).length > 0 || (skill.changes !== undefined && ranBefore(folder)) || earlierBlockers(earlierRuns, t.id, folder, round).length > 0)
+  const eligible = all.filter(({ folder, skill }) => (bySize(skill) && pathsMatch(skill)) || changesFor(skill.changes, touched, paths).length > 0 || (skill.changes !== undefined && ranBefore(folder)) || blockersOf(folder).length > 0)
   // From round 2 a reviewer runs only with work left: a blocking finding still open, or a changed file since the previous round that matches its paths (any file, for a reviewer with no paths).
   // One that reviewed the ticket clean and finds none carries its clean verdict forward. A round 1 (a fresh steward run) runs every applicable reviewer; files that cannot be listed run them all too.
   // Skipped (carried-forward) runs have no head, so after a round that started no reviewer this is an older head: the window is wider, so reviewers run at most more often, never less.
@@ -459,7 +493,7 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
     // A finding the run counted but left no open item for (a bare BLOCKING: line) is no clean verdict either.
     return last?.status === 'done' && (last.blocking ?? 0) === 0
   }
-  const forwarded = eligible.filter(({ folder, skill }) => since !== null && reviewedBefore(folder) && earlierBlockers(earlierRuns, t.id, folder, round).length === 0 && !since.some(f => skill.paths === undefined || skill.paths.some(g => globMatches(g, f))))
+  const forwarded = eligible.filter(({ folder, skill }) => since !== null && reviewedBefore(folder) && blockersOf(folder).length === 0 && !since.some(f => skill.paths === undefined || skill.paths.some(g => globMatches(g, f))))
   const skills = eligible.filter(f => !forwarded.includes(f))
   const skipped = all.filter(f => !skills.includes(f) && (sized.includes(f) || forwarded.includes(f)))
   if (skipped.length > 0) {
@@ -515,7 +549,7 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
     await refreshPullRequest($, t.id).catch(() => update($, pullRequestError, () => 'could not read the pull request'))
     return (await read($, pullRequestError)) === null && pullRequestFindings(await read($, pullRequest)).length === 0
   }
-  if (recorded !== undefined && head !== undefined && recorded.length > 0 && skills.every(({ folder }) => reviewedClean(recorded, folder, head)) && (await cleanTree()) && (await settlesClean())) {
+  if (recorded !== undefined && head !== undefined && recorded.length > 0 && skills.every(({ folder }) => reviewedClean(recorded, folder, head) && blockersOf(folder).length === 0) && (await cleanTree()) && (await settlesClean())) {
     const last = first ? carried : fromRound - 1
     const steward: Steward = { ticket: t.id, round: last, phase: 'reviewing', maxRounds: Math.max(limit, last), ...(ticking === true ? { ticking } : {}) }
     await setSteward($, steward)
@@ -526,6 +560,8 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
   await setSteward($, { ticket: t.id, round, phase: 'reviewing', maxRounds: Math.max(limit, round), ...(ticking === true ? { ticking } : {}), ...(trigger === 'after-stop' ? { afterStop: true } : {}) })
   const started: ReviewRun[] = []
   const refused: string[] = []
+  // A reviewer that applies but could not be started is part of the round: a failed run, with the refusal as its reason.
+  const failedRuns: ReviewRun[] = []
   const practices = new Map<string, string>()
   for (const { area } of touched) {
     const body = await readPractices($, area)
@@ -533,7 +569,7 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
   }
   const forChanges: string[] = []
   for (const { folder, skill } of skills) {
-    const earlier = earlierBlockers(earlierRuns, t.id, folder, round)
+    const earlier = blockersOf(folder)
     const mine = changesFor(skill.changes, touched, paths)
     const change: ChangeReview | undefined = skill.changes === undefined ? undefined : { touched: mine, practices: mine.flatMap(m => (practices.has(m.area) ? [{ area: m.area, body: practices.get(m.area) ?? '' }] : [])), bySize: bySize(skill) }
     if (!bySize(skill) && mine.length > 0) forChanges.push(`${folder} runs for what the change touches: ${mine.map(m => m.area).join(', ')}.`)
@@ -551,12 +587,15 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
     if (spawned.deny !== undefined && skill.model !== undefined) spawned = await spawn(undefined)
     if (spawned.deny !== undefined) {
       refused.push(`${folder}: ${spawned.deny}`)
+      failedRuns.push({ agentId: `${await $.session.id()}-${t.id}-${folder}-r${round}-refused`, ticket: t.id, epic: t.epic, round, skill: folder, model: skill.model ?? 'none', startedAt, status: 'failed', durationMs: 0, reason: spawned.deny.slice(0, 300), ...(head === undefined ? {} : { headSha: head }) })
       continue
     }
     // Core answers the id; where a hook answered the spawn without it, the agent list still names the run.
     const agentId = spawned.agentId ?? (await $.agent.list()).find(a => a.description === description)?.id
     if (agentId === undefined) {
-      refused.push(`${folder}: started, but Claude Code did not say which agent it is`)
+      const reason = 'started, but Claude Code did not say which agent it is'
+      refused.push(`${folder}: ${reason}`)
+      failedRuns.push({ agentId: `${await $.session.id()}-${t.id}-${folder}-r${round}-refused`, ticket: t.id, epic: t.epic, round, skill: folder, model: spawned.model, startedAt, status: 'failed', durationMs: 0, reason, ...(head === undefined ? {} : { headSha: head }) })
       continue
     }
     started.push({
@@ -572,7 +611,12 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
       ...(earlier.length === 0 ? {} : { earlier }),
     })
   }
-  await saveReviews($, list => [...list, ...started])
+  await saveReviews($, list => [...list, ...started, ...(started.length === 0 ? [] : failedRuns)])
+  // Tick-it hears of the refused reviewer as a failed run, with no usage.
+  if (started.length > 0 && failedRuns.length > 0) {
+    await queue($, failedRuns)
+    await flush($).catch(() => undefined)
+  }
   if (started.length === 0) {
     await log($, 'warn', 'round-not-started', { ticket: t.id, round, why: 'spawn-refused' })
     const why = `No reviewer could be started: ${refused.join('; ')}`.slice(0, 450)
@@ -588,8 +632,8 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
   const oddPaths = skills.flatMap(({ folder, skill }) => (skill.unknownPaths === undefined ? [] : [`${folder} lists ${skill.unknownPaths.join(', ')} in paths, which can match no path (no bracket, brace, quote or leading ! in a glob), so ${skill.paths === undefined ? 'it runs on every path' : 'they are left out'}.`]))
   const odd = skills.flatMap(({ folder, skill }) => (skill.unknownChanges === undefined ? [] : [`${folder} lists ${skill.unknownChanges.join(', ')} in changes, which ${skill.unknownChanges.length === 1 ? 'is' : 'are'} no area (${AREA_NAMES.join(', ')}, all, none) and no glob.`]))
 
-  await log($, 'debug', 'round-started', { ticket: t.id, round, why: trigger, skills: started.map(r => r.skill).join(','), ...(touched.length === 0 ? {} : { touches: touched.map(x => x.area).join(',') }) })
-  return `Round ${round}: ${started.map(r => r.skill).join(', ')} reviewing ${t.id} in this session.${[without.trim(), ...reasons, ...odd, ...oddPaths].filter(x => x !== '').map(x => ` ${x}`).join('')}`
+  await log($, 'debug', 'round-started', { ticket: t.id, round, why: trigger, skills: started.map(r => r.skill).join(','), ...(refused.length === 0 ? {} : { refused: failedRuns.map(r => r.skill).join(',') }), ...(touched.length === 0 ? {} : { touches: touched.map(x => x.area).join(',') }) })
+  return `Round ${round}: ${started.map(r => r.skill).join(', ')} reviewing ${t.id} in this session.${refused.length === 0 ? '' : ` Could not be started, so the round is not clean: ${refused.join('; ')}.`}${[without.trim(), ...reasons, ...odd, ...oddPaths].filter(x => x !== '').map(x => ` ${x}`).join('')}`
 }
 
 /** The stewarding pane's r: the next round starts when the current turn ends, even after the rounds ran out or stewarding stopped. */
@@ -743,7 +787,8 @@ export async function settleRound($: EngineInterface, s: Steward, withoutReviewe
   if (runs.some(r => r.status === 'running')) return
   const t = (await read($, tickets)).find(one => one.id === s.ticket)
   if (t === undefined) return
-  const reviewed = runs.flatMap(r => (r.findings ?? []).map(line => `[${r.skill}] ${line}`))
+  // A reviewer that could not be started reviewed nothing: the round is not clean while its failed run stands.
+  const reviewed = runs.flatMap(r => [...(r.reason === undefined ? [] : [`[${r.skill}] BLOCKING: reviewer could not be started: ${r.reason}`]), ...(r.findings ?? []).map(line => `[${r.skill}] ${line}`)])
   // Reviewers that found nothing do not make a round clean while the pull request is failing or behind: that is blocking too.
   // A refresh that throws is an unread pull request too, not a stranded round.
   if (reviewed.length === 0) await refreshPullRequest($, t.id).catch(() => update($, pullRequestError, () => 'could not read the pull request'))
@@ -891,7 +936,7 @@ export const summarise = (runs: ReviewRun[]): string => {
   return `${formatDuration(ms)} · ${count.format(tokens)} tokens · ${priced.length === 0 ? '—' : usd.format(cost)}${unpriced ? '+' : ''}`
 }
 
-export const reviewLine = (r: ReviewRun): string => (r.status === 'running' ? `  … ${r.skill.padEnd(18)} round ${r.round}  running` : `  ${r.status === 'failed' ? '✗' : (r.blocking ?? 0) > 0 ? '▲' : '✓'} ${r.skill.padEnd(18)} round ${r.round}  ` + `${r.blocking ?? 0} blocking, ${r.optional ?? 0} optional  ${summarise([r])}  ${r.model}`)
+export const reviewLine = (r: ReviewRun): string => (r.status === 'running' ? `  … ${r.skill.padEnd(18)} round ${r.round}  running` : `  ${r.status === 'failed' ? '✗' : (r.blocking ?? 0) > 0 ? '▲' : '✓'} ${r.skill.padEnd(18)} round ${r.round}  ` + `${r.blocking ?? 0} blocking, ${r.optional ?? 0} optional  ${summarise([r])}  ${r.model}${r.reason === undefined ? '' : `  could not be started: ${r.reason}`}`)
 
 /** A finding as the pane shows it: "src/a.ts:12 what is wrong", or its text alone when it names no file. */
 export const findingLine = (f: { file?: string; line?: number; text: string }): string => (f.file === undefined ? f.text : `${f.file}${f.line === undefined ? '' : `:${f.line}`} ${f.text}`)

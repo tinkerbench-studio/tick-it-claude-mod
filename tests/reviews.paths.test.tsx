@@ -133,6 +133,9 @@ test('paths and sizes are read from an inline list, quoted or not, and from a bl
   expect(front('paths: ["src/**", "apps/**"]').paths).toEqual(['src/**', 'apps/**'])
   expect(front('paths: [src/**, apps/**]').paths).toEqual(['src/**', 'apps/**'])
   expect(front('paths:\n  - src/**\n  - "apps/**"\nname: y').paths).toEqual(['src/**', 'apps/**'])
+  expect(front('sizes: "S, M"').sizes).toEqual(['S', 'M'])
+  expect(front('paths: "src/**, docs/**"').paths).toEqual(['src/**', 'docs/**'])
+  expect(front('paths: src/**/*.{ts, tsx}').paths).toEqual(['src/**/*.ts', 'src/**/*.tsx'])
   expect(front('sizes: [XS, S]').sizes).toEqual(['XS', 'S'])
   expect(front('sizes:\n  - XS\n  - s').sizes).toEqual(['XS', 'S'])
   expect(front('changes: [authentication, "src/**"]').changes).toEqual({ areas: ['authentication'], globs: ['src/**'] })
@@ -157,7 +160,6 @@ test('a glob with a bracket, a brace left open, a quote or a leading ! is left o
 test('the round names each skill with unusable paths and the entries', async ($, on) => {
   engine(on, { lines: 10, changed: ['src/a.ts'] }, true, { ...skill('web', 'paths: src/**, !docs/**'), ...skill('api', 'paths: a[1]') })
   const said = await done($)
-  expect(said.text).toContain('web lists !docs/** in paths, which can match no path')
   expect(said.text).toContain('web lists !docs/** in paths, which can match no path (no bracket, brace, quote or leading ! in a glob), so they are left out.')
   expect(said.text).toContain('api lists a[1] in paths, which can match no path (no bracket, brace, quote or leading ! in a glob), so it runs on every path.')
 })

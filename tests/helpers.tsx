@@ -88,6 +88,8 @@ export type Net = {
   reviewSpend?: Record<string, unknown> | null
   /** What get_ticket_timeline answers (its review entries); 'unreachable' makes the call fail, and absent leaves it unanswered. */
   timeline?: Record<string, unknown>[] | 'unreachable'
+  /** The findings get_ticket answers with when asked for them (include findings); absent answers none. */
+  findings?: Record<string, unknown>[]
   /** The config of get_repository_settings (one entry per base branch with its design section); absent when not answered. */
   config?: unknown[]
   /** The repository's autoMerge setting, as get_repository_settings answers it. */
@@ -114,7 +116,7 @@ export type Net = {
 /** The engine beneath the mod: a store, a repo whose diff is `diff.lines` lines, and quiet UI calls. */
 export const engine = (
   on: On,
-  diff: { lines: number; siblings?: Record<string, string> | 'unlistable'; pr?: number; origin?: string | null; noCommit?: boolean; numstatZ?: string; failFiles?: boolean; changed?: string[] | null; since?: string[] | null; failUntracked?: boolean; truncateNames?: boolean; bases?: string[]; failNames?: 'exit' | 'throw'; subdir?: string; stored?: Record<string, unknown>; refuse?: (model: string | undefined) => string | undefined; patch?: string; dirty?: boolean; untracked?: Record<string, string>; binary?: Record<string, string>; gh?: (argv: string[]) => { exitCode: number; stdout: string; stderr: string } | undefined; pictures?: { key: string; name: string }[] | 'unreachable' | 'odd' },
+  diff: { lines: number; siblings?: Record<string, string> | 'unlistable'; pr?: number; origin?: string | null; noCommit?: boolean; numstatZ?: string; failFiles?: boolean; changed?: string[] | null; since?: string[] | null; failUntracked?: boolean; truncateNames?: boolean; bases?: string[]; failNames?: 'exit' | 'throw'; subdir?: string; stored?: Record<string, unknown>; refuse?: (model: string | undefined, description: string) => string | undefined; patch?: string; dirty?: boolean; untracked?: Record<string, string>; binary?: Record<string, string>; gh?: (argv: string[]) => { exitCode: number; stdout: string; stderr: string } | undefined; pictures?: { key: string; name: string }[] | 'unreachable' | 'odd' },
   isPlaced = true,
   skills: Record<string, string> = {},
   net: Net = {},
@@ -167,7 +169,7 @@ export const engine = (
         if (seen.failTicketReads === true) return refuse('Tick-it is down')
         if (net.ticketNoResult === true) return { value: { isError: false, content: [{ type: 'text', text: 'Tick-it is busy, try again later. ' + 'x'.repeat(200) }, { type: 'image' }] } }
         const ticket = seen.server.find(t => t.key === a.key)
-        return ticket === undefined ? refuse(`No ticket ${String(a.key)} in acme/web-app.`) : answer({ ticket: { ...ticket, ...(net.acceptanceItems === true ? { acceptanceItems: ticket.acceptance.map((text, i) => ({ id: `c${i}`, text, checked: false, afterDeploy: false })) } : {}), ...(net.reviewSpend === undefined ? {} : { reviewSpend: net.reviewSpend }) } })
+        return ticket === undefined ? refuse(`No ticket ${String(a.key)} in acme/web-app.`) : answer({ ticket: { ...ticket, ...(net.acceptanceItems === true ? { acceptanceItems: ticket.acceptance.map((text, i) => ({ id: `c${i}`, text, checked: false, afterDeploy: false })) } : {}), ...(net.reviewSpend === undefined ? {} : { reviewSpend: net.reviewSpend }), ...(net.findings === undefined || !Array.isArray(a.include) || !a.include.includes('findings') ? {} : { findings: net.findings }) } })
       }
       if (e.tool === 'get_ticket_timeline') return net.timeline === undefined || net.timeline === 'unreachable' ? refuse('Tick-it is down') : answer({ timeline: net.timeline })
       if (e.tool === 'list_pull_requests') {
@@ -259,7 +261,7 @@ export const engine = (
     return { value: { base64: base64 ?? '' } }
   })
   on('agent.spawn', (_$, e) => {
-    const refused = diff.refuse?.(e.model)
+    const refused = diff.refuse?.(e.model, e.description)
     if (refused !== undefined) return { deny: refused }
     const agentId = `agent-${seen.spawned.length + 1}`
     seen.spawned.push({ prompt: e.prompt, model: e.model, agentId, description: e.description })
