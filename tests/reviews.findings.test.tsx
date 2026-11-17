@@ -1,6 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import { findingLine, findingRows, parseFinding, readFindings, readVerdicts, roundFindings, count } from '../hooks/register'
+import { readVerdict } from '../hooks/reviews'
 import { PANE, RUN, engine, finishTurn, start, PRINCIPAL, STARTED, typed } from './helpers'
 
 test('parseFinding takes a file and line from a finding when it starts with one', () => {
@@ -108,4 +109,10 @@ test('readVerdicts reads FINDING lines in bold or as a numbered list item', () =
   const earlier = [{ text: 'a' }, { text: 'b' }, { text: 'c' }]
   const got = readVerdicts('**FINDING:** 1 fixed done\n2. FINDING: 2 open still\n**FINDING: 3 gone** moved', earlier)
   expect(got.map(v => v.verdict)).toEqual(['fixed', 'open', 'gone'])
+})
+
+test('readVerdict reads the VERDICT line in the same markdown shapes as the BLOCKING lines', () => {
+  for (const line of ['VERDICT: clean', '**VERDICT: clean**', '**VERDICT:** clean', '## VERDICT: clean', '1. VERDICT: clean', '> VERDICT: clean', '`VERDICT: clean`', '- VERDICT: clean']) expect(readVerdict(`Looks fine.\n${line}`)).toBe('clean')
+  expect(readVerdict('## VERDICT: changes')).toBe('changes')
+  expect(readVerdict('I could not read the diff.')).toBeUndefined()
 })

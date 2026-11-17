@@ -121,7 +121,7 @@ const plain = (line: string): string => {
     before = rest
     rest = rest.replace(/^(?:[-*+]\s+|\d+[.)]\s+|#+\s*|>\s*)/, '')
   }
-  return rest.replace(/^[*_`]*(BLOCKING|OPTIONAL|FINDING)[*_`]*:[*_`]*\s*/i, '$1: ')
+  return rest.replace(/^[*_`]*(BLOCKING|OPTIONAL|FINDING|VERDICT)[*_`]*:[*_`]*\s*/i, '$1: ')
 }
 
 /** The BLOCKING and OPTIONAL lines of a reviewer's report. */
@@ -133,9 +133,9 @@ export const readFindings = (answer: string) => {
   }
 }
 
-/** Whether a reviewer's answer ends with a verdict: the last VERDICT line says clean or changes. */
+/** Whether a reviewer's answer ends with a verdict: the last VERDICT line says clean or changes, read as the BLOCKING lines are (bullets, numbers, headings, quotes, bold and code marks removed). */
 export const readVerdict = (answer: string): 'clean' | 'changes' | undefined => {
-  const last = answer.split('\n').map(line => /^\s*[-*]?\s*\**VERDICT:?\**:?\s*\**(clean|changes)\b/i.exec(line)?.[1]?.toLowerCase()).filter(v => v !== undefined).at(-1)
+  const last = answer.split('\n').map(line => /^VERDICT:?\s*(clean|changes)\b/i.exec(plain(line))?.[1]?.toLowerCase()).filter(v => v !== undefined).at(-1)
   return last === 'clean' || last === 'changes' ? last : undefined
 }
 
