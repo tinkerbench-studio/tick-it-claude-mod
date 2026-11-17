@@ -260,3 +260,12 @@ test('tests reviewer keeps a README-only criterion optional and a skill-dependen
   expect(tests).toContain('A criterion that only asks the README, or other prose no skill or hook reads, to say something needs no test, and a missing wording check for it is OPTIONAL at most.')
   expect(tests).toContain('A wording check in `checks/skills.test.mjs` stays BLOCKING for wording a skill or hook depends on.')
 })
+
+test('review skills agree: the merge queue raises the plugin version, a pull request does not, a missing raise is no finding', () => {
+  for (const name of ['acceptance', 'principal']) {
+    const skill = read(`.tick-it/skills/${name}/SKILL.md`)
+    for (const words of ["raised by the merge queue's Plugin version check", 'not by a pull request', 'a missing raise is not a finding']) expect(skill).toContain(words, `${name} no longer says "${words}"`)
+    assert.ok(!/BLOCKING:[^\n]*(missing|without|no) (a )?(version )?(bump|raise)/i.test(skill), `${name} blocks a missing version raise`)
+    assert.ok(!/(must|should|needs to|has to) (raise|bump)[^\n]*version/i.test(skill), `${name} asks a pull request to raise the version`)
+  }
+})
