@@ -9,6 +9,7 @@ import { queue, flush, plural } from './outbox'
 import { AREA_SKILL_DIR, AREA_NAMES, areaSkill, changesFor, parseChanges, touchedAreas, touchedLine, unknownChanges } from './security-areas'
 import type { Changes, Touched } from './security-areas'
 import { log } from './log'
+import { saveResume } from './resume'
 
 // Declared in this file: the engine reads an atom only where it is written (a module cannot use one imported from state.ts).
 const tickets = atom({ plugin: 'tick-it', key: 'tickets' } as const, [])
@@ -164,7 +165,7 @@ const plain = (line: string): string => {
     before = rest
     rest = rest.replace(/^(?:[-*+]\s+|\d+[.)]\s+|#+\s*|>\s*)/, '')
   }
-  return rest.replace(/^[*_`]*(BLOCKING|OPTIONAL|FINDING)[*_`]*:[*_`]*\s*/i, '$1: ')
+  return rest.replace(/^[*_`]*(BLOCKING|OPTIONAL|FINDING|VERDICT)[*_`]*:[*_`]*\s*/i, '$1: ')
 }
 
 /** A line whose whole body, with punctuation and markdown stripped, is a nil word ("BLOCKING: none.", "OPTIONAL: **N/A**") says nothing is wrong: it is no finding. */
@@ -179,6 +180,15 @@ export const readFindings = (answer: string) => {
     optional: lines.filter(line => /^OPTIONAL:/i.test(line)),
   }
 }
+
+/** Whether a reviewer's answer ends with a verdict: the last VERDICT line says clean or changes, read as the BLOCKING lines are (bullets, numbers, headings, quotes, bold and code marks removed). */
+export const readVerdict = (answer: string): 'clean' | 'changes' | undefined => {
+  const last = answer.split('\n').map(line => /^VERDICT:?\s*(clean|changes)\b/i.exec(plain(line))?.[1]?.toLowerCase()).filter(v => v !== undefined).at(-1)
+  return last === 'clean' || last === 'changes' ? last : undefined
+}
+
+/** Whether a finished run is a review: its turn ended with an answer that says VERDICT: clean, or that lists a blocking finding (which blocks the round whatever else it says). A failed turn, an answer with no verdict, and VERDICT: changes with no BLOCKING line that could be read reviewed nothing. */
+export const gaveVerdict = (answer: string, reason: string, blocking: number): boolean => reason === 'answer' && (blocking > 0 || readVerdict(answer) === 'clean')
 
 /** A BLOCKING or OPTIONAL line as a finding: "BLOCKING: path/file.ts:12 what is wrong" gives its file and line; otherwise it is all text. */
 export const parseFinding = (line: string): { severity: 'blocking' | 'optional'; file?: string; line?: number; text: string } => {
@@ -400,6 +410,7 @@ export const withoutStopMarks = (s: Steward): Steward => {
 
 export async function setSteward($: EngineInterface, next: Steward | null) {
   await update($, steward, () => next)
+  await saveResume($)
   await showStatus($)
   if (next !== null && (await read($, startedSession))?.ticket === next.ticket) {
     const said = next.note ?? (next.phase === 'reviewing' ? `Review round ${next.round}.` : next.phase === 'fixing' ? `Fixing round ${next.round}'s findings.` : undefined)
@@ -493,6 +504,7 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
   if (before !== 'stopped' && (await read($, steward))?.phase === 'stopped') {
     // No turn is running either, so r has to carry the next round in with a prompt of its own.
     await update($, steward, v => (v === null ? v : { ...v, fixing: false }))
+    await saveResume($)
     await log($, 'debug', 'round-not-started', { ticket: t.id, round: fromRound, why: 'stopped' })
     return `Stopped; round ${fromRound} of ${t.id} did not start.`
   }
@@ -513,6 +525,7 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
     // The stop button pressed while the spend was read: that round does not start.
     if ((await read($, steward))?.phase === 'stopped') {
       await update($, steward, v => (v === null ? v : { ...v, fixing: false }))
+      await saveResume($)
       await log($, 'debug', 'round-not-started', { ticket: t.id, round, why: 'stopped' })
       return `Stopped; round ${round} of ${t.id} did not start.`
     }
@@ -535,6 +548,31 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
   if (gate.note !== undefined) {
     $.ui.toast(`tick-it: ${gate.note}`)
     await log($, 'debug', 'head-not-checked', { ticket: t.id, round })
+  }
+  const fromCommand = trigger === 'done-command' || trigger === 'steward-command'
+  // Reviewers read the working tree against HEAD: edits made since a review at this head (uncommitted or untracked) have not been reviewed, so the head alone does not say it was.
+  const cleanTree = async () => {
+    const status = await $.process.run(['git', 'status', '--porcelain'])
+    return status.exitCode === 0 && status.stdout.trim() === ''
+  }
+  const settlesClean = async () => {
+    if (!fromCommand) return true
+    const unticked = await untickedAcceptance($, t.id)
+    if (unticked === null || unticked.length > 0) return false
+    await refreshPullRequest($, t.id).catch(() => update($, pullRequestError, () => 'could not read the pull request'))
+    return (await read($, pullRequestError)) === null && pullRequestFindings(await read($, pullRequest)).length === 0
+  }
+  // The head only merged the base and Tick-it carries the review of the earlier commit over (reviewCarriedOver of list_pull_requests, TCK-52): no reviewer starts, and the round settles from the pull request and the acceptance ticks. An older Tick-it does not say, and the round runs as before.
+  const pr = await read($, pullRequest)
+  if (pr !== null && (await read($, pullRequestError)) === null && pr.state === 'open' && pr.reviewCarriedOver === true && (await cleanTree()) && (await settlesClean())) {
+    const earlier = ((await recordedReviews($, t.id)) ?? []).flatMap(r => r.agents).findLast(a => a.headSha !== undefined)?.headSha
+    const last = first ? carried : fromRound - 1
+    const note = `Review carried over from the earlier commit${earlier === undefined ? '' : ` ${earlier.slice(0, 7)}`}: the head only merged the base, so no reviewer started.`
+    const steward: Steward = { ticket: t.id, round: last, phase: 'reviewing', maxRounds: Math.max(limit, last), carriedOver: note, ...(ticking === true ? { ticking } : {}) }
+    await setSteward($, steward)
+    await log($, 'debug', 'round-not-started', { ticket: t.id, round: last, why: 'review-carried-over' })
+    await settleRound($, steward)
+    return `${t.id}: ${note} Settling from the pull request and the acceptance checks.`
   }
   const earlierRuns = await hereRuns($)
   // The ticket's open required findings in Tick-it, from any session: a fresh container has no local state for them.
@@ -613,19 +651,6 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
   const base = (await defaultBase($).catch(() => null))?.ref
   // Every applicable skill already reviewed this head with nothing blocking: no reviewer starts, and the round settles from the pull request and the acceptance ticks alone.
   // A command cannot submit a prompt, and a settle that finds a check unticked or the pull request failing submits one: from a command the round settles here only when it ends clean, and is reviewed as before otherwise.
-  const fromCommand = trigger === 'done-command' || trigger === 'steward-command'
-  // Reviewers read the working tree against HEAD: edits made since a review at this head (uncommitted or untracked) have not been reviewed, so the head alone does not say it was.
-  const cleanTree = async () => {
-    const status = await $.process.run(['git', 'status', '--porcelain'])
-    return status.exitCode === 0 && status.stdout.trim() === ''
-  }
-  const settlesClean = async () => {
-    if (!fromCommand) return true
-    const unticked = await untickedAcceptance($, t.id)
-    if (unticked === null || unticked.length > 0) return false
-    await refreshPullRequest($, t.id).catch(() => update($, pullRequestError, () => 'could not read the pull request'))
-    return (await read($, pullRequestError)) === null && pullRequestFindings(await read($, pullRequest)).length === 0
-  }
   if (recorded !== undefined && head !== undefined && recorded.length > 0 && skills.every(({ folder }) => reviewedClean(recorded, folder, head) && blockersOf(folder).length === 0) && (await cleanTree()) && (await settlesClean())) {
     const last = first ? carried : fromRound - 1
     const steward: Steward = { ticket: t.id, round: last, phase: 'reviewing', maxRounds: Math.max(limit, last), ...(ticking === true ? { ticking } : {}) }
@@ -652,9 +677,10 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
     if (!bySize(skill) && mine.length > 0) forChanges.push(`${folder} runs for what the change touches: ${mine.map(m => m.area).join(', ')}.`)
     const startedAt = await $.clock.now()
     const description = `tick-it review: ${skill.name} on ${t.id}, round ${round}`
+    const prompt = reviewPrompt(t, skill, round, earlier, head, change, base)
     const spawn = async (model: string | undefined) => {
       try {
-        return await $.agent.spawn({ prompt: reviewPrompt(t, skill, round, earlier, head, change, base), description, subagentType: 'general-purpose', ...(model === undefined ? {} : { model }) })
+        return await $.agent.spawn({ prompt, description, subagentType: 'general-purpose', ...(model === undefined ? {} : { model }) })
       } catch (error) {
         return { deny: error instanceof Error ? error.message : String(error) }
       }
@@ -684,6 +710,8 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
       model: spawned.model,
       startedAt,
       status: 'running',
+      prompt,
+      description,
       claudeSession: await $.session.id(),
       ...(head === undefined ? {} : { headSha: head }),
       ...(earlier.length === 0 ? {} : { earlier }),
@@ -868,7 +896,7 @@ export async function settleRound($: EngineInterface, s: Steward, withoutReviewe
   const t = (await read($, tickets)).find(one => one.id === s.ticket)
   if (t === undefined) return
   // A reviewer that could not be started reviewed nothing: the round is not clean while its failed run stands.
-  const reviewed = runs.flatMap(r => [...(r.reason === undefined ? [] : [`[${r.skill}] BLOCKING: reviewer could not be started: ${r.reason}`]), ...(r.findings ?? []).map(line => `[${r.skill}] ${line}`)])
+  const reviewed = runs.flatMap(r => [...(r.reason === undefined ? [] : [`[${r.skill}] BLOCKING: reviewer could not be started: ${r.reason}`]), ...(r.status === 'failed' && r.reason === undefined ? [] : r.findings ?? []).map(line => `[${r.skill}] ${line}`)])
   // Reviewers that found nothing do not make a round clean while the pull request is failing or behind: that is blocking too.
   // A refresh that throws is an unread pull request too, not a stranded round.
   if (reviewed.length === 0) await refreshPullRequest($, t.id).catch(() => update($, pullRequestError, () => 'could not read the pull request'))
@@ -882,6 +910,23 @@ export async function settleRound($: EngineInterface, s: Steward, withoutReviewe
   const spent = summarise(runs)
   // The stop button may be pressed while this waits on Tick-it or GitHub: stopped stays stopped.
   const stillReviewing = async () => (await read($, steward))?.phase === 'reviewing'
+  // A reviewer whose newest run of the round failed or gave no verdict (it was already run again once; one that could not be started is blocking by its own reason below) reviewed nothing: the round is not clean, whatever the others found, and a person is asked.
+  const newest = new Map<string, ReviewRun>()
+  for (const r of runs) if (r.notApplicable === undefined && r.reason === undefined) newest.set(r.skill, r)
+  const unreviewed = [...newest.values()].filter(r => r.status === 'failed').map(r => r.skill)
+  // Reviewers that did find blocking things still send Claude to fix them: the failed reviewer is run again in the next round (a failed run carries no clean verdict forward).
+  if (unreviewed.length > 0 && !withoutReviewers && reviewed.length === 0) {
+    if (!(await stillReviewing())) return
+    await log($, 'debug', 'round-settled', { ticket: t.id, round: s.round, outcome: 'stopped-no-verdict', skills: unreviewed.join(',') })
+    // "Twice" only where the run was started again: a lost or stopped run, or one saved before retries, ran once.
+    const again = [...newest.values()].filter(r => r.status === 'failed').every(r => r.retry === true)
+    const note = `${unreviewed.join(', ')} failed or gave no VERDICT${again ? ', twice' : ''} in round ${s.round}: not a clean review, so the round is not read as clean.`
+    await setSteward($, { ...s, phase: 'stopped', stoppedBy: 'mod', note })
+    const repository = await repositoryHere($)
+    if (repository !== undefined) await callTickit($, 'set_needs_human', { repository, key: t.id, kind: 'no-clean-round', note: note.slice(0, 200) }).catch(() => undefined)
+    $.ui.toast(`tick-it: ${unreviewed.join(', ')} gave no review of ${t.id} in round ${s.round}, so it is not read as clean. Over to you.`)
+    return
+  }
   if (pending) {
     if (!(await stillReviewing())) return
     await log($, 'debug', 'round-settled', { ticket: t.id, round: s.round, outcome: 'stopped-ci-pending' })

@@ -67,8 +67,8 @@ export async function reportAgents($: EngineInterface): Promise<void> {
 }
 
 /** A run as Tick-it takes it: its findings are its items, without an earlier blocker verified open (Tick-it adds those to the blocking count itself, from the run's verdicts). */
-export const sendable = ({ epic: _epic, repository: _repository, claudeSession: _session, ...run }: OutboxRun & { claudeSession?: string }) => {
-  // The epic's title stays here: Tick-it knows the ticket's epic, and no title goes to its tools. The repository is the call's own field, not each run's. Nor does the Claude Code session a run was spawned in.
+export const sendable = ({ epic: _epic, repository: _repository, claudeSession: _session, prompt: _prompt, description: _description, retry: _retry, ...run }: OutboxRun & { claudeSession?: string; prompt?: string; description?: string; retry?: true }) => {
+  // The epic's title stays here: Tick-it knows the ticket's epic, and no title goes to its tools. The repository is the call's own field, not each run's. Nor does the Claude Code session a run was spawned in, or the prompt, description and retry marker kept for a restart.
   if (!('findings' in run || 'items' in run)) return run
   const { findings: _findings, items, ...rest } = run as typeof run & { items?: { open?: true }[]; blocking?: number }
   if (items === undefined) return rest

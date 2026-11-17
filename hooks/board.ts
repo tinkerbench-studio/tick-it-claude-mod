@@ -19,7 +19,7 @@ const pullRequestError = atom({ plugin: 'tick-it', key: 'pullRequestError' } as 
 /** The pull request whose failing CI the mod has already told about ("TCK-34#12"), so it speaks once per failure. */
 const ciNoticed = atom({ plugin: 'tick-it', key: 'ciNoticed' } as const, null)
 /** What get_mod_config last served: the size budgets and the brief lines for the ticket it was asked about. Until it answers, the mod's own copies below are used. */
-export type BriefLines = { memories: string; memoryTools: string; deferredTools: string; done: string; branch: string; addToTicket: string[]; beforeReview?: string[]; afterFix?: string }
+export type BriefLines = { memories: string; memoryTools: string; deferredTools: string; done: string; branch: string; addToTicket: string[]; beforeReview?: string[]; afterFix?: string; wake?: string }
 export type Served = { sizeBudgets: Record<TicketSize, number>; ticket: string; briefLines: BriefLines }
 const served = atom({ plugin: 'tick-it', key: 'served' } as const, null as Served | null)
 const steward = atom({ plugin: 'tick-it', key: 'steward' } as const, null)
@@ -198,6 +198,7 @@ export const brief = (t: Ticket, board: Ticket[] = [], instructions = '', files:
     SECURE_CODING_LINE,
     `Size ${t.size}: keep the whole diff under ${budget} changed lines. ` + 'Edits past that are refused by the tick-it mod; if the work does not fit, ' + 'say so and offer the choices in the refusal.',
     ...(lines?.beforeReview ?? []),
+    ...(lines?.wake === undefined ? [] : [lines.wake]),
     ...(reviewBudget === null ? [] : [budgetLine(reviewRounds, reviewBudget)]),
     `When it is built and its checks pass, move ${t.id} to In review yourself with Tick-it's update_ticket, without waiting to be asked: tick-it then runs its review agents on it.`,
     ...(lines?.addToTicket ?? addToTicketLines(t.id)),
@@ -344,7 +345,7 @@ export async function refreshPullRequest($: EngineInterface, id: string): Promis
   const states = ['open', 'closed', 'merged', 'unknown']
   const cis = ['pending', 'success', 'failure']
   const view: PullRequestView | null =
-    found === undefined ? null : { number: found.number, state: states.includes(found.state) ? found.state : 'unknown', draft: found.draft === true, ci: cis.includes(found.ci as string) ? found.ci : null, behind: typeof found.behind === 'boolean' ? found.behind : null, conflicting: (found as { mergeState?: string }).mergeState === 'conflicting', queued: (found as { mergeQueue?: unknown }).mergeQueue != null, ciInstructed: found.ciInstructed === true, url: typeof found.url === 'string' ? found.url : `https://github.com/${repository}/pull/${found.number}`, ...(typeof found.headSha === 'string' && /^[0-9a-f]{40}$/.test(found.headSha) ? { headSha: found.headSha } : {}) }
+    found === undefined ? null : { number: found.number, state: states.includes(found.state) ? found.state : 'unknown', draft: found.draft === true, ci: cis.includes(found.ci as string) ? found.ci : null, behind: typeof found.behind === 'boolean' ? found.behind : null, conflicting: (found as { mergeState?: string }).mergeState === 'conflicting', queued: (found as { mergeQueue?: unknown }).mergeQueue != null, ciInstructed: found.ciInstructed === true, ...((found as { reviewCarriedOver?: unknown }).reviewCarriedOver === true ? { reviewCarriedOver: true } : {}), url: typeof found.url === 'string' ? found.url : `https://github.com/${repository}/pull/${found.number}`, ...(typeof found.headSha === 'string' && /^[0-9a-f]{40}$/.test(found.headSha) ? { headSha: found.headSha } : {}) }
   await update($, pullRequest, () => view)
   await update($, pullRequestError, () => null)
   // CI turning failing is said once, with the pane opened; it speaks again only after CI has left failing.

@@ -228,6 +228,11 @@ test('README and the plan-epic skill describe the date hold: marker, refusal and
   expect(read('skills/plan-epic/SKILL.md')).toContain('`notBefore` date', 'plan-epic skill no longer mentions the date hold')
 })
 
+test('the README says a failed run or a missing verdict is not a clean review', () => {
+  const readme = read('README.md')
+  for (const words of ['an answer with no `VERDICT:` line', '`VERDICT: changes` with no `BLOCKING:` line that could be read are not a clean review', 'started again once in the same round', '`stoppedBy` mod', 'kind `no-clean-round` and a note naming the skill']) expect(readme).toContain(words, `README no longer says "${words}"`)
+})
+
 test('the README and the review-agents skill describe how paths and sizes are written', () => {
   for (const file of ['README.md', 'skills/review-agents/SKILL.md']) {
     const text = read(file)

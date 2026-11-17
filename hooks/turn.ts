@@ -1,11 +1,12 @@
 import { atom, read, update } from 'claude-code'
 import type { Register } from 'claude-code'
-import type { ReviewUsage, WorkRun } from '../types'
+import type { ReviewRun, ReviewUsage, WorkRun } from '../types'
 import { BREAKDOWN_SUGGESTION, MAX_FINDINGS } from './state'
 import { findCurrent, refreshPullRequest, statusOnTickit, showStatus } from './board'
 import { refreshDiff, report, recordPullRequest, firstLine, finish } from './work'
-import { withoutStopMarks, costOf, openVerdictLines, readFindings, readVerdicts, parseFinding, saveReviews, setSteward, startRound, settleRound } from './reviews'
+import { gaveVerdict, withoutStopMarks, costOf, openVerdictLines, readFindings, readVerdicts, parseFinding, saveReviews, setSteward, startRound, settleRound } from './reviews'
 import { queue, flush } from './outbox'
+import { saveResume } from './resume'
 
 // Declared in this file: the engine reads an atom only where it is written (a module cannot use one imported from state.ts).
 const tickets = atom({ plugin: 'tick-it', key: 'tickets' } as const, [])
@@ -77,6 +78,7 @@ export const registerTurn: Register = on => {
           if (continued) {
             await update($, current, () => null)
             await update($, baseCommit, () => null)
+            await saveResume($)
             await showStatus($)
           } else {
             const moved = await finish($, 'In review')
@@ -105,6 +107,7 @@ export const registerTurn: Register = on => {
       }
       if (toReview !== null) {
         await update($, reviewNext, () => null)
+        await saveResume($)
         const t = (await read($, tickets)).find(one => one.id === toReview)
         try {
           if (t === undefined) throw new Error(`${toReview} is not on the board this session has`)
@@ -116,7 +119,10 @@ export const registerTurn: Register = on => {
       }
       // Read again: the stop button may have been pressed while this turn's end was handled.
       const fixingNow = await read($, steward)
-      if (fixingNow?.fixing === true && fixingNow.phase === 'stopped') await update($, steward, v => (v === null ? v : { ...v, fixing: false }))
+      if (fixingNow?.fixing === true && fixingNow.phase === 'stopped') {
+        await update($, steward, v => (v === null ? v : { ...v, fixing: false }))
+        await saveResume($)
+      }
       const suggested = fixingNow?.phase === 'fixing' ? (await read($, pendingInstructions)).filter(i => i.startsWith(BREAKDOWN_SUGGESTION)) : []
       if (fixingNow?.phase === 'fixing' && suggested.length > 0) {
         // Tick-it suggests breaking the ticket down: no further fix round starts. Claude offers the breakdown to the person, and r starts the next round if they decline.
@@ -153,13 +159,29 @@ export const registerTurn: Register = on => {
     const found = readFindings(e.answer)
     const verdicts = run.earlier === undefined ? [] : readVerdicts(e.answer, run.earlier)
     const held = verdicts.filter(v => v.verdict === 'open')
-    await saveReviews($, list =>
-      list.map(r =>
+    // A run is a review only when its turn ended with an answer that gave a verdict; otherwise it reviewed nothing and is failed (it is run again once, see below).
+    const status = gaveVerdict(e.answer, e.reason, found.blocking.length + held.length) ? 'done' : 'failed'
+    // A failed run is started again once in the same round. The retry is started before the failed run is saved, and both are saved together, so no moment shows the round without a running reviewer for another reviewer's end to settle on.
+    let retry: ReviewRun | undefined
+    if (status === 'failed' && run.retry !== true && run.prompt !== undefined) {
+      const before = await read($, steward)
+      if (before !== null && before.ticket === run.ticket && before.round === run.round && before.phase === 'reviewing') {
+        const started = await $.clock.now()
+        const description = run.description ?? `tick-it review: ${run.skill} on ${run.ticket}, round ${run.round}`
+        const spawned = await $.agent.spawn({ prompt: run.prompt, description, subagentType: 'general-purpose', model: run.model }).catch(error => ({ deny: error instanceof Error ? error.message : String(error) }) as { deny?: string; agentId?: string; model?: string })
+        const agentId = spawned.deny === undefined ? (spawned.agentId ?? (await $.agent.list()).find(a => a.description === description && a.id !== run.agentId)?.id) : undefined
+        if (agentId !== undefined) {
+          retry = { ...run, description, agentId, model: spawned.model ?? run.model, startedAt: started, status: 'running', retry: true, blocking: undefined, optional: undefined, findings: undefined, items: undefined, verdicts: undefined, usage: undefined, costUsd: undefined, durationMs: undefined }
+        }
+      }
+    }
+    await saveReviews($, list => [
+      ...list.map(r =>
         r.agentId === e.agentId
           ? {
               ...r,
               model,
-              status: e.reason === 'answer' ? 'done' : 'failed',
+              status,
               durationMs: e.durationMs,
               usage,
               costUsd: usage === undefined ? undefined : costOf(model, usage),
@@ -178,13 +200,15 @@ export const registerTurn: Register = on => {
             }
           : r,
       ),
-    )
+      ...(retry === undefined ? [] : [retry]),
+    ])
     const finished = (await read($, reviews)).find(r => r.agentId === e.agentId)
     if (finished !== undefined) await queue($, [finished])
     // Reporting never holds up stewarding: a run that cannot be sent waits in the outbox.
     await flush($).catch(() => undefined)
     // Read again: the stop button may have been pressed while the run was sent.
     const reviewing = await read($, steward)
+    if (retry !== undefined) return done
     if (reviewing !== null && reviewing.ticket === run.ticket && reviewing.round === run.round && reviewing.phase === 'reviewing') await settleRound($, reviewing)
 
     return done
