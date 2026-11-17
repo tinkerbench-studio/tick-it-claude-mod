@@ -132,7 +132,7 @@ export const registerSession: Register = on => {
       return next(e)
     }
     const origin = await originHere($)
-    if (origin !== null && origin !== repository) {
+    if (origin !== null && !sameRepository(origin, repository)) {
       const checkout = await checkoutBeside($, repository)
       await log($, 'debug', 'start-not-taken', { ticket, why: 'other-repository', ...(checkout === undefined ? {} : { checkout }) })
       // As with a refused take, the mod records and reports nothing for this session, so its own calls are let through.
