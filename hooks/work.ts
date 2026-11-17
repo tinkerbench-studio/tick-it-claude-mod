@@ -82,14 +82,19 @@ export async function measureDiff($: EngineInterface): Promise<number> {
   }
 }
 
-/** The merge base of HEAD and the remote's default branch (origin/HEAD, origin/main, origin/master, the first that has one), or null when there is none. */
-export async function mergeBaseOfDefault($: EngineInterface): Promise<string | null> {
-  for (const base of ['origin/HEAD', 'origin/main', 'origin/master']) {
-    const mb = await $.process.run(['git', 'merge-base', 'HEAD', base]).catch(() => undefined)
+/** The remote's default branch (origin/HEAD, origin/main, origin/master, the first that has a merge base with HEAD) and that merge base, or null when there is none. */
+export async function defaultBase($: EngineInterface): Promise<{ ref: string; sha: string } | null> {
+  for (const ref of ['origin/HEAD', 'origin/main', 'origin/master']) {
+    const mb = await $.process.run(['git', 'merge-base', 'HEAD', ref]).catch(() => undefined)
     const sha = mb?.exitCode === 0 ? mb.stdout.trim() : ''
-    if (/^[0-9a-f]{40}$/.test(sha)) return sha
+    if (/^[0-9a-f]{40}$/.test(sha)) return { ref, sha }
   }
   return null
+}
+
+/** The merge base of HEAD and the remote's default branch, or null when there is none. */
+export async function mergeBaseOfDefault($: EngineInterface): Promise<string | null> {
+  return (await defaultBase($))?.sha ?? null
 }
 
 /**
