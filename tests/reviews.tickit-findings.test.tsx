@@ -71,3 +71,18 @@ test('a clean skill with an open Tick-it finding is run again in a later round, 
   expect(round2[0]?.prompt).toContain('1. api/a.ts:4 no test for expiry')
   expect(seen.ticketCalls.some(c => c.tool === 'get_ticket' && Array.isArray(c.args.include) && c.args.include.includes('findings'))).toBe(true)
 })
+
+test('a skill whose paths match no changed file still runs for an open Tick-it finding', async ($, on) => {
+  const DOCS = { '.tick-it/skills/docs/SKILL.md': '---\nname: docs\npaths: docs/**\n---\nReview.' }
+  const seen = engine(on, { lines: 10, changed: ['hooks/a.ts'] }, true, DOCS, { timeline: [], findings: [finding('f1', 'docs')] })
+  await done($)
+  expect(seen.spawned).toHaveLength(1)
+  expect(seen.spawned[0]?.prompt).toContain('1. api/a.ts:4 no test for expiry')
+})
+
+test('the same skill with no open Tick-it finding does not run: its paths match nothing', async ($, on) => {
+  const DOCS = { '.tick-it/skills/docs/SKILL.md': '---\nname: docs\npaths: docs/**\n---\nReview.' }
+  const seen = engine(on, { lines: 10, changed: ['hooks/a.ts'] }, true, DOCS, { timeline: [], findings: [] })
+  await done($)
+  expect(seen.spawned).toHaveLength(0)
+})
