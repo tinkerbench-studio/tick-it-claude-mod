@@ -129,3 +129,17 @@ test('a reviewNext kept in the store has its review agents start when the next t
   await $.turn.complete(finishTurn(undefined, 'Carried on.'))
   expect(seen.spawned.map(a => a.description)).toEqual(['tick-it review: principal on TCK-143, round 1'])
 })
+
+for (const [name, over] of [
+  ['another Claude session', { claudeSession: 'session-2' }],
+  ['another repository', { repository: 'acme/other' }],
+] as const) {
+  test(`${name} leaves nothing restored for the next save to write: no ticket, base commit or steward`, async ($, on) => {
+    const steward = { ticket: 'TCK-143', round: 1, phase: 'fixing', maxRounds: 3 }
+    const { state } = await kept(on, store({ ...over, steward }))
+    await start($)
+    // Stewarding a ticket writes the state as the session holds it.
+    await $.command.run({ ...RUN, command: 'tick-it', args: 'steward TCK-143' })
+    expect(state()).toMatchObject({ claudeSession: 'session-1', repository: 'acme/web-app', current: null, baseCommit: null, steward: { round: 1, phase: 'reviewing' } })
+  })
+}
