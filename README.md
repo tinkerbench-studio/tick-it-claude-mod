@@ -166,7 +166,7 @@ What to check, in your own words.
 
 ### Base review skills
 
-The plugin ships a base for each of the five roles, in `skills/review-agents/bases/<name>/SKILL.md`: `acceptance`, `principal`, `security`, `tests` and `ux-evidence`. A base holds the rules that are the same in every repository and none that belongs to one. A repository's own skill adds its rules to a base by naming it in its front matter:
+The plugin ships a base for each of the five roles, in `skills/review-agents/bases/<name>/SKILL.md`: `acceptance`, `principal`, `security`, `tests` and `ux-evidence`. A base holds the rules that are the same in every repository and none that belongs to one. Every reviewer prompt begins with the ticket's size (`Ticket size: S.`), which the `principal` base reads: in round 1 of a ticket sized S, M or L it lists, for each changed action, its failure paths, what a second concurrent call does and what input it accepts, before it reports findings; an XS ticket keeps the lighter pass. A repository's own skill adds its rules to a base by naming it in its front matter:
 
 ```markdown
 ---
@@ -178,6 +178,8 @@ base: principal
 ```
 
 When the round starts, the mod reads the base from its own folder and gives the reviewer the base first and the repository's rules after it, as rules that add to the base and are the ones to follow where the two differ. The `description`, `model` and `sizes` a skill leaves out are its base's, and so is its `changes`; `name` and `paths` are always the skill's own, and those are what `report_review_agents` sends. So a repository keeps only what is particular to it, and a change to a base reaches every repository with the next release of the plugin. A skill with no `base` is read whole, as before. A `base` this version of the plugin does not have (the name is a folder name: lower-case letters, digits and hyphens) changes nothing in the skill, which reviews by its own rules alone, and the line that starts the round says so.
+
+Every base also says, for each round: fetch the base branch before judging what the diff contains; on lines unchanged since round 1 a later round raises BLOCKING only for a correctness or security defect, with why it was missed, and anything else found late is OPTIONAL; wording is BLOCKING only when it states something false about behaviour, a count or a name, and text the change did not touch never is; a line that says nothing is wrong (none, not needed, listed only to say the check was done) is not reported, and a check the reviewer could not run in its own sandbox is not BLOCKING. Each base names what it owns so one defect is raised once: `acceptance` the criteria, `tests` the tests, `principal` the code and its documents, `security` access and input, `ux-evidence` what a person sees; a defect another base owns is left to it. `acceptance` decides what must exist and `ux-evidence` decides how it is worded and drawn, and the other's contradicting finding is OPTIONAL.
 
 The base is put in by the mod. A session without the mod (one that stewards from Tick-it's own instructions) reads only the file in `.tick-it/skills`, so there a skill with a `base` reviews by the repository's rules alone.
 

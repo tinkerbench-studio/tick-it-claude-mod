@@ -151,6 +151,17 @@ test('each sample names its base, keeps only the repository’s own rules and le
   }
 })
 
+test('each base fetches the base branch, limits late and wording blocking, reports no non-findings and owns one kind of defect', () => {
+  const owns = { acceptance: 'You own the acceptance criteria', principal: 'You own the code and the documents', security: 'You own access', tests: 'You own the tests and the checks', 'ux-evidence': 'You own what a person sees' }
+  for (const role of ROLES) {
+    const base = read(`skills/review-agents/bases/${role}/SKILL.md`)
+    for (const words of ['Fetch the base branch', 'unchanged since round 1', 'only for a correctness or security defect', 'says why it was missed', 'else found late is OPTIONAL', 'something false about behaviour, a count or a name', 'the change did not touch is never BLOCKING', 'says nothing is wrong', 'not needed', 'could not run in your own sandbox', owns[role], 'leave it to']) expect(base).toContain(words, `${role} base no longer says "${words}"`)
+  }
+  for (const role of ['acceptance', 'ux-evidence']) for (const words of ['acceptance decides what must exist', 'ux-evidence decides how it is worded and drawn', 'contradicts', 'is OPTIONAL']) expect(read(`skills/review-agents/bases/${role}/SKILL.md`)).toContain(words, `${role} base no longer says "${words}"`)
+  for (const role of ROLES) expect(read(`skills/review-agents/samples/${role}/SKILL.md`)).toContain(role === 'ux-evidence' ? 'fetch it before judging the diff' : 'Fetch the base branch')
+  for (const words of ['raises BLOCKING only for a correctness or security defect, with why it was missed', 'fetch the base branch before judging', 'something false about behaviour, a count or a name', '`acceptance` the criteria', '`security` access and input', 'the other\'s contradicting finding is OPTIONAL']) expect(read('README.md')).toContain(words, `README no longer says "${words}"`)
+})
+
 test('review-agents and the README explain how a repository’s skill adds its rules to a base', () => {
   const skill = read('skills/review-agents/SKILL.md')
   for (const words of ['`bases/<name>/SKILL.md` beside this file', 'names with `base` in its front matter', 'Read the base first', "Keep the front matter's `name` and `base`", 'come from the base']) expect(skill).toContain(words, `review-agents no longer says "${words}"`)
@@ -215,6 +226,11 @@ test('README and the plan-epic skill describe the date hold: marker, refusal and
   const readme = read('README.md')
   for (const words of ['is refused with that date', 'with `Waiting until <date>` under the title of a ticket whose `notBefore` hold is still in the future', 'a held Backlog or Ready ticket is refused with its date, as `/tick-it take` refuses it', 'every 15 minutes', 'clears a hold itself once its date passes', 'the release rule allows it (no open blocker or question, autoReady on, its epic in a prioritised milestone, an approved plan, no need)', 'otherwise leaving it in the Backlog']) expect(readme).toContain(words, `README no longer says "${words}"`)
   expect(read('skills/plan-epic/SKILL.md')).toContain('`notBefore` date', 'plan-epic skill no longer mentions the date hold')
+})
+
+test('the principal base lists failure paths, concurrency and input in round 1 of S, M and L, and leaves XS the lighter pass', () => {
+  const base = read('skills/review-agents/bases/principal/SKILL.md')
+  for (const words of ['Ticket size:', 'round 1 of a ticket sized S, M or L', 'before you report any finding', 'its failure paths', 'what a second concurrent call does', 'what input it accepts', 'An XS ticket keeps the lighter pass']) expect(base).toContain(words, `the principal base no longer says "${words}"`)
 })
 
 test('README names the copies:check script, how a repository adds one, and what the mod does with it', () => {
