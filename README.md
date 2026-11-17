@@ -164,7 +164,7 @@ What to check, in your own words.
 
 ### Base review skills
 
-The plugin ships a base for each of the five roles, in `skills/review-agents/bases/<name>/SKILL.md`: `acceptance`, `principal`, `security`, `tests` and `ux-evidence`. A base holds the rules that are the same in every repository and none that belongs to one. A repository's own skill adds its rules to a base by naming it in its front matter:
+The plugin ships a base for each of the five roles, in `skills/review-agents/bases/<name>/SKILL.md`: `acceptance`, `principal`, `security`, `tests` and `ux-evidence`. A base holds the rules that are the same in every repository and none that belongs to one. Every reviewer prompt begins with the ticket's size (`Ticket size: S.`), which the `principal` base reads: in round 1 of a ticket sized S, M or L it lists, for each changed action, its failure paths, what a second concurrent call does and what input it accepts, before it reports findings; an XS ticket keeps the lighter pass. A repository's own skill adds its rules to a base by naming it in its front matter:
 
 ```markdown
 ---
