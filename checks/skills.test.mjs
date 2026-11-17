@@ -221,3 +221,8 @@ test('the principal base lists failure paths, concurrency and input in round 1 o
   const base = read('skills/review-agents/bases/principal/SKILL.md')
   for (const words of ['Ticket size:', 'round 1 of a ticket sized S, M or L', 'before you report any finding', 'its failure paths', 'what a second concurrent call does', 'what input it accepts', 'An XS ticket keeps the lighter pass']) expect(base).toContain(words, `the principal base no longer says "${words}"`)
 })
+
+test('README names the copies:check script, how a repository adds one, and what the mod does with it', () => {
+  const readme = read('README.md')
+  for (const words of ['`copies:check` script', '"scripts": { "copies:check":', 'npm run copies:check', 'refuses the move', 'A check that cannot be started', 'says the check could not run']) expect(readme).toContain(words, `README no longer says "${words}"`)
+})
