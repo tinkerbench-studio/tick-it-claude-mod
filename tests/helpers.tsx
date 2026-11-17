@@ -91,6 +91,8 @@ export type Net = {
   reviewSpend?: Record<string, unknown> | null
   /** What get_ticket_timeline answers (its review entries); 'unreachable' makes the call fail, and absent leaves it unanswered. */
   timeline?: Record<string, unknown>[] | 'unreachable'
+  /** What list_sessions answers; absent leaves it unanswered. */
+  sessions?: Record<string, unknown>[]
   /** The findings get_ticket answers with when asked for them (include findings); absent answers none. */
   findings?: Record<string, unknown>[]
   /** The config of get_repository_settings (one entry per base branch with its design section); absent when not answered. */
@@ -175,6 +177,7 @@ export const engine = (
         return ticket === undefined ? refuse(`No ticket ${String(a.key)} in acme/web-app.`) : answer({ ticket: { ...ticket, ...(net.acceptanceItems === true ? { acceptanceItems: ticket.acceptance.map((text, i) => ({ id: `c${i}`, text, checked: false, afterDeploy: false })) } : {}), ...(net.reviewSpend === undefined ? {} : { reviewSpend: net.reviewSpend }), ...(net.findings === undefined || !Array.isArray(a.include) || !a.include.includes('findings') ? {} : { findings: net.findings }) } })
       }
       if (e.tool === 'get_ticket_timeline') return net.timeline === undefined || net.timeline === 'unreachable' ? refuse('Tick-it is down') : answer({ timeline: net.timeline })
+      if (e.tool === 'list_sessions') return net.sessions === undefined ? refuse('Tick-it is down') : answer({ sessions: net.sessions })
       if (e.tool === 'list_pull_requests') {
         if (net.pullRequests === 'unreachable') return refuse('Tick-it is down')
         return answer({ pullRequests: net.pullRequests ?? [] })
