@@ -64,6 +64,15 @@ test('an error shows at the quietest level: runs Tick-it rejects', async ($, on)
   expect(log.lines()[0]).toContain('runs-dropped dropped=1')
 })
 
+test('at debug: the round-started line lists a reviewer that could not be started', async ($, on) => {
+  engine(on, { lines: 10, refuse: (_model, description) => (description.includes(' security ') ? 'background tasks are off' : undefined) }, true, SKILLS)
+  const log = logging(on, { TICK_IT_LOG: 'debug' })
+  await start($)
+  await $.prompt.submit(typed(STARTED))
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'done' })
+  expect(log.lines().join('\n')).toMatch(/round-started ticket=TCK-151 round=1 why=done-command skills=principal refused=security\b/)
+})
+
 test('at debug: a start line matched or not, which ticket it took, why a round started or not, why a call was denied', async ($, on) => {
   engine(on, { lines: 10 }, true, SKILLS)
   const log = logging(on, { TICK_IT_LOG: 'debug' })
