@@ -1,8 +1,8 @@
 import { atom, read, update } from 'claude-code'
 import type { Register } from 'claude-code'
 import type { DroppedRun, OutboxRun, PendingLink, ReviewRun, StartedSession, Ticket } from '../types'
-import { STORE_KEY, STARTED_KEY, START_LINE, CONTINUE_LINE, BREAKDOWN_LINE, BREAKDOWN_KEY, REPORT_TOOL, REVIEWS_KEY, OUTBOX_KEY, DROPPED_KEY, UNLINKED_KEY, RECORD_TOOL, AGENTS_TOOL } from './state'
-import { callTickit, originHere, checkoutBeside, freshBriefOf } from './tickit'
+import { STORE_KEY, STORE_REPOSITORY_KEY, STARTED_KEY, START_LINE, CONTINUE_LINE, BREAKDOWN_LINE, BREAKDOWN_KEY, REPORT_TOOL, REVIEWS_KEY, OUTBOX_KEY, DROPPED_KEY, UNLINKED_KEY, RECORD_TOOL, AGENTS_TOOL } from './state'
+import { callTickit, originHere, checkoutBeside, freshBriefOf, repositoryHere, sameRepository } from './tickit'
 import { refreshBoard, showStatus } from './board'
 import { reportsForItself, instructionsOf, take, resume } from './work'
 import { reportAgents, flush } from './outbox'
@@ -28,7 +28,9 @@ export const registerSession: Register = on => {
   on('session.start', async ($, e, next) => {
     if ((await read($, tickets)).length === 0) {
       const cached = await $.store.get(STORE_KEY)
-      if (Array.isArray(cached)) await update($, tickets, () => cached as Ticket[])
+      const cachedFor = await $.store.get(STORE_REPOSITORY_KEY)
+      // A board cached for another repository is not shown (its tickets would carry this one's keys); one an older mod cached with none is.
+      if (Array.isArray(cached) && (typeof cachedFor !== 'string' || sameRepository(cachedFor, await repositoryHere($)))) await update($, tickets, () => cached as Ticket[])
     }
     if ((await read($, reviews)).length === 0) {
       const saved = await $.store.get(REVIEWS_KEY)

@@ -40,6 +40,8 @@ export type ReviewUsage = {
 export type ReviewRun = {
   /** The subagent's id, as `$.agent.spawn` answered it. */
   agentId: string
+  /** The repository (owner/name) the run was made in; absent on a run an older mod stored, which belongs to the repository it is first read in. */
+  repository?: string
   ticket: string
   epic: string
   round: number
@@ -79,6 +81,8 @@ export type ReviewRun = {
 export type WorkRun = {
   /** turn-<the turn's id>. */
   agentId: string
+  /** The repository (owner/name) the run was made in; see ReviewRun. */
+  repository?: string
   ticket: string
   kind: 'build' | 'fix'
   round?: number

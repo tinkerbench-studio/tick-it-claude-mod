@@ -2,10 +2,10 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 import type { PullRequestView, ReviewRun, ReviewUsage, Steward, Ticket, TicketSize } from '../types'
 import { SIZES, REVIEWS_KEY, SKILLS_DIR, OLD_SKILLS_DIR, BASES_DIR, KEEP_REVIEWS, MAX_FINDING_TEXT, PRICES } from './state'
-import { callTickit, fetchInstructions, fetchModConfig, hasModLimits, repositoryHere, reviewBudgetOf, roundLimit } from './tickit'
+import { callTickit, fetchInstructions, fetchModConfig, hasModLimits, madeHere, repositoryHere, reviewBudgetOf, roundLimit } from './tickit'
 import { setStatus, showStatus, refreshPullRequest, servedConfig } from './board'
 import { report, changedContent, mergeBaseOfDefault } from './work'
-import { queue, flush } from './outbox'
+import { queue, flush, plural } from './outbox'
 import { AREA_SKILL_DIR, AREA_NAMES, areaSkill, changesFor, parseChanges, touchedAreas, touchedLine, unknownChanges } from './security-areas'
 import type { Changes, Touched } from './security-areas'
 import { log } from './log'
@@ -114,9 +114,19 @@ export const withBase = (skill: ReviewSkill, base: ReviewSkill): ReviewSkill => 
 export const missingBases = (skills: { folder: string; skill: ReviewSkill }[]): string[] =>
   skills.filter(({ skill }) => skill.base !== undefined && skill.baseBody === undefined).map(({ folder, skill }) => `${folder} (base ${JSON.stringify(skill.base)})`)
 
+/** A report line without the markdown round its marker: bullets, numbers, # and > marks, and bold, italic or code marks round the word and its colon. */
+const plain = (line: string): string => {
+  let rest = line.trim()
+  for (let before = ''; before !== rest; ) {
+    before = rest
+    rest = rest.replace(/^(?:[-*+]\s+|\d+[.)]\s+|#+\s*|>\s*)/, '')
+  }
+  return rest.replace(/^[*_`]*(BLOCKING|OPTIONAL|FINDING)[*_`]*:[*_`]*\s*/i, '$1: ')
+}
+
 /** The BLOCKING and OPTIONAL lines of a reviewer's report. */
 export const readFindings = (answer: string) => {
-  const lines = answer.split('\n').map(line => line.trim().replace(/^[-*]\s*/, ''))
+  const lines = answer.split('\n').map(plain)
   return {
     blocking: lines.filter(line => /^BLOCKING:/i.test(line)),
     optional: lines.filter(line => /^OPTIONAL:/i.test(line)),
@@ -188,7 +198,7 @@ export const withTickit = (local: Earlier[], remote: Earlier[] = []): Earlier[] 
 export const readVerdicts = (answer: string, earlier: Earlier[]): NonNullable<ReviewRun['verdicts']> => {
   const given = new Set<number>()
   return answer.split('\n').flatMap(line => {
-    const m = /^FINDING:\s*(\d+)\s+(fixed|open|gone)\b[\s:–—-]*(.*)$/i.exec(line.trim().replace(/^[-*]\s*/, ''))
+    const m = /^FINDING:\s*(\d+)\s+(fixed|open|gone)\b[\s:–—-]*(.*)$/i.exec(plain(line))
     const f = m === null ? undefined : earlier[Number(m[1]) - 1]
     // The first verdict on a finding stands; a repeat is not counted twice.
     if (m !== null && f !== undefined) {
@@ -281,6 +291,7 @@ export const changeLines = (t: Ticket, skill: ReviewSkill, review: ChangeReview 
 export const reviewPrompt = (t: Ticket, skill: ReviewSkill, round: number, earlier: Earlier[] = [], head?: string, change?: ChangeReview): string =>
   [
     `You are the "${skill.name}" reviewer for ticket ${t.id}: ${t.title} (epic: ${t.epic}), review round ${round}.`,
+    `Ticket size: ${t.size}.`,
     'Acceptance:',
     ...t.acceptance.map(a => `- ${a}`),
     `Review the change in the working tree against HEAD (git diff HEAD and the untracked files). Do not change any file.`,
@@ -300,16 +311,22 @@ export const reviewPrompt = (t: Ticket, skill: ReviewSkill, round: number, earli
     'End with "VERDICT: clean" when nothing is blocking, else "VERDICT: changes".',
   ].join('\n')
 
+/** The review runs made in this repository (those an older mod stored with none are taken as this one's). */
+export async function hereRuns($: EngineInterface): Promise<ReviewRun[]> {
+  const repository = await repositoryHere($)
+  return (await read($, reviews)).filter(r => madeHere(r, repository))
+}
+
 /** Marks the running runs `pick` chooses failed (not queued: Tick-it hears of a run only from its answer). Answers how many. */
 export async function failRuns($: EngineInterface, pick: (r: ReviewRun) => boolean): Promise<number> {
-  const n = (await read($, reviews)).filter(r => r.status === 'running' && pick(r)).length
+  const n = (await hereRuns($)).filter(r => r.status === 'running' && pick(r)).length
   if (n > 0) await saveReviews($, list => list.map(r => (r.status === 'running' && pick(r) ? { ...r, status: 'failed' as const } : r)))
   return n
 }
 
 /** A run is running only while its agent can still answer: a ticket's running run whose agent is not listed, or is listed finished, is failed. Unreadable list: nothing changes. */
 export async function failLostRuns($: EngineInterface, ticket: string): Promise<number> {
-  if (!(await read($, reviews)).some(r => r.ticket === ticket && r.status === 'running')) return 0
+  if (!(await hereRuns($)).some(r => r.ticket === ticket && r.status === 'running')) return 0
   const listed = await $.agent.list().catch(() => undefined)
   if (listed === undefined) return 0
   const live = new Set(listed.filter(a => a.status === 'running').map(a => a.id))
@@ -317,7 +334,9 @@ export async function failLostRuns($: EngineInterface, ticket: string): Promise<
 }
 
 export async function saveReviews($: EngineInterface, fn: (list: ReviewRun[]) => ReviewRun[]) {
-  const list = fn(await read($, reviews)).slice(-KEEP_REVIEWS)
+  const repository = await repositoryHere($)
+  // Each run carries the repository it was made in, set when it is saved; one with none yet is taken by the repository it is first read in.
+  const list = fn(await read($, reviews)).map(r => (r.repository === undefined && repository !== undefined ? { ...r, repository } : r)).slice(-KEEP_REVIEWS)
   await update($, reviews, () => list)
   await $.store.set(REVIEWS_KEY, list)
 }
@@ -410,7 +429,7 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
   const afterTicking = trigger === 'after-fix' && ticking === true
   const recorded = first || afterTicking ? await recordedReviews($, t.id) : undefined
   // Runs this session has not yet got to Tick-it (the outbox holds them) are not in the timeline: never go back to a round number the session already used.
-  const ranHere = (await read($, reviews)).filter(r => r.ticket === t.id).reduce((most, r) => Math.max(most, r.round), 0)
+  const ranHere = (await hereRuns($)).filter(r => r.ticket === t.id).reduce((most, r) => Math.max(most, r.round), 0)
   const carried = Math.max(recorded === undefined ? 0 : lastRecordedRound(recorded), ranHere)
   const round = first ? carried + 1 : fromRound
   const limit = await roundLimit($, t.size, t.id)
@@ -431,7 +450,7 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
     await settleRound($, next, true)
     return `Round ${round}: no reviewer started for ${t.id} (the review budget has no room); the pull request is read again.`
   }
-  const earlierRuns = await read($, reviews)
+  const earlierRuns = await hereRuns($)
   // The ticket's open required findings in Tick-it, from any session: a fresh container has no local state for them.
   const remote = (await tickitBlockers($, t.id)) ?? new Map<string, Earlier[]>()
   // A Tick-it finding this session's newest verdict on it closed (fixed or gone) may still be waiting in the outbox, so Tick-it lists it open: it is not asked about again.
@@ -613,7 +632,7 @@ export async function reviewAgain($: EngineInterface): Promise<string> {
   if (s === null) return 'Nothing is being stewarded.'
   // Stopping does not end the reviewers already running: the next round waits for them. A reviewer whose agent is gone does not count.
   const lost = await failLostRuns($, s.ticket)
-  if ((s.phase === 'reviewing' && lost === 0) || (await read($, reviews)).some(r => r.ticket === s.ticket && r.status === 'running')) return `Round ${s.round} of ${s.ticket} is still being reviewed.`
+  if ((s.phase === 'reviewing' && lost === 0) || (await hereRuns($)).some(r => r.ticket === s.ticket && r.status === 'running')) return `Round ${s.round} of ${s.ticket} is still being reviewed.`
   if (s.phase !== 'fixing') {
     // Stopped, or Done: the ticket goes back In review for another round.
     const why = await setStatus($, s.ticket, 'In review')
@@ -744,7 +763,7 @@ export const reviewedClean = (rounds: RecordedRound[], skill: string, head: stri
 
 /** The rounds of a ticket that ran reviewers: a round settled on the pull request alone costs nothing, so it is not part of the average cost of a round. */
 async function reviewedRounds($: EngineInterface, ticket: string): Promise<number> {
-  const rounds = [...new Set((await read($, reviews)).filter(r => r.ticket === ticket).map(r => r.round))]
+  const rounds = [...new Set((await hereRuns($)).filter(r => r.ticket === ticket).map(r => r.round))]
   // A session's first round continues from the rounds earlier sessions ran, and the spend covers them too: they are rounds of the average as well.
   const earlier = rounds.length === 0 ? 0 : Math.min(...rounds) - 1
   return rounds.length + earlier
@@ -756,7 +775,7 @@ async function reviewedRounds($: EngineInterface, ticket: string): Promise<numbe
  */
 export async function settleRound($: EngineInterface, s: Steward, withoutReviewers = false) {
   await failLostRuns($, s.ticket)
-  const runs = (await read($, reviews)).filter(r => r.ticket === s.ticket && r.round === s.round)
+  const runs = (await hereRuns($)).filter(r => r.ticket === s.ticket && r.round === s.round)
   if (runs.some(r => r.status === 'running')) return
   const t = (await read($, tickets)).find(one => one.id === s.ticket)
   if (t === undefined) return
@@ -942,9 +961,11 @@ export const findingRows = (runs: ReviewRun[], round: number, showOptional: bool
 
 /** The review report for one ticket, or every ticket reviewed. */
 export async function reviewReport($: EngineInterface, id: string | undefined): Promise<string> {
-  const all = await read($, reviews)
+  const all = await hereRuns($)
+  const elsewhere = (await read($, reviews)).length - all.length
+  const apart = elsewhere === 0 ? '' : `\n${plural(elsewhere, 'review run')} of other repositories ${elsewhere === 1 ? 'is' : 'are'} not listed.`
   const runs = id === undefined ? all : all.filter(r => r.ticket === id.toUpperCase())
-  if (runs.length === 0) return id === undefined ? 'No reviews yet.' : `No reviews of ${id.toUpperCase()} yet.`
+  if (runs.length === 0) return `${id === undefined ? 'No reviews yet.' : `No reviews of ${id.toUpperCase()} yet.`}${apart}`
   const byTicket = new Map<string, ReviewRun[]>()
   for (const r of runs) byTicket.set(r.ticket, [...(byTicket.get(r.ticket) ?? []), r])
   const bySkill = new Map<string, ReviewRun[]>()
@@ -959,5 +980,5 @@ export async function reviewReport($: EngineInterface, id: string | undefined): 
     '',
     `All review agents  ${summarise(runs)}`,
     'Costs are what the tokens would cost at API list prices; on a Claude plan they count against its usage instead.',
-  ].join('\n')
+  ].join('\n') + apart
 }
