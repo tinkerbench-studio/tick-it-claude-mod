@@ -476,7 +476,9 @@ export async function finish($: EngineInterface, status: TicketStatus): Promise<
  * its review agents start when the turn ends.
  */
 export async function finishedByClaude($: EngineInterface, e: ToolCallInput, next: (e: ToolCallInput) => Promise<ToolCallResult>): Promise<ToolCallResult> {
-  const input = e as { key?: unknown; status?: unknown }
+  const input = e as { key?: unknown; repository?: unknown; status?: unknown }
+  // The same key in another repository is another ticket (GitHub names are case-insensitive).
+  if (!sameRepository(input.repository, await repositoryHere($))) return next(e)
   const t = await findCurrent($)
   if (input.status === 'In review' && typeof input.key === 'string' && t === undefined) return fixAfterStop($, input.key.toUpperCase(), e, next)
   if (input.status !== 'In review' || typeof input.key !== 'string' || t === undefined || input.key.toUpperCase() !== t.id) return next(e)
