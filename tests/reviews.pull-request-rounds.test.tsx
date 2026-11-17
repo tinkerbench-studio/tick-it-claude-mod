@@ -4,31 +4,33 @@ import { pullRequestFindings } from '../hooks/register'
 import { RUN, SKILLS, engine, finishTurn, start, PR, cleanRoundWith, staleBranch } from './helpers'
 import type { Net } from './helpers'
 
+const HEAD = 'ab12'.repeat(10)
+
 test('a pull request with failing CI, a stale branch or a conflict makes a round blocking; one in the merge queue leaves its branch alone', () => {
-  expect(pullRequestFindings(null)).toEqual([])
-  expect(pullRequestFindings({ ...PR })).toEqual([])
+  expect(pullRequestFindings(null, HEAD)).toEqual([])
+  expect(pullRequestFindings({ ...PR, headSha: HEAD }, HEAD)).toEqual([])
   // Failing CI is a blocking finding that sends the session to the failing checks.
-  const failing = pullRequestFindings({ ...PR, ci: 'failure' })
+  const failing = pullRequestFindings({ ...PR, headSha: HEAD, ci: 'failure' }, HEAD)
   expect(failing).toHaveLength(1)
   expect(failing[0]).toContain('gh run view <run> --log-failed')
   // Tick-it already told the session about this head commit: the finding points at that instruction instead of starting a second fix.
-  const told = pullRequestFindings({ ...PR, ci: 'failure', ciInstructed: true })
+  const told = pullRequestFindings({ ...PR, headSha: HEAD, ci: 'failure', ciInstructed: true }, HEAD)
   expect(told[0]).toContain('already told this session')
   expect(told[0]).toContain('do not start a second fix')
   // Pending or unreported CI is not failing.
-  expect(pullRequestFindings({ ...PR, ci: 'pending' })).toEqual([])
-  expect(pullRequestFindings({ ...PR, ci: null })).toEqual([])
+  expect(pullRequestFindings({ ...PR, headSha: HEAD, ci: 'pending' }, HEAD)).toEqual([])
+  expect(pullRequestFindings({ ...PR, headSha: HEAD, ci: null }, HEAD)).toEqual([])
   // Behind or conflicting: merge the base in, never rewrite history.
   for (const stale of [{ behind: true }, { conflicting: true }]) {
-    const found = pullRequestFindings({ ...PR, ...stale })
+    const found = pullRequestFindings({ ...PR, headSha: HEAD, ...stale }, HEAD)
     expect(found).toHaveLength(1)
     expect(found[0]).toContain('never rebase or force-push')
   }
   // In the queue the branch is the queue's: no finding about being behind or conflicting.
-  expect(pullRequestFindings({ ...PR, behind: true, conflicting: true, queued: true })).toEqual([])
+  expect(pullRequestFindings({ ...PR, headSha: HEAD, behind: true, conflicting: true, queued: true }, HEAD)).toEqual([])
   // CI still fails in the queue, and a closed or merged pull request adds nothing.
-  expect(pullRequestFindings({ ...PR, ci: 'failure', behind: true, queued: true })).toHaveLength(1)
-  expect(pullRequestFindings({ ...PR, state: 'merged', ci: 'failure', behind: true })).toEqual([])
+  expect(pullRequestFindings({ ...PR, headSha: HEAD, ci: 'failure', behind: true, queued: true }, HEAD)).toHaveLength(1)
+  expect(pullRequestFindings({ ...PR, headSha: HEAD, state: 'merged', ci: 'failure', behind: true }, HEAD)).toEqual([])
 })
 
 test('clean reviewers do not make a round clean while CI fails: the fix prompt names the checks, and a told session is not sent a second fix', async ($, on) => {

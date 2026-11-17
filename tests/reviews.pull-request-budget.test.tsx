@@ -55,7 +55,7 @@ test('after that fix, CI still failing sets no-clean-round and stops without ask
   expect(seen.submitted).toHaveLength(1)
   expect(needsHuman(seen)).toHaveLength(1)
   expect(needsHuman(seen)[0]).toMatchObject({ key: 'TCK-143', kind: 'no-clean-round' })
-  expect(String(needsHuman(seen)[0]?.note)).toContain('still blocks after the fix')
+  expect(String(needsHuman(seen)[0]?.note)).toContain('CI is failing on pull request #12')
   expect(status(seen)).toBe('In review')
 })
 
@@ -116,7 +116,7 @@ test('a branch still behind its base after the fix stops without a reviewer', as
   await $.turn.complete(finishTurn(undefined, 'Fixed CI.'))
   expect(seen.spawned).toHaveLength(1)
   expect(needsHuman(seen)).toHaveLength(1)
-  expect(String(needsHuman(seen)[0]?.note)).toContain('still blocks')
+  expect(String(needsHuman(seen)[0]?.note)).toContain('is behind its base')
 })
 
 test('with $0.70 of the $1 spent, a pull request still failing after the fix stops without another fix', async ($, on) => {

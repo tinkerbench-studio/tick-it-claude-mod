@@ -105,6 +105,8 @@ export type Net = {
   linkRefused?: boolean
   /** Tick-it answers link_pull_request with an error while this is true. */
   linkRejected?: boolean
+  /** Tick-it gives no headSha for a pull request; otherwise one without it is at the checked-out commit. */
+  noHeadSha?: boolean
   /** What list_pull_requests answers; 'unreachable' makes it fail. */
   pullRequests?: 'unreachable' | { number: number; state: string; draft: boolean; ci: string | null; behind?: boolean | null; mergeState?: string; mergeQueue?: unknown; ciInstructed?: boolean; headSha?: string }[]
   /** What list_milestones answers; no milestones when absent. */
@@ -180,7 +182,7 @@ export const engine = (
       if (e.tool === 'list_sessions') return net.sessions === undefined ? refuse('Tick-it is down') : answer({ sessions: net.sessions })
       if (e.tool === 'list_pull_requests') {
         if (net.pullRequests === 'unreachable') return refuse('Tick-it is down')
-        return answer({ pullRequests: net.pullRequests ?? [] })
+        return answer({ pullRequests: (net.pullRequests ?? []).map(p => (net.noHeadSha === true ? p : { headSha: 'ab12'.repeat(10), ...p })) })
       }
       if (e.tool === 'get_repository_settings') return net.instructions === undefined ? answer({ instructions: '', canEdit: true, autoMerge: net.autoMerge, reviewRounds: net.reviewRounds, config: net.config }) : refuseOr(net.instructions)
       if (e.tool === 'report_review_agents') return answer({ agents: a.agents })

@@ -521,7 +521,7 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
   // A reviewer of an earlier round still running is given up: a late answer from it changes no round.
   await failRuns($, r => r.ticket === t.id && r.round < round)
   // The fix that followed a round blocked by the pull request alone, with no budget for a reviewer round: no review agent starts, the pull request is read again and settles the round.
-  if (trigger === 'after-fix' && (await read($, steward))?.pullRequestOnly === true && (await budgetStop($, t.id, await reviewedRounds($, t.id))) !== undefined) {
+  if (trigger === 'after-fix' && (await read($, steward))?.pullRequestOnly === true && (round > limit || (await read($, steward))?.afterStop === true || (await budgetStop($, t.id, await reviewedRounds($, t.id))) !== undefined)) {
     // The stop button pressed while the spend was read: that round does not start.
     if ((await read($, steward))?.phase === 'stopped') {
       await update($, steward, v => (v === null ? v : { ...v, fixing: false }))
@@ -569,7 +569,7 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
     const unticked = await untickedAcceptance($, t.id)
     if (unticked === null || unticked.length > 0) return false
     await refreshPullRequest($, t.id).catch(() => update($, pullRequestError, () => 'could not read the pull request'))
-    return (await read($, pullRequestError)) === null && pullRequestFindings(await read($, pullRequest)).length === 0
+    return (await read($, pullRequestError)) === null && pullRequestFindings(await read($, pullRequest), await checkedOut($)).length === 0 && !ciUnconfirmed(await read($, pullRequest), await checkedOut($))
   }
   // The head only merged the base and Tick-it carries the review of the earlier commit over (reviewCarriedOver of list_pull_requests, TCK-52): no reviewer starts, and the round settles from the pull request and the acceptance ticks. An older Tick-it does not say, and the round runs as before.
   const pr = await read($, pullRequest)
@@ -807,14 +807,20 @@ export async function heldBackReason($: EngineInterface, id: string): Promise<st
 }
 
 /**
+ * CI that Tick-it reports as failing, but not for the commit checked out here: it names no head commit, or another one (a reading taken right after a push still shows the previous head's result).
+ * That is CI not yet confirmed, never a blocking finding of the round (TCK-76). `here` is the checked-out commit; undefined when git did not say, which confirms nothing.
+ */
+export const ciUnconfirmed = (pr: PullRequestView | null, here: string | undefined): boolean => pr !== null && pr.state === 'open' && pr.ci === 'failure' && (pr.headSha === undefined || here === undefined || pr.headSha !== here)
+
+/**
  * What a pull request adds to a round's blocking findings, so a round is not clean while it is red or stale. The queue owns the branch of a queued
  * pull request: it is never told to update it, only to resolve a conflict (Tick-it sends that itself). Tick-it's own CI instruction for the
  * current head commit is followed, not repeated with a second fix. History is never rewritten: the base is merged in.
  */
-export const pullRequestFindings = (pr: PullRequestView | null): string[] => {
+export const pullRequestFindings = (pr: PullRequestView | null, here: string | undefined): string[] => {
   if (pr === null || pr.state !== 'open') return []
   const found: string[] = []
-  if (pr.ci === 'failure') {
+  if (pr.ci === 'failure' && !ciUnconfirmed(pr, here)) {
     found.push(
       pr.ciInstructed
         ? `[ci] CI is failing on pull request #${pr.number}, and Tick-it has already told this session about this commit: fix it from that instruction (do not start a second fix; the failing checks are in gh pr checks ${pr.number} if it has not reached you yet), push, and it is reviewed again.`
@@ -825,6 +831,19 @@ export const pullRequestFindings = (pr: PullRequestView | null): string[] => {
     found.push(`[base] Pull request #${pr.number} ${pr.conflicting ? 'has a merge conflict with' : 'is behind'} its base branch: merge the base into the branch (git merge, never rebase or force-push), resolve any conflict, run the repository's checks and push.`)
   }
   return found
+}
+
+/** The commit checked out here; undefined when git does not say. */
+async function checkedOut($: EngineInterface): Promise<string | undefined> {
+  const here = (await $.process.run(['git', 'rev-parse', 'HEAD']).catch(() => undefined))?.stdout.trim()
+  return here === undefined || here === '' ? undefined : here
+}
+
+/** The pull request's own finding in words, for a note a person reads: what fails, not "a blocking finding". */
+const ownFindingWords = (pr: PullRequestView | null, failed: boolean): string => {
+  if (failed || pr === null) return 'the pull request could not be read, so its CI and branch are unchecked'
+  const parts = [...(pr.ci === 'failure' ? [`CI is failing on pull request #${pr.number}`] : []), ...(!pr.queued && pr.conflicting ? [`pull request #${pr.number} has a merge conflict with its base`] : !pr.queued && pr.behind === true ? [`pull request #${pr.number} is behind its base`] : [])]
+  return parts.length === 0 ? `pull request #${pr.number} blocks` : parts.join(' and ')
 }
 
 /** Whether the repository merges a clean pull request itself (get_repository_settings: autoMerge); false when Tick-it cannot say. */
@@ -921,12 +940,19 @@ export async function settleRound($: EngineInterface, s: Steward, withoutReviewe
   // A refresh that throws is an unread pull request too, not a stranded round.
   if (reviewed.length === 0) await refreshPullRequest($, t.id).catch(() => update($, pullRequestError, () => 'could not read the pull request'))
   // A refresh that failed leaves the last reading in place: it is not trusted, so the round is not clean until Claude has looked with gh.
-  const failed = reviewed.length === 0 && (await read($, pullRequestError)) !== null
+  let failed = reviewed.length === 0 && (await read($, pullRequestError)) !== null
+  const here = reviewed.length === 0 ? await checkedOut($) : undefined
+  // CI failing for another commit (or none named) is a reading taken before CI caught up with the push: the pull request is read once more before it is called not confirmed.
+  if (reviewed.length === 0 && !failed && ciUnconfirmed(await read($, pullRequest), here)) {
+    await refreshPullRequest($, t.id).catch(() => update($, pullRequestError, () => 'could not read the pull request'))
+    failed = (await read($, pullRequestError)) !== null
+  }
   const pr = await read($, pullRequest)
-  const blocking = reviewed.length > 0 ? reviewed : failed ? ['[pull-request] Tick-it could not read the pull request, so its CI and branch are unchecked: check them with gh (gh pr checks, gh pr view) and fix what fails.'] : pullRequestFindings(pr)
+  const unconfirmedCi = reviewed.length === 0 && !failed && ciUnconfirmed(pr, here)
+  const blocking = reviewed.length > 0 ? reviewed : failed ? ['[pull-request] Tick-it could not read the pull request, so its CI and branch are unchecked: check them with gh (gh pr checks, gh pr view) and fix what fails.'] : pullRequestFindings(pr, here)
   // No reviewer looked at the fix, so the pull request alone must show it: open, CI passed, and the branch neither behind nor conflicting (a queued one is the queue's to update). CI that has not finished is waited for by a person, never read as clean.
   const confirmed = pr !== null && pr.state === 'open' && pr.ci === 'success' && !pr.conflicting && (pr.queued || pr.behind === false)
-  const pending = withoutReviewers && blocking.length === 0 && !confirmed
+  const pending = blocking.length === 0 && ((withoutReviewers && !confirmed) || unconfirmedCi)
   const spent = summarise(runs)
   // The stop button may be pressed while this waits on Tick-it or GitHub: stopped stays stopped.
   const stillReviewing = async () => (await read($, steward))?.phase === 'reviewing'
@@ -950,8 +976,8 @@ export async function settleRound($: EngineInterface, s: Steward, withoutReviewe
   if (pending) {
     if (!(await stillReviewing())) return
     await log($, 'debug', 'round-settled', { ticket: t.id, round: s.round, outcome: 'stopped-ci-pending' })
-    const what = pr === null || pr.state !== 'open' ? 'no open pull request is found' : pr.ci === 'pending' ? `CI is still pending on pull request #${pr.number}` : `CI or the branch of pull request #${pr.number} is not confirmed (CI ${pr.ci ?? 'not reported'}, ${pr.behind === null ? 'behind unknown' : pr.behind ? 'behind its base' : 'up to date'})`
-    const note = `${what[0]?.toUpperCase() ?? ''}${what.slice(1)} after the fix, and the budget has no room for a reviewer round: not read as clean. r reads the pull request again.`
+    const what = unconfirmedCi && pr !== null ? `CI of pull request #${pr.number} is not confirmed for the checked-out commit (Tick-it reports it failing for ${pr.headSha === undefined ? 'no head commit' : pr.headSha.slice(0, 7)})` : pr === null || pr.state !== 'open' ? 'no open pull request is found' : pr.ci === 'pending' ? `CI is still pending on pull request #${pr.number}` : `CI or the branch of pull request #${pr.number} is not confirmed (CI ${pr.ci ?? 'not reported'}, ${pr.behind === null ? 'behind unknown' : pr.behind ? 'behind its base' : 'up to date'})`
+    const note = `${what[0]?.toUpperCase() ?? ''}${what.slice(1)} ${withoutReviewers ? 'after the fix, and no reviewer round is left (round limit or review budget)' : `after round ${s.round}, where the reviewers found nothing`}: not read as clean. r reads the pull request again.`
     await setSteward($, { ...s, phase: 'stopped', stoppedBy: 'mod', note })
     const repository = await repositoryHere($)
     if (repository !== undefined) await callTickit($, 'set_needs_human', { repository, key: t.id, kind: 'no-clean-round', note: note.slice(0, 200) }).catch(() => undefined)
@@ -1012,7 +1038,8 @@ export async function settleRound($: EngineInterface, s: Steward, withoutReviewe
   }
   const limit = await roundLimit($, t.size, t.id)
   // The review of a fix made after the mod stopped is the last: it asks for no further fix or round, whatever the limit or budget say.
-  if (s.round > limit || s.afterStop === true) {
+  // Reviewers that found nothing leave only the pull request's own finding: that is fixed and read again below, never a stop that says a reviewer still blocks.
+  if ((s.round > limit || s.afterStop === true) && reviewed.length > 0) {
     if (!(await stillReviewing())) return
     await log($, 'debug', 'round-settled', { ticket: t.id, round: s.round, outcome: 'stopped-past-limit', blocking: blocking.length })
     await setSteward($, { ...s, phase: 'stopped', stoppedBy: 'mod', note: `${blocking.length} blocking after ${s.round} rounds.` })
@@ -1028,11 +1055,11 @@ export async function settleRound($: EngineInterface, s: Steward, withoutReviewe
   if (withoutReviewers) {
     if (!(await stillReviewing())) return
     await log($, 'debug', 'round-settled', { ticket: t.id, round: s.round, outcome: 'stopped-pull-request-still-blocking', blocking: blocking.length })
-    const note = `${failed ? 'The pull request could not be read after the fix' : 'The pull request still blocks after the fix'} (${blocking.length} blocking finding${blocking.length === 1 ? '' : 's'}) and the review budget has no room for another round, no clean round.`
+    const note = `${failed ? 'The pull request could not be read after the fix' : `After the fix ${ownFindingWords(pr, false)}`}, and no reviewer round is left (round limit or review budget), no clean round.`
     await setSteward($, { ...s, phase: 'stopped', stoppedBy: 'mod', note })
     const repository = await repositoryHere($)
     if (repository !== undefined) await callTickit($, 'set_needs_human', { repository, key: t.id, kind: 'no-clean-round', note: note.slice(0, 200) }).catch(() => undefined)
-    $.ui.toast(`tick-it: ${t.id}'s pull request still has ${blocking.length} blocking findings after the fix and the review budget has no room for another round. Over to you.`)
+    $.ui.toast(`tick-it: ${t.id}'s pull request still has ${blocking.length} blocking findings after the fix and no reviewer round is left. Over to you.`)
     return
   }
   const over = await budgetStop($, t.id, Math.max(await reviewedRounds($, t.id), 1))
@@ -1052,12 +1079,13 @@ export async function settleRound($: EngineInterface, s: Steward, withoutReviewe
   const pastLimit = s.round === limit
   await log($, 'debug', 'round-settled', { ticket: t.id, round: s.round, outcome: pastLimit ? 'fix-then-last-round' : 'fix', blocking: blocking.length })
   // The budget has no room for a reviewer round after this fix: the pull request is read again instead, and settles the round.
-  const readOnly = over !== undefined && pullRequestOnly
+  const beyondLimit = s.round > limit || s.afterStop === true
+  const readOnly = pullRequestOnly && (over !== undefined || beyondLimit)
   await setSteward($, { ...s, phase: 'fixing', ticking: false, ...(readOnly ? { pullRequestOnly: true } : {}), ...(pastLimit && !readOnly ? { maxRounds: s.round + 1, note: `Still blocking after ${s.round} rounds; round ${s.round + 1} goes past the limit.` } : {}) })
   const served = await servedConfig($)
   const afterFix = served !== null && served.ticket === t.id ? served.briefLines.afterFix : undefined
   await $.prompt.submit({
-    text: [`Round ${s.round} review of ${t.id} found ${blocking.length} blocking finding${blocking.length === 1 ? '' : 's'}. ` + (readOnly ? `Fix each one within the ticket, then stop. The review budget has no room for another reviewer round, so tick-it reads the pull request again when you finish: it is clean when CI passes and the branch is not behind its base.` : 'Fix each one within the ticket, then stop. tick-it reviews again when you finish.') + (pastLimit && !readOnly ? ` The next review, round ${s.round + 1}, is the last: ${limit} rounds are the limit and it goes past it.` : ''), ...blocking.map(line => `- ${line}`), ...(afterFix === undefined ? [] : [afterFix])].join('\n'),
+    text: [`Round ${s.round} review of ${t.id} found ${blocking.length} blocking finding${blocking.length === 1 ? '' : 's'}. ` + (readOnly ? `Fix each one within the ticket, then stop. No reviewer round is left (${beyondLimit ? 'the round limit is passed' : 'the review budget has no room'}), so tick-it reads the pull request again when you finish: it is clean when CI passes and the branch is not behind its base.` : 'Fix each one within the ticket, then stop. tick-it reviews again when you finish.') + (pastLimit && !readOnly ? ` The next review, round ${s.round + 1}, is the last: ${limit} rounds are the limit and it goes past it.` : ''), ...blocking.map(line => `- ${line}`), ...(afterFix === undefined ? [] : [afterFix])].join('\n'),
   })
 }
 
