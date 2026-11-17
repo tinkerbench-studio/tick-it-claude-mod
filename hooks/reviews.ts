@@ -527,6 +527,8 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
   await setSteward($, { ticket: t.id, round, phase: 'reviewing', maxRounds: Math.max(limit, round), ...(ticking === true ? { ticking } : {}), ...(trigger === 'after-stop' ? { afterStop: true } : {}) })
   const started: ReviewRun[] = []
   const refused: string[] = []
+  // A reviewer that applies but could not be started is part of the round: a failed run, with the refusal as its reason.
+  const failedRuns: ReviewRun[] = []
   const practices = new Map<string, string>()
   for (const { area } of touched) {
     const body = await readPractices($, area)
@@ -552,12 +554,15 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
     if (spawned.deny !== undefined && skill.model !== undefined) spawned = await spawn(undefined)
     if (spawned.deny !== undefined) {
       refused.push(`${folder}: ${spawned.deny}`)
+      failedRuns.push({ agentId: `${await $.session.id()}-${t.id}-${folder}-r${round}-refused`, ticket: t.id, epic: t.epic, round, skill: folder, model: skill.model ?? 'none', startedAt, status: 'failed', durationMs: 0, reason: spawned.deny.slice(0, 300), ...(head === undefined ? {} : { headSha: head }) })
       continue
     }
     // Core answers the id; where a hook answered the spawn without it, the agent list still names the run.
     const agentId = spawned.agentId ?? (await $.agent.list()).find(a => a.description === description)?.id
     if (agentId === undefined) {
-      refused.push(`${folder}: started, but Claude Code did not say which agent it is`)
+      const reason = 'started, but Claude Code did not say which agent it is'
+      refused.push(`${folder}: ${reason}`)
+      failedRuns.push({ agentId: `${await $.session.id()}-${t.id}-${folder}-r${round}-refused`, ticket: t.id, epic: t.epic, round, skill: folder, model: spawned.model, startedAt, status: 'failed', durationMs: 0, reason, ...(head === undefined ? {} : { headSha: head }) })
       continue
     }
     started.push({
@@ -573,7 +578,12 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
       ...(earlier.length === 0 ? {} : { earlier }),
     })
   }
-  await saveReviews($, list => [...list, ...started])
+  await saveReviews($, list => [...list, ...started, ...(started.length === 0 ? [] : failedRuns)])
+  // Tick-it hears of the refused reviewer as a failed run, with no usage.
+  if (started.length > 0 && failedRuns.length > 0) {
+    await queue($, failedRuns)
+    await flush($).catch(() => undefined)
+  }
   if (started.length === 0) {
     await log($, 'warn', 'round-not-started', { ticket: t.id, round, why: 'spawn-refused' })
     const why = `No reviewer could be started: ${refused.join('; ')}`.slice(0, 450)
@@ -588,8 +598,8 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
   const reasons = forChanges.filter(line => ran.has(line.slice(0, line.indexOf(' runs for'))))
   const odd = skills.flatMap(({ folder, skill }) => (skill.unknownChanges === undefined ? [] : [`${folder} lists ${skill.unknownChanges.join(', ')} in changes, which ${skill.unknownChanges.length === 1 ? 'is' : 'are'} no area (${AREA_NAMES.join(', ')}, all, none) and no glob.`]))
 
-  await log($, 'debug', 'round-started', { ticket: t.id, round, why: trigger, skills: started.map(r => r.skill).join(','), ...(touched.length === 0 ? {} : { touches: touched.map(x => x.area).join(',') }) })
-  return `Round ${round}: ${started.map(r => r.skill).join(', ')} reviewing ${t.id} in this session.${[without.trim(), ...reasons, ...odd].filter(x => x !== '').map(x => ` ${x}`).join('')}`
+  await log($, 'debug', 'round-started', { ticket: t.id, round, why: trigger, skills: started.map(r => r.skill).join(','), ...(refused.length === 0 ? {} : { refused: failedRuns.map(r => r.skill).join(',') }), ...(touched.length === 0 ? {} : { touches: touched.map(x => x.area).join(',') }) })
+  return `Round ${round}: ${started.map(r => r.skill).join(', ')} reviewing ${t.id} in this session.${refused.length === 0 ? '' : ` Could not be started, so the round is not clean: ${refused.join('; ')}.`}${[without.trim(), ...reasons, ...odd].filter(x => x !== '').map(x => ` ${x}`).join('')}`
 }
 
 /** The stewarding pane's r: the next round starts when the current turn ends, even after the rounds ran out or stewarding stopped. */
@@ -743,7 +753,8 @@ export async function settleRound($: EngineInterface, s: Steward, withoutReviewe
   if (runs.some(r => r.status === 'running')) return
   const t = (await read($, tickets)).find(one => one.id === s.ticket)
   if (t === undefined) return
-  const reviewed = runs.flatMap(r => (r.findings ?? []).map(line => `[${r.skill}] ${line}`))
+  // A reviewer that could not be started reviewed nothing: the round is not clean while its failed run stands.
+  const reviewed = runs.flatMap(r => [...(r.reason === undefined ? [] : [`[${r.skill}] BLOCKING: reviewer could not be started: ${r.reason}`]), ...(r.findings ?? []).map(line => `[${r.skill}] ${line}`)])
   // Reviewers that found nothing do not make a round clean while the pull request is failing or behind: that is blocking too.
   // A refresh that throws is an unread pull request too, not a stranded round.
   if (reviewed.length === 0) await refreshPullRequest($, t.id).catch(() => update($, pullRequestError, () => 'could not read the pull request'))
@@ -891,7 +902,7 @@ export const summarise = (runs: ReviewRun[]): string => {
   return `${formatDuration(ms)} · ${count.format(tokens)} tokens · ${priced.length === 0 ? '—' : usd.format(cost)}${unpriced ? '+' : ''}`
 }
 
-export const reviewLine = (r: ReviewRun): string => (r.status === 'running' ? `  … ${r.skill.padEnd(18)} round ${r.round}  running` : `  ${r.status === 'failed' ? '✗' : (r.blocking ?? 0) > 0 ? '▲' : '✓'} ${r.skill.padEnd(18)} round ${r.round}  ` + `${r.blocking ?? 0} blocking, ${r.optional ?? 0} optional  ${summarise([r])}  ${r.model}`)
+export const reviewLine = (r: ReviewRun): string => (r.status === 'running' ? `  … ${r.skill.padEnd(18)} round ${r.round}  running` : `  ${r.status === 'failed' ? '✗' : (r.blocking ?? 0) > 0 ? '▲' : '✓'} ${r.skill.padEnd(18)} round ${r.round}  ` + `${r.blocking ?? 0} blocking, ${r.optional ?? 0} optional  ${summarise([r])}  ${r.model}${r.reason === undefined ? '' : `  could not be started: ${r.reason}`}`)
 
 /** A finding as the pane shows it: "src/a.ts:12 what is wrong", or its text alone when it names no file. */
 export const findingLine = (f: { file?: string; line?: number; text: string }): string => (f.file === undefined ? f.text : `${f.file}${f.line === undefined ? '' : `:${f.line}`} ${f.text}`)
