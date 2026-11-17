@@ -319,8 +319,10 @@ export async function hereRuns($: EngineInterface): Promise<ReviewRun[]> {
 
 /** Marks the running runs `pick` chooses failed (not queued: Tick-it hears of a run only from its answer). Answers how many. */
 export async function failRuns($: EngineInterface, pick: (r: ReviewRun) => boolean): Promise<number> {
-  const n = (await hereRuns($)).filter(r => r.status === 'running' && pick(r)).length
-  if (n > 0) await saveReviews($, list => list.map(r => (r.status === 'running' && pick(r) ? { ...r, status: 'failed' as const } : r)))
+  const repository = await repositoryHere($)
+  const mine = (r: ReviewRun) => r.status === 'running' && madeHere(r, repository) && pick(r)
+  const n = (await read($, reviews)).filter(mine).length
+  if (n > 0) await saveReviews($, list => list.map(r => (mine(r) ? { ...r, status: 'failed' as const } : r)))
   return n
 }
 

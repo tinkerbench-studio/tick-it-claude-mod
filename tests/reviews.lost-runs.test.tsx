@@ -79,3 +79,15 @@ test('/tick-it steward over a round with a reviewer still running fails that run
   expect(sentAgents(seen)).not.toContain('agent-1')
   expect(await report($)).toMatch(/✗ principal\s+round 1/)
 })
+
+test("a run of another repository is not failed by this repository's session.start", async ($, on) => {
+  const folder = { origin: 'git@github.com:acme/web-app.git\n' }
+  engine(on, { lines: 10, stored: { reviews: [{ ...old, repository: 'acme/other' }, { ...old, agentId: 'here-agent', repository: 'acme/web-app' }] }, get origin() { return folder.origin } }, true, PRINCIPAL)
+  await start($)
+  folder.origin = 'git@github.com:acme/other.git\n'
+  const text = await report($)
+  expect(text).toContain('running')
+  expect(text).not.toContain('✗')
+  folder.origin = 'git@github.com:acme/web-app.git\n'
+  expect(await report($)).toContain('✗')
+})
