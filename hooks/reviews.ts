@@ -179,7 +179,9 @@ export async function tickitBlockers($: EngineInterface, ticket: string): Promis
 export const withTickit = (local: Earlier[], remote: Earlier[] = []): Earlier[] => {
   const same = (a: Earlier, b: Earlier) => (a.file ?? '') === (b.file ?? '') && a.text === b.text
   const merged = local.map(l => ({ ...l, ...(remote.find(r => same(l, r))?.id === undefined ? {} : { id: remote.find(r => same(l, r))?.id }) }))
-  return [...merged, ...remote.filter(r => !local.some(l => same(l, r)))]
+  // Two Tick-it findings alike in file and text are given once.
+  const fresh = remote.filter(r => !local.some(l => same(l, r))).filter((r, i, all) => all.findIndex(o => same(o, r)) === i)
+  return [...merged, ...fresh]
 }
 
 /** The FINDING lines of a reviewer's report ("FINDING: 2 fixed the loop now stops"), as verdicts on the numbered earlier findings it was given. */
@@ -418,7 +420,11 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
   const earlierRuns = await read($, reviews)
   // The ticket's open required findings in Tick-it, from any session: a fresh container has no local state for them.
   const remote = (await tickitBlockers($, t.id)) ?? new Map<string, Earlier[]>()
-  const blockersOf = (folder: string) => withTickit(earlierBlockers(earlierRuns, t.id, folder, round), remote.get(folder))
+  // A Tick-it finding this session's newest verdict on it closed (fixed or gone) may still be waiting in the outbox, so Tick-it lists it open: it is not asked about again.
+  const closedHere = new Set<string>()
+  for (const r of [...earlierRuns].filter(r => r.ticket === t.id).sort((a, b) => a.round - b.round || a.startedAt - b.startedAt))
+    for (const v of r.verdicts ?? []) if (v.finding !== undefined) (v.verdict === 'open' ? closedHere.delete(v.finding) : closedHere.add(v.finding))
+  const blockersOf = (folder: string) => withTickit(earlierBlockers(earlierRuns, t.id, folder, round), (remote.get(folder) ?? []).filter(f => f.id === undefined || !closedHere.has(f.id)))
   const bySize = (skill: ReviewSkill) => skill.sizes === undefined || skill.sizes.includes(t.size)
   const sized = all.filter(({ skill }) => bySize(skill))
   // A reviewer of the size runs only when a changed file matches its paths; when the files cannot be listed, every reviewer of the size runs.

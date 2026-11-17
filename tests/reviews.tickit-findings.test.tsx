@@ -43,3 +43,18 @@ test('a finding already in local state is not given twice, and takes the Tick-it
   expect(withTickit(local, [{ id: 'f1', file: 'api/a.ts', line: 4, text: 'no test for expiry' }, { id: 'f2', text: 'other' }])).toEqual([{ ...local[0], id: 'f1' }, { id: 'f2', text: 'other' }])
   expect(withTickit(local)).toEqual(local)
 })
+
+test('two Tick-it findings alike in file and text are given once', () => {
+  expect(withTickit([], [{ id: 'f1', file: 'a.ts', text: 'x' }, { id: 'f2', file: 'a.ts', text: 'x' }])).toEqual([{ id: 'f1', file: 'a.ts', text: 'x' }])
+})
+
+test('a Tick-it finding this session already answered fixed, still waiting in the outbox, is not given again', async ($, on) => {
+  // Tick-it never takes the verdict (the run is refused), so it keeps listing the finding open.
+  const seen = run(on, { timeline: [], findings: [finding('f1', 'principal')], answer: () => 'unreachable' })
+  await done($)
+  await $.turn.complete(finishTurn('agent-1', 'FINDING: 1 fixed added\nBLOCKING: api/b.ts:1 new problem\nVERDICT: changes'))
+  await $.turn.complete(finishTurn(undefined, 'Fixed.'))
+  const second = seen.spawned.find(s => s.description.includes('round 2'))
+  expect(second?.prompt).not.toContain('no test for expiry')
+  expect(second?.prompt).toContain('new problem')
+})
