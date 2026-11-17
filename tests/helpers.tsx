@@ -88,6 +88,8 @@ export type Net = {
   reviewSpend?: Record<string, unknown> | null
   /** What get_ticket_timeline answers (its review entries); 'unreachable' makes the call fail, and absent leaves it unanswered. */
   timeline?: Record<string, unknown>[] | 'unreachable'
+  /** The findings get_ticket answers with when asked for them (include findings); absent answers none. */
+  findings?: Record<string, unknown>[]
   /** The config of get_repository_settings (one entry per base branch with its design section); absent when not answered. */
   config?: unknown[]
   /** The repository's autoMerge setting, as get_repository_settings answers it. */
@@ -167,7 +169,7 @@ export const engine = (
         if (seen.failTicketReads === true) return refuse('Tick-it is down')
         if (net.ticketNoResult === true) return { value: { isError: false, content: [{ type: 'text', text: 'Tick-it is busy, try again later. ' + 'x'.repeat(200) }, { type: 'image' }] } }
         const ticket = seen.server.find(t => t.key === a.key)
-        return ticket === undefined ? refuse(`No ticket ${String(a.key)} in acme/web-app.`) : answer({ ticket: { ...ticket, ...(net.acceptanceItems === true ? { acceptanceItems: ticket.acceptance.map((text, i) => ({ id: `c${i}`, text, checked: false, afterDeploy: false })) } : {}), ...(net.reviewSpend === undefined ? {} : { reviewSpend: net.reviewSpend }) } })
+        return ticket === undefined ? refuse(`No ticket ${String(a.key)} in acme/web-app.`) : answer({ ticket: { ...ticket, ...(net.acceptanceItems === true ? { acceptanceItems: ticket.acceptance.map((text, i) => ({ id: `c${i}`, text, checked: false, afterDeploy: false })) } : {}), ...(net.reviewSpend === undefined ? {} : { reviewSpend: net.reviewSpend }), ...(net.findings === undefined || !Array.isArray(a.include) || !a.include.includes('findings') ? {} : { findings: net.findings }) } })
       }
       if (e.tool === 'get_ticket_timeline') return net.timeline === undefined || net.timeline === 'unreachable' ? refuse('Tick-it is down') : answer({ timeline: net.timeline })
       if (e.tool === 'list_pull_requests') {
