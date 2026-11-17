@@ -807,16 +807,16 @@ export async function heldBackReason($: EngineInterface, id: string): Promise<st
 }
 
 /**
- * What a pull request adds to a round's blocking findings, so a round is not clean while it is red or stale. The queue owns the branch of a queued
- * pull request: it is never told to update it, only to resolve a conflict (Tick-it sends that itself). Tick-it's own CI instruction for the
- * current head commit is followed, not repeated with a second fix. History is never rewritten: the base is merged in.
- */
-/**
  * CI that Tick-it reports as failing, but not for the commit checked out here: it names no head commit, or another one (a reading taken right after a push still shows the previous head's result).
  * That is CI not yet confirmed, never a blocking finding of the round (TCK-76). `here` is the checked-out commit; undefined when git did not say, which confirms nothing.
  */
 export const ciUnconfirmed = (pr: PullRequestView | null, here: string | undefined): boolean => pr !== null && pr.state === 'open' && pr.ci === 'failure' && (pr.headSha === undefined || here === undefined || pr.headSha !== here)
 
+/**
+ * What a pull request adds to a round's blocking findings, so a round is not clean while it is red or stale. The queue owns the branch of a queued
+ * pull request: it is never told to update it, only to resolve a conflict (Tick-it sends that itself). Tick-it's own CI instruction for the
+ * current head commit is followed, not repeated with a second fix. History is never rewritten: the base is merged in.
+ */
 export const pullRequestFindings = (pr: PullRequestView | null, here: string | undefined): string[] => {
   if (pr === null || pr.state !== 'open') return []
   const found: string[] = []
