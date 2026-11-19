@@ -56,6 +56,15 @@ test('raise-version raises the three copies to the next patch after a merge that
   for (const [file, text] of Object.entries(copies('0.5.10'))) assert.equal(readFileSync(join(dir, file), 'utf8'), text, file)
 })
 
+test('a branch behind main passes when main took a raise it does not have', () => {
+  const dir = repo({ 'hooks/a.ts': 'changed' })
+  git(dir, 'checkout', 'main')
+  for (const [f, t] of Object.entries(copies('0.5.10'))) write(dir, f, t)
+  git(dir, 'commit', '-qam', 'raise')
+  git(dir, 'checkout', 'pr')
+  assert.equal(checkIn(dir).status, 0)
+})
+
 test('raise-version changes nothing and prints nothing when no plugin path changed', () => {
   const dir = repo({ 'README.md': 'changed' })
   const r = spawnSync('node', [raiser, 'main'], { cwd: dir, encoding: 'utf8' })
@@ -84,7 +93,7 @@ test('release.yml checks a pull request in a job named Plugin version, and its p
   assert.match(job, /run: node scripts\/plugin-version\.mjs/)
   const release = jobs.find(j => /^release:/.test(j))
   assert.ok(release, 'no release job')
-  for (const words of ['node scripts/raise-version.mjs "$BEFORE"', 'git commit -am "Raise the plugin version to $version"', 'git push origin HEAD:main', 'gh release create "v$version"']) assert.ok(release.includes(words), `release job no longer has ${words}`)
+  for (const words of ['node scripts/raise-version.mjs "$BEFORE" "$GITHUB_SHA"', 'group: release', 'ref: main', 'git commit -am "Raise the plugin version to $version"', 'git push origin HEAD:main', 'gh release create "v$version"']) assert.ok(release.includes(words), `release job no longer has ${words}`)
 })
 
 test('the README says a pull request leaves the version and the release job raises it after the merge', () => {

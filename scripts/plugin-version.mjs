@@ -23,7 +23,8 @@ const versions = ref => [
 
 /** What is wrong, or null when the check passes. */
 export const problem = base => {
-  const [old, now] = [versions(base), versions('HEAD')]
+  const mergeBase = git('merge-base', base, 'HEAD').trim()
+  const [old, now] = [versions(mergeBase), versions('HEAD')]
   return old.every((v, i) => v === now[i]) ? null : `This pull request changes the plugin version (${old[0]} on ${base}, ${now[0]} here). Leave it: the release job raises it after the merge (.claude/skills/version-raise/SKILL.md).`
 }
 

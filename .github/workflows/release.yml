@@ -25,22 +25,27 @@ jobs:
   release:
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    # One raise at a time, each on the latest main, so no merge ships without its raise.
+    concurrency:
+      group: release
+      cancel-in-progress: false
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: main
           fetch-depth: 0
       - name: Raise the version, tag v<version> and release it
         env:
           GH_TOKEN: ${{ github.token }}
           BEFORE: ${{ github.event.before }}
         run: |
-          if git log -1 --format=%s | grep -q '^Raise the plugin version to '; then
+          if git log -1 --format=%s "$GITHUB_SHA" | grep -q '^Raise the plugin version to '; then
             echo "This is the raise commit."
             exit 0
           fi
-          version=$(node scripts/raise-version.mjs "$BEFORE")
+          version=$(node scripts/raise-version.mjs "$BEFORE" "$GITHUB_SHA")
           if [ -z "$version" ]; then
             echo "No plugin path changed: no new version."
             exit 0

@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * The release job's raise: `node scripts/raise-version.mjs <before>` after a merge to main.
+ * The release job's raise: `node scripts/raise-version.mjs <before> [after]` after a merge to main.
  *
- * When a plugin path (hooks/, skills/, types/, .claude-plugin/plugin.json) differs between <before> and HEAD, raises the
+ * When a plugin path (hooks/, skills/, types/, .claude-plugin/plugin.json) differs between <before> and [after] (default HEAD), raises the
  * patch version in the three copies that must agree (`version` in .claude-plugin/plugin.json, `MOD_VERSION` in
  * hooks/state.ts, `modVersion` in tests/contract-fixtures.json) and prints the new version; prints nothing when there is
  * nothing to raise. It only edits files: .github/workflows/release.yml commits, tags and releases.
@@ -25,8 +25,8 @@ export const nextPatch = version => {
 const git = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] })
 
 /** Raises the three copies in `cwd` when a plugin path changed since `before`; the new version, or null. */
-export const raise = (before, cwd = process.cwd()) => {
-  if (git(cwd, 'diff', '--name-only', `${before}..HEAD`, '--', ...PLUGIN_PATHS).trim() === '') return null
+export const raise = (before, cwd = process.cwd(), after = 'HEAD') => {
+  if (git(cwd, 'diff', '--name-only', `${before}..${after}`, '--', ...PLUGIN_PATHS).trim() === '') return null
   const current = JSON.parse(readFileSync(`${cwd}/${FILES.plugin}`, 'utf8')).version
   const next = nextPatch(current)
   const once = (file, pattern) => {
@@ -41,6 +41,6 @@ export const raise = (before, cwd = process.cwd()) => {
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const next = raise(process.argv[2])
+  const next = raise(process.argv[2], process.cwd(), process.argv[3])
   if (next !== null) console.log(next)
 }
