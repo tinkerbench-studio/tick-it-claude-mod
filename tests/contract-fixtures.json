@@ -1,7 +1,7 @@
 {
   "about": "What the mod sends Tick-it and the fields of each answer it reads. Tick-it's CI checks every call against the tool's inputSchema and every answer against its outputSchema (docs/api-compatibility.md in tick-it). An answer lists only the fields the mod reads. Add a call or a field here when the mod starts using it.",
   "calls": [
-    { "tool": "get_mod_config", "args": { "repository": "acme/web-app", "key": "TCK-143", "modVersion": "0.50.20" } },
+    { "tool": "get_mod_config", "args": { "repository": "acme/web-app", "key": "TCK-143", "modVersion": "0.50.19" } },
     { "tool": "get_repository_settings", "args": { "repository": "acme/web-app" } },
     { "tool": "list_tickets", "args": { "repository": "acme/web-app", "slim": true } },
     { "tool": "list_tickets", "args": { "repository": "acme/web-app", "slim": true, "cursor": "50" } },
