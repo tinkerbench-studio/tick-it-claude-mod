@@ -104,8 +104,8 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/upload-screenshots.mjs" plan ./shots        
 node "${CLAUDE_PLUGIN_ROOT}/scripts/upload-screenshots.mjs" put ./shots presigned.json      # PUTs them, prints what to confirm
 #    Claude calls confirm_screenshot for each name printed
 
-# 2. Before review, check a UI change does not commit pictures (the branch side only; whether pictures were uploaded is read from Tick-it by `/tick-it done`):
-node "${CLAUDE_PLUGIN_ROOT}/scripts/ui-evidence-check.mjs" ABC-12 --base origin/main --pictures-under docs/screenshots
+# 2. Before review, check a UI change commits no pictures and has a before and an after uploaded for each story or page it touches (reads list_screenshots with TICKIT_TOKEN):
+TICKIT_TOKEN=... node "${CLAUDE_PLUGIN_ROOT}/scripts/ui-evidence-check.mjs" ABC-12 --base origin/main --pictures-under docs/screenshots
 ```
 
 The check reads the repository's UI path globs from `design.uiPaths` in `.tick-it/config.json` (the file Tick-it's GitHub App reads; `--config <file>` names another); with none, the built-in tick-it paths apply (`scripts/ui-paths.mjs`, the same rule the gate uses):
@@ -114,7 +114,7 @@ The check reads the repository's UI path globs from `design.uiPaths` in `.tick-i
 { "design": { "uiPaths": ["src/ui/**", "**/*.css"] } }
 ```
 
-A change touching a `uiPaths` glob fails when it adds or changes a picture file (PNG, JPEG, GIF, WebP) under `--pictures-under` (default `docs/change-screenshots/`). Globs: `**` crosses folders, `*` and `?` stay within one. The mod's `/tick-it done` gate and the brief's UI-evidence checklist read the same globs (from `get_repository_settings`' `config`, the first base branch that sets `design.uiPaths`), so a repository sets them once; with none set they use the built-in tick-it paths. The skill is `skills/upload-screenshots/SKILL.md`. The tick-it repository moving onto these copies is a follow-up ticket.
+A change touching a `uiPaths` glob fails when it adds or changes a picture file (PNG, JPEG, GIF, WebP) under `--pictures-under` (default `docs/change-screenshots/`), and when `list_screenshots` (over `TICKIT_MCP_URL`, default `https://mcp.tick-it.dev/mcp`, with the token in `TICKIT_TOKEN`) shows no before or no after for a story (`*.stories.tsx`) or page (`pages/`, `pages.tsx`) it touches in a variant of `scripts/ui-evidence-required.json` (dark, light, phone), naming each; with no token, or when Tick-it cannot be reached, it fails and says so. A change touching no UI path passes without asking Tick-it. `--repository <owner/name>` overrides the origin remote. Globs: `**` crosses folders, `*` and `?` stay within one. The mod's `/tick-it done` gate and the brief's UI-evidence checklist read the same globs (from `get_repository_settings`' `config`, the first base branch that sets `design.uiPaths`), so a repository sets them once; with none set they use the built-in tick-it paths. The skill is `skills/upload-screenshots/SKILL.md`. The tick-it repository moving onto these copies is a follow-up ticket.
 
 ## Planning an epic
 
