@@ -158,6 +158,8 @@ export async function flush($: EngineInterface): Promise<string> {
         answer = readAnswer(sent.result)
         if (answer === undefined) why = `Tick-it's answer did not say which runs it took`
       }
+      // A send that failed leaves no answer to follow, and an older one for the round no longer stands.
+      if (answer === undefined) await update($, tickitRound, () => null)
       if (answer !== undefined) {
         const round = readRound(answer, batch.filter(r => 'skill' in r && r.round !== undefined).at(-1))
         if (round !== undefined) await update($, tickitRound, () => round)

@@ -1000,6 +1000,8 @@ export async function settleRound($: EngineInterface, s: Steward, withoutReviewe
   // What Tick-it said of this round when it took its runs (roundVerdict of record_runs): followed when it said, and the mod's own reading below stays the fallback.
   const held = withoutReviewers ? null : await read($, tickitRound)
   const given = held !== null && held.ticket === s.ticket && held.round === s.round ? held : undefined
+  // A verdict is used once: a later settle of the same round (a failed send, a carried-over round) reads the runs itself instead of a stale answer.
+  if (held !== null) await update($, tickitRound, () => null)
   // running: Tick-it still waits for a reviewer. incomplete: the reviewers it names run again, and nothing stops.
   if (given?.verdict === 'running') return
   if (given?.verdict === 'incomplete' && (await rerunReviewers($, s, runs, given))) return
