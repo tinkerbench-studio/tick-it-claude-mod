@@ -51,7 +51,7 @@ export type Seen = {
   /** The fake Tick-it's tickets, as its ticket tools left them. */
   server: Remote[]
   /** The ticket tool calls the mod made, in order: tool and arguments. */
-  ticketCalls: { tool: string; args: Record<string, unknown>; server: string }[]
+  ticketCalls: { tool: string; args: Record<string, unknown>; server: string; /** The need a report_session call carried, as Tick-it stores it (its `needsHuman` follows the rule of set_needs_human); the mod made no set_needs_human call of its own. */ derived?: true }[]
   /** Every command the mod ran, as one line. */
   processes: string[]
   /** Agents the agent list does not show (gone), and agents it shows running that this session did not spawn. */
@@ -101,6 +101,14 @@ export type Net = {
   autoMerge?: boolean
   /** What report_session answers as the session's instructions, such as resolving a merge conflict. */
   reportInstructions?: string[]
+  /** The next this many report_session calls are refused (Tick-it is down). */
+  reportFails?: number
+  /** Fields merged into each report_session answer in turn (waitingOn, next, resume): one entry per call, the last one kept for every call after. */
+  reportAnswers?: Record<string, unknown>[]
+  /** Fields merged into every record_runs answer (roundVerdict, next, sessionStopped). */
+  recordExtra?: Record<string, unknown>
+  /** What a Tick-it tool call hands back to Claude as its result (a JSON text); 'ok' when absent. */
+  toolResult?: string
   /** link_pull_request cannot reach Tick-it while this is true. */
   linkRefused?: boolean
   /** Tick-it answers link_pull_request with an error while this is true. */
@@ -128,6 +136,7 @@ export const engine = (
   skills: Record<string, string> = {},
   net: Net = {},
 ): Seen => {
+  let lastKey = 'TCK-143'
   const seen: Seen = { spawned: [], submitted: [], toasts: [], opened: [], recorded: [], server: SAMPLE(), ticketCalls: [], processes: [] }
   const answer = (value: Record<string, unknown>) => ({
     // As $.mcp.call hands a plugin a reply: the content blocks only, never structuredContent.
@@ -153,6 +162,10 @@ export const engine = (
     if (e.tool !== 'record_runs') {
       const a = e.args as Record<string, unknown>
       seen.ticketCalls.push({ tool: e.tool, args: a, server: e.server })
+      if (typeof a.key === 'string') lastKey = a.key
+      const refusing = e.tool === 'report_session' && (net.reportFails ?? 0) > 0
+      // A need that rides on a report is stored as a need, as set_needs_human stores it.
+      if (!refusing && e.tool === 'report_session' && typeof a.needsHuman === 'object' && a.needsHuman !== null) seen.ticketCalls.push({ tool: 'set_needs_human', args: { repository: a.repository, key: lastKey, ...(a.needsHuman as Record<string, unknown>) }, server: e.server, derived: true })
       if (e.tool === 'get_mod_config') return net.modConfig === undefined ? refuse('No such tool') : net.modConfig === 'unreachable' ? refuseOr('unreachable') : answer(net.modConfig)
       if (a.repository !== 'acme/web-app') return refuse(`No tickets in ${String(a.repository)} yet. create_ticket adds the first one.`)
       if (e.tool === net.tooLarge) return tooLarge()
@@ -186,7 +199,11 @@ export const engine = (
       }
       if (e.tool === 'get_repository_settings') return net.instructions === undefined ? answer({ instructions: '', canEdit: true, autoMerge: net.autoMerge, reviewRounds: net.reviewRounds, config: net.config }) : refuseOr(net.instructions)
       if (e.tool === 'report_review_agents') return answer({ agents: a.agents })
-      if (e.tool === 'report_session') return answer({ session: { id: a.session, status: a.status }, instructions: net.reportInstructions?.splice(0) ?? [] })
+      if (refusing) {
+        net.reportFails = (net.reportFails ?? 1) - 1
+        return refuse('Tick-it is down')
+      }
+      if (e.tool === 'report_session') return answer({ session: { id: a.session, status: a.status }, instructions: net.reportInstructions?.splice(0) ?? [], ...((net.reportAnswers?.length ?? 0) > 1 ? net.reportAnswers?.shift() : net.reportAnswers?.[0]) })
       if (e.tool === 'link_pull_request') {
         if (net.linkRefused) throw new Error('connection refused')
         return net.linkRejected ? refuse('No ticket TCK-143 in acme/web-app.') : answer({ pullRequests: [] })
@@ -225,7 +242,7 @@ export const engine = (
     const rejected = answered.rejected ?? []
     const accepted = net.silent ? [] : args.runs.map(r => String(r.agentId)).filter(id => !rejected.some(x => x.agentId === id))
     return {
-      value: answered.isError ? { isError: true, content: [{ type: 'text', text: answered.text ?? '' }] } : { isError: false, content: [{ type: 'text', text: JSON.stringify({ accepted, rejected }) }] },
+      value: answered.isError ? { isError: true, content: [{ type: 'text', text: answered.text ?? '' }] } : { isError: false, content: [{ type: 'text', text: JSON.stringify({ accepted, rejected, ...net.recordExtra }) }] },
     }
   })
   let clock = 1_000
@@ -306,7 +323,7 @@ export const engine = (
     return <Box />
   })
   on('prompt.compose', () => ({ sections: [{ id: 'intro', text: 'base', scope: 'shared' as const }] }))
-  on('tool.call', () => ({ result: 'ok' }) as never)
+  on('tool.call', () => ({ result: net.toolResult ?? 'ok' }) as never)
   on('process.run', (_$, e) => {
     const [cmd, sub] = e.argv
     seen.processes.push(e.argv.join(' '))
@@ -430,6 +447,7 @@ export const STARTED = 'Tick-it session s_abc12345: work on TCK-151 in acme/web-
 export const typed = (text: string) => ({ text, wait: false, origin: { kind: 'composer' as const } })
 
 export const reports = (seen: Seen) => seen.ticketCalls.filter(c => c.tool === 'report_session').map(c => c.args)
+
 
 export const finishReview = ($: Parameters<typeof start>[0] & { tool: { call: (e: never) => Promise<unknown> } }) => $.tool.call({ tool: 'mcp__plugin_tick-it_tickit__update_ticket', tool_use_id: 'tu-ui', repository: 'acme/web-app', key: 'TCK-151', status: 'In review' } as never) as Promise<{ deny?: string }>
 

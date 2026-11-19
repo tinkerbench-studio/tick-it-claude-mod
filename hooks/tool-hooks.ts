@@ -5,7 +5,7 @@ import { SIZES } from './state'
 import { areaNudge, touchedAreas } from './security-areas'
 import { repositoryHere, freshBriefOf, sameRepository } from './tickit'
 import { budgetOf, changedLines, nextSize, findCurrent, save, showStatus } from './board'
-import { measureDiff, refreshDiff, take, finishedByClaude, editEffect, applyEdit, editCount } from './work'
+import { heardSessionStopped, measureDiff, refreshDiff, take, finishedByClaude, editEffect, applyEdit, editCount } from './work'
 
 // Declared in this file: the engine reads an atom only where it is written (a module cannot use one imported from state.ts).
 const tickets = atom({ plugin: 'tick-it', key: 'tickets' } as const, [])
@@ -81,6 +81,20 @@ export const registerTools: Register = on => {
 
     return nudge === undefined || !('result' in ran) || ran.isError === true ? ran : { ...ran, context: [...(ran.context ?? []), nudge] }
   }).catch(($, e, next) => next(e))
+
+  // Tick-it's answer to a criterion tick or note may say its session is stopped (sessionStopped): Claude is told, so it does not say the ticket will merge.
+  on('tool.call', { tool: /tick-?it.*__(set_criterion_checked|add_criterion_note)$/i }, async ($, e, next) => {
+    const ran = await next(e)
+    if (!('result' in ran) || ran.isError === true) return ran
+    const result: unknown = ran.result
+    const text = typeof result === 'string' ? result : JSON.stringify(result)
+    try {
+      await heardSessionStopped($, JSON.parse(text))
+    } catch {
+      // An answer that is not JSON says nothing of the session.
+    }
+    return ran
+  })
 
   // Claude moving a ticket itself with update_ticket: taking it (In progress,
   // assignee me), as when asked in plain words, is /tick-it take; finishing it

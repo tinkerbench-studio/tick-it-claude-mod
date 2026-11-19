@@ -49,6 +49,7 @@ export const KEEP_REVIEWS = 500
 export const OUTBOX_KEY = 'outbox'
 export const DROPPED_KEY = 'dropped'
 export const UNLINKED_KEY = 'unlinked'
+export const STOPS_KEY = 'unsent-stops'
 export const KEEP_DROPPED = 100
 /** Runs to a record_runs call: Tick-it takes at most 500, and a call over it is refused whole. */
 export const BATCH_SIZE = 100
@@ -116,7 +117,7 @@ export const MAX_FINDINGS = 200
 // ---- Tick-it, the server -----------------------------------------------------
 
 /** This mod's version, sent with get_mod_config (the server requires it). Kept equal to `version` in .claude-plugin/plugin.json: checks/contract-fixtures.test.mjs fails when they differ. */
-export const MOD_VERSION = '0.50.19'
+export const MOD_VERSION = '0.51.0'
 
 /** The server's key in this mod's manifest (.claude-plugin/plugin.json). */
 export const TICKIT_SERVER = 'tickit'
