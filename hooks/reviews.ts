@@ -1157,7 +1157,7 @@ export async function checkIn($: EngineInterface): Promise<CheckIn> {
   if (waitingOn === undefined) return {}
   await update($, steward, v => (v === null ? v : { ...v, waitingOn }))
   await showStatus($)
-  const next = typeof sent.value.next === 'string' ? sent.value.next.trim() : ''
+  const next = typeof sent.value.next === 'string' ? sent.value.next.trim().slice(0, 500) : ''
   if (waitingOn !== 'session' || next === '' || next === (await read($, lastNext))) return {}
   await update($, lastNext, () => next)
   return { next }

@@ -283,7 +283,10 @@ async function saveStops($: EngineInterface, list: PendingStop[]) {
 
 /** Sends the stop reports Tick-it has not taken yet, once each; the ones that fail stay with their need. */
 export async function sendWaitingStops($: EngineInterface): Promise<void> {
+  const repository = await repositoryHere($)
   for (const stop of await read($, unsentStops)) {
+    // A stop kept for another repository waits for it.
+    if (repository !== undefined && !sameRepository(stop.repository, repository)) continue
     const sent = await callTickit($, REPORT_TOOL, stop.args).catch(() => ({ ok: false as const, why: 'unreachable' }))
     if (sent.ok) await saveStops($, (await read($, unsentStops)).filter(w => w.session !== stop.session))
   }
