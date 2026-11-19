@@ -1,4 +1,4 @@
-import { globToRegExp } from './ui-evidence'
+import { globToRegExp } from '../scripts/ui-paths.mjs'
 
 // The areas of an application where a mistake is a security problem. Each has a secure-coding skill of the
 // plugin (skills/secure-<name>/SKILL.md), which the session writing the code follows and the security reviewer
