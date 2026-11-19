@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { PANE, RUN, engine, start } from './helpers'
+import { PANE, RUN, SKILLS, STARTED, engine, finishTurn, start, typed } from './helpers'
 
 const TICKET = { plugin: 'tick-it', surface: 'terminal', component: 'Pane', requestId: 'tick-it-ticket', props: { title: 'TCK-149', isFocused: true, bodyColumns: 60, placement: 'dock', scroll: { offset: 0, bodyRows: 30 }, view: {} } } as const
 const URL = 'https://app.tick-it.dev/r/acme/web-app/t/TCK-149'
@@ -94,4 +94,23 @@ test('the subject, item counts, who may answer and the stale reason wrap in a na
   for (const text of [`Subject ${long}`, '1 pull-request, 2 picture', `Who may answer: Reviewer ${long}`, `Changed since asked: Reason ${long}`]) {
     expect((await texts(pane, text)) as { props?: { wrap?: string } } | undefined).toMatchObject({ props: { wrap: 'wrap' } })
   }
+})
+
+test('an answered request is shown until the session has taken the answer (the TCK-44 hand-off), and not after', async ($, on) => {
+  const instructions: string[] = []
+  const seen = engine(on, { lines: 0 }, true, SKILLS, { reportInstructions: instructions })
+  Object.assign(seen.server.find(t => t.key === 'TCK-151')!, { url: URL, approvals: [request({ id: '1', state: 'confirmed', answeredBy: 'jo-reviewer', answeredAt: '2026-11-17T12:00:00Z' })] })
+  await start($)
+  await $.prompt.submit(typed(STARTED))
+  await $.turn.complete(finishTurn(undefined, 'Built it.'))
+  // The answer comes back with a waiting report and is kept; the pane still shows it.
+  instructions.push('Tick-it session s_abc12345: continue TCK-151 in acme/web-app.\nApproval request ar_1 (Ship the picker?) was answered: confirmed. Outcome: carry on.')
+  await $.tool.call({ tool: 'mcp__plugin_tick-it_tickit__request_review', tool_use_id: 'tu-r', repository: 'acme/web-app', key: 'TCK-151', session: 's_abc12345' } as never)
+  const before = await $.ui.mount(TICKET)
+  expect(await texts(before, 'APPROVAL ANSWERED')).toBeDefined()
+  await before.unmount()
+  // The next prompt hands it to the session: it has taken it, so the pane stops showing it.
+  await $.prompt.submit(typed('go on'))
+  const after = await $.ui.mount(TICKET)
+  expect(await texts(after, 'APPROVAL ANSWERED')).toBeUndefined()
 })

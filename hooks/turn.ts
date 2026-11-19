@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { Register } from 'claude-code'
 import type { ReviewRun, ReviewUsage, WorkRun } from '../types'
-import { APPROVAL_MESSAGE, BREAKDOWN_SUGGESTION, MAX_FINDINGS } from './state'
+import { APPROVAL_MESSAGE, answeredIds, BREAKDOWN_SUGGESTION, MAX_FINDINGS } from './state'
 import { findCurrent, refreshPullRequest, statusOnTickit, showStatus } from './board'
 import { refreshDiff, report, recordPullRequest, firstLine, finish } from './work'
 import { gaveVerdict, withoutStopMarks, costOf, openVerdictLines, readFindings, readVerdicts, parseFinding, saveReviews, setSteward, startRound, settleRound, checkIn } from './reviews'
@@ -23,6 +23,7 @@ const lastUiRefusal = atom({ plugin: 'tick-it', key: 'lastUiRefusal' } as const,
 const diffLines = atom({ plugin: 'tick-it', key: 'diffLines' } as const, 0)
 const turnRunning = atom({ plugin: 'tick-it', key: 'turnRunning' } as const, false)
 const pendingInstructions = atom({ plugin: 'tick-it', key: 'pendingInstructions' } as const, [] as string[])
+const approvalsTaken = atom({ plugin: 'tick-it', key: 'approvalsTaken' } as const, [] as string[])
 /** A ticket Claude moved to In review itself: its review agents start when the turn ends. */
 const reviewNext = atom({ plugin: 'tick-it', key: 'reviewNext' } as const, null)
 
@@ -153,6 +154,7 @@ export const registerTurn: Register = on => {
         let pending = (await read($, steward))?.phase === 'reviewing' ? [] : await read($, pendingInstructions)
         // An answer handed over this way ends the waiting: the session is working on it.
         if (pending.some(i => APPROVAL_MESSAGE.test(i))) {
+          await update($, approvalsTaken, taken => [...taken, ...answeredIds(pending)])
           await report($, 'working', 'The approval was answered; continuing.', true)
           pending = await read($, pendingInstructions)
         }

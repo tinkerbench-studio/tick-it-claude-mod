@@ -28,6 +28,8 @@ export const REPORT_TOOL = 'report_session'
 export const REQUEST_REVIEW_TOOL = 'request_review'
 /** What Tick-it's instructions say of an approval request (apps/mcp/src/approval-delivery.ts): the answer, or a stale request to raise again. */
 export const APPROVAL_MESSAGE = /Approval request \S+ (?:\(.*?\) was answered: |is stale: )/
+/** The ids (`ar_…`) of the requests the answers handed to the session name, so the pane stops showing an answer the session has taken. */
+export const answeredIds = (texts: string[]): string[] => texts.flatMap(t => [...t.matchAll(/Approval request (\S+) \(.*?\) was answered: /g)].map(m => m[1]))
 /** How the instruction Tick-it sends for a suggested breakdown begins (apps/mcp/src/breakdown-offer.ts). */
 export const BREAKDOWN_SUGGESTION = 'Tick-it suggests breaking '
 

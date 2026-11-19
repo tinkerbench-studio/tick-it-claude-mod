@@ -21,6 +21,7 @@ const steward = atom({ plugin: 'tick-it', key: 'steward' } as const, null)
 const showOptional = atom({ plugin: 'tick-it', key: 'showOptional' } as const, false)
 /** The ticket the details pane shows, by key; the taken ticket when it is null or no longer on the board. */
 const sessionLink = atom({ plugin: 'tick-it', key: 'sessionLink' } as const, null as { ticket: string; href: string } | null)
+const approvalsTaken = atom({ plugin: 'tick-it', key: 'approvalsTaken' } as const, [] as string[])
 const viewed = atom({ plugin: 'tick-it', key: 'viewed' } as const, null as string | null)
 
 const viewTicket = async ($: EngineInterface, id: string) => {
@@ -259,7 +260,9 @@ export const registerUi: Register = on => {
     const labels = t.labels ?? []
     // The open request, and the latest answered one (open first). Read only: answering is on the Tick-it ticket page. A reply without approvals (an older Tick-it) draws nothing.
     const open = (t.approvals ?? []).find(a => a.state === 'open')
-    const answered = (t.approvals ?? []).find(a => a.state !== 'open')
+    // An answer the session has taken (the hand-off of TCK-44) is no longer shown: Claude has it.
+    const handed = await read($, approvalsTaken)
+    const answered = (t.approvals ?? []).find(a => a.state !== 'open' && !handed.includes(`ar_${a.id}`))
     const request = (a: typeof open) => (a === undefined || t.url === undefined ? undefined : `${t.url}#ar_${a.id}`)
 
     return (
