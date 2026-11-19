@@ -66,3 +66,30 @@ test("Claude's own record_approval is not blocked by the mod, and Tick-it's refu
   expect(ran).toMatchObject({ result: refusal, isError: true })
   expect('context' in ran ? ran.context : undefined).toBeUndefined()
 })
+
+test('a read-only turn still asks Tick-it for the answer with a waiting report, and an answer that comes back is a toast for the next prompt', async ($, on) => {
+  const instructions: string[] = []
+  const seen = engine(on, { lines: 0 }, true, SKILLS, { reportInstructions: instructions, skip: 120_000 })
+  await start($)
+  await $.prompt.submit(typed(STARTED))
+  await ask($)
+  instructions.push(ANSWER)
+  await $.turn.complete(finishTurn(undefined, 'Read the page again.'))
+  expect(reports(seen).map(r => r.status)).toEqual(['working', 'waiting', 'waiting'])
+  expect(seen.toasts.join(' ')).toContain('was answered: confirmed')
+  const next = await $.prompt.submit(typed('go on'))
+  expect('context' in next ? next.context?.join('\n') : '').toContain('Approval request ar_1')
+  expect(reports(seen).at(-1)).toMatchObject({ status: 'working' })
+})
+
+test('an answer that arrives during a turn is handed over when it ends, and the session reports working', async ($, on) => {
+  const instructions: string[] = []
+  const seen = engine(on, { lines: 0 }, true, SKILLS, { reportInstructions: instructions })
+  await start($)
+  await $.prompt.submit(typed(STARTED))
+  instructions.push(ANSWER)
+  await ask($)
+  await $.turn.complete(finishTurn(undefined, 'Asked.'))
+  expect(seen.submitted.some(text => text.includes('Approval request ar_1'))).toBe(true)
+  expect(reports(seen).map(r => r.status)).toEqual(['working', 'waiting', 'working'])
+})

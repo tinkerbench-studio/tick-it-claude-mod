@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { Register } from 'claude-code'
 import type { ReviewRun, ReviewUsage, WorkRun } from '../types'
-import { BREAKDOWN_SUGGESTION, MAX_FINDINGS } from './state'
+import { APPROVAL_MESSAGE, BREAKDOWN_SUGGESTION, MAX_FINDINGS } from './state'
 import { findCurrent, refreshPullRequest, statusOnTickit, showStatus } from './board'
 import { refreshDiff, report, recordPullRequest, firstLine, finish } from './work'
 import { gaveVerdict, withoutStopMarks, costOf, openVerdictLines, readFindings, readVerdicts, parseFinding, saveReviews, setSteward, startRound, settleRound } from './reviews'
@@ -109,6 +109,11 @@ export const registerTurn: Register = on => {
         // A session waiting on an approval stays waiting through a turn that only read: its changed lines are as they were when it began waiting.
         const onlyRead = session.status === 'waiting' && session.waitingLines === (await read($, diffLines))
         if (!onlyRead) await report($, done ? 'done' : 'working', firstLine(e.answer), done)
+        else {
+          // Still waiting, but the turn is over: a throttled report asks Tick-it whether the request has been answered, and an answer that comes back with no turn running is a toast kept for the next prompt.
+          await update($, turnRunning, () => false)
+          await report($, 'waiting', firstLine(e.answer))
+        }
       }
       if (toReview !== null) {
         await update($, reviewNext, () => null)
@@ -141,7 +146,12 @@ export const registerTurn: Register = on => {
         if (t !== undefined) await startRound($, t, fixingNow.round + 1, fixingNow.ticking, fixingNow.afterStop === true ? 'after-stop' : 'after-fix')
       } else {
         // What the reports above brought are handed over last, with the session idle; while a review round runs they wait for the next turn's end.
-        const pending = (await read($, steward))?.phase === 'reviewing' ? [] : await read($, pendingInstructions)
+        let pending = (await read($, steward))?.phase === 'reviewing' ? [] : await read($, pendingInstructions)
+        // An answer handed over this way ends the waiting: the session is working on it.
+        if (pending.some(i => APPROVAL_MESSAGE.test(i))) {
+          await report($, 'working', 'The approval was answered; continuing.', true)
+          pending = await read($, pendingInstructions)
+        }
         if (pending.length > 0) {
           await update($, pendingInstructions, () => [])
           await $.prompt.submit({ text: pending.join('\n\n') })
