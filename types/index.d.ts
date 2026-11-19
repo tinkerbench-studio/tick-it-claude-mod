@@ -202,6 +202,8 @@ export type Steward = {
   carriedOver?: string
   /** The round's only blocking findings were the pull request's own and the review budget has no room for a reviewer round: after the fix the pull request is read again and settles the round. */
   pullRequestOnly?: boolean
+  /** For a blocking finding (skill, file and text) a person decided (decide_finding), the round the mod first saw the decision in: appearances up to it no longer count towards the two-fix-round limit (TCK-80). */
+  decidedFrom?: Record<string, number>
 }
 
 /** What a resumed session keeps, stored beside the started session (hooks/resume.ts). */
