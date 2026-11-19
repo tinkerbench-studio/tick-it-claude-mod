@@ -1,10 +1,10 @@
 import { atom, read, update } from 'claude-code'
 import type { Register } from 'claude-code'
 import type { DroppedRun, OutboxRun, PendingLink, PendingStop, ReviewRun, StartedSession, Ticket } from '../types'
-import { STORE_KEY, STORE_REPOSITORY_KEY, STARTED_KEY, START_LINE, CONTINUE_LINE, BREAKDOWN_LINE, BREAKDOWN_KEY, REPORT_TOOL, REVIEWS_KEY, OUTBOX_KEY, DROPPED_KEY, UNLINKED_KEY, STOPS_KEY, RECORD_TOOL, AGENTS_TOOL } from './state'
+import { APPROVAL_MESSAGE, STORE_KEY, STORE_REPOSITORY_KEY, STARTED_KEY, START_LINE, CONTINUE_LINE, BREAKDOWN_LINE, BREAKDOWN_KEY, REPORT_TOOL, REVIEWS_KEY, OUTBOX_KEY, DROPPED_KEY, UNLINKED_KEY, STOPS_KEY, RECORD_TOOL, AGENTS_TOOL } from './state'
 import { callTickit, originHere, checkoutBeside, freshBriefOf, repositoryHere, sameRepository } from './tickit'
 import { refreshBoard, showStatus } from './board'
-import { reportsForItself, instructionsOf, take, resume } from './work'
+import { reportsForItself, instructionsOf, take, resume, report } from './work'
 import { reportAgents, flush } from './outbox'
 import { failRuns } from './reviews'
 import { log } from './log'
@@ -22,6 +22,10 @@ const outbox = atom({ plugin: 'tick-it', key: 'outbox' } as const, [])
 const dropped = atom({ plugin: 'tick-it', key: 'dropped' } as const, [])
 /** link_pull_request calls Tick-it has not taken yet: sent again with the outbox. */
 const unlinked = atom({ plugin: 'tick-it', key: 'unlinked' } as const, [])
+/** Whether a turn is running: set when a prompt is submitted, cleared when the main loop's turn ends. */
+const turnRunning = atom({ plugin: 'tick-it', key: 'turnRunning' } as const, false)
+/** Approval answers that reached the session while no turn was running: handed to Claude with the next prompt, once. */
+const approvalAnswers = atom({ plugin: 'tick-it', key: 'approvalAnswers' } as const, [] as string[])
 const unsentStops = atom({ plugin: 'tick-it', key: 'unsentStops' } as const, [] as PendingStop[])
 /** The Tick-it session id of a start line whose ticket the mod could not take: that session reports for itself. */
 const takeFailed = atom({ plugin: 'tick-it', key: 'takeFailed' } as const, null)
@@ -119,6 +123,16 @@ export const registerSession: Register = on => {
   // ticket. Take the ticket, hand Claude its brief with the message, and tell
   // Tick-it the session is working.
   on('prompt.submit', async ($, e, next) => {
+    // A prompt starts a turn; an approval answer kept while none was running goes with it, once, and the session is working again.
+    if (e.command === undefined) {
+      await update($, turnRunning, () => true)
+      const answers = await read($, approvalAnswers)
+      if (answers.length > 0) {
+        await update($, approvalAnswers, () => [])
+        await report($, 'working', 'The approval was answered; continuing.', true)
+        e = { ...e, context: [...(e.context ?? []), ...answers] }
+      }
+    }
     const started = START_LINE.exec(e.text)
     const line = started ?? CONTINUE_LINE.exec(e.text)
     const continuing = started === null && line !== null
@@ -169,7 +183,7 @@ export const registerSession: Register = on => {
     }
     await update($, takeFailed, () => null)
     await log($, 'debug', 'ticket-taken', { ticket: t.id, session: id, claudeSession: await $.session.id() })
-    const s: StartedSession = { id, repository, ticket: t.id, status: 'working', reportedAt: 0, claudeSession: await $.session.id(), ...(continuing ? { continued: true } : {}) }
+    const s: StartedSession = { id, repository, ticket: t.id, status: 'working', reportedAt: 0, claudeSession: await $.session.id(), ...(continuing && !APPROVAL_MESSAGE.test(e.text) ? { continued: true } : {}) }
     await update($, startedSession, () => s)
     await $.store.set(STARTED_KEY, s)
     const sent = await callTickit($, REPORT_TOOL, {

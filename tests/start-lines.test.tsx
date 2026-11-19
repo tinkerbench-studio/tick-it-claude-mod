@@ -246,3 +246,15 @@ test('a continue session whose ticket status Tick-it cannot confirm at the turn 
   await $.turn.complete(finishTurn(undefined, 'Merged main in.'))
   expect(reports(seen).map(r => r.status)).toEqual(['working'])
 })
+
+test('a continue line that carries an approval answer takes the ticket without moving it and reports working, and its turn does not end the session as done', async ($, on) => {
+  const seen = engine(on, { lines: 0 })
+  const ticket = seen.server.find(t => t.key === 'TCK-151')
+  if (ticket !== undefined) ticket.status = 'In progress'
+  await start($)
+  await $.prompt.submit(typed(`${CONTINUE}\nApproval request ar_1 (Saved card picker) was answered: confirmed. Items: page v2. Outcome: carry on.`))
+  expect(seen.ticketCalls.filter(c => c.tool === 'update_ticket')).toEqual([])
+  expect(seen.server.find(t => t.key === 'TCK-151')).toMatchObject({ status: 'In progress' })
+  await $.turn.complete(finishTurn(undefined, 'Carried on.'))
+  expect(reports(seen).map(r => r.status)).toEqual(['working'])
+})

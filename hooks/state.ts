@@ -24,6 +24,10 @@ export const BREAKDOWN_KEY = 'breakdown-session'
 /** Progress goes to Tick-it on every change of status, and otherwise at most this often. */
 export const REPORT_EVERY_MS = 60_000
 export const REPORT_TOOL = 'report_session'
+/** The tool Claude asks for an approval with; the mod reports the session waiting once it succeeds. */
+export const REQUEST_REVIEW_TOOL = 'request_review'
+/** What Tick-it's instructions say of an approval request (apps/mcp/src/approval-delivery.ts): the answer, or a stale request to raise again. */
+export const APPROVAL_MESSAGE = /Approval request \S+ (?:\(.*?\) was answered: |is stale: )/
 /** How the instruction Tick-it sends for a suggested breakdown begins (apps/mcp/src/breakdown-offer.ts). */
 export const BREAKDOWN_SUGGESTION = 'Tick-it suggests breaking '
 

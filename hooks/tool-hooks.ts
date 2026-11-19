@@ -1,15 +1,16 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 import type { TicketSize } from '../types'
-import { SIZES } from './state'
+import { SIZES, REQUEST_REVIEW_TOOL } from './state'
 import { areaNudge, touchedAreas } from './security-areas'
 import { repositoryHere, freshBriefOf, sameRepository } from './tickit'
 import { budgetOf, changedLines, nextSize, findCurrent, save, showStatus } from './board'
-import { heardSessionStopped, measureDiff, refreshDiff, take, finishedByClaude, editEffect, applyEdit, editCount } from './work'
+import { heardSessionStopped, measureDiff, refreshDiff, take, finishedByClaude, editEffect, applyEdit, editCount, report } from './work'
 
 // Declared in this file: the engine reads an atom only where it is written (a module cannot use one imported from state.ts).
 const tickets = atom({ plugin: 'tick-it', key: 'tickets' } as const, [])
 const current = atom({ plugin: 'tick-it', key: 'current' } as const, null)
+const startedSession = atom({ plugin: 'tick-it', key: 'started' } as const, null)
 
 /** The security areas Claude has been pointed at for the ticket being worked on: each is named once. */
 const nudged = atom({ plugin: 'tick-it', key: 'securityNudged' } as const, { ticket: '', areas: [] } as { ticket: string; areas: string[] })
@@ -81,6 +82,17 @@ export const registerTools: Register = on => {
 
     return nudge === undefined || !('result' in ran) || ran.isError === true ? ran : { ...ran, context: [...(ran.context ?? []), nudge] }
   }).catch(($, e, next) => next(e))
+
+  // Claude asking for an approval on the ticket taken: once Tick-it has the request the session is waiting, and says so. Claude's record_approval is not touched here: Tick-it answers it (a refusal for want of approvals:answer) and Claude sees that as it is.
+  on('tool.call', { tool: new RegExp(`tick-?it.*__${REQUEST_REVIEW_TOOL}$`, 'i') }, async ($, e, next) => {
+    const input = e as { key?: unknown; repository?: unknown }
+    const ran = await next(e)
+    if (!('result' in ran) || ran.isError === true) return ran
+    const taken = await read($, current)
+    if (typeof input.key !== 'string' || taken === null || input.key.toUpperCase() !== taken || !sameRepository(input.repository, await repositoryHere($)) || (await read($, startedSession))?.ticket !== taken) return ran
+    await report($, 'waiting', `Asked for approval on ${taken}; waiting for the answer.`, true)
+    return ran
+  })
 
   // Tick-it's answer to a criterion tick or note may say its session is stopped (sessionStopped): Claude is told, so it does not say the ticket will merge.
   on('tool.call', { tool: /tick-?it.*__(set_criterion_checked|add_criterion_note)$/i }, async ($, e, next) => {

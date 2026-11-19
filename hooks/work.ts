@@ -3,7 +3,7 @@ import type { EngineInterface, ToolCallInput, ToolCallResult } from 'claude-code
 import type { PendingLink, PendingStop, StartedSession, Ticket, TicketStatus } from '../types'
 import { patchFiles } from './security-areas'
 import type { ChangedFile } from './security-areas'
-import { STARTED_KEY, REPORT_EVERY_MS, REPORT_TOOL, SKILLS_DIR, EMPTY_TREE, UNLINKED_KEY, STOPS_KEY, FILE_TYPES, MAX_ATTACH_BYTES, MAX_FILES, MAX_PATH, MAX_FILE_LINES } from './state'
+import { STARTED_KEY, REPORT_EVERY_MS, REPORT_TOOL, APPROVAL_MESSAGE, SKILLS_DIR, EMPTY_TREE, UNLINKED_KEY, STOPS_KEY, FILE_TYPES, MAX_ATTACH_BYTES, MAX_FILES, MAX_PATH, MAX_FILE_LINES } from './state'
 import { sendTickit, callTickit, repositoryHere, sameRepository } from './tickit'
 import type { Called } from './tickit'
 import { findCurrent, changeTicket, showStatus, save, fromRemote, readTicket, heldUntil } from './board'
@@ -33,6 +33,10 @@ const unsentStops = atom({ plugin: 'tick-it', key: 'unsentStops' } as const, [] 
 const resumeAsked = atom({ plugin: 'tick-it', key: 'resumeAsked' } as const, false)
 /** A ticket Claude moved to In review itself: its review agents start when the turn ends. */
 const reviewNext = atom({ plugin: 'tick-it', key: 'reviewNext' } as const, null)
+/** Whether a turn is running: set when a prompt is submitted, cleared when the main loop's turn ends. */
+const turnRunning = atom({ plugin: 'tick-it', key: 'turnRunning' } as const, false)
+/** Approval answers that reached the session while no turn was running: handed to Claude with the next prompt, once. */
+const approvalAnswers = atom({ plugin: 'tick-it', key: 'approvalAnswers' } as const, [] as string[])
 /** link_pull_request calls Tick-it has not taken yet: sent again with the outbox. */
 const unlinked = atom({ plugin: 'tick-it', key: 'unlinked' } as const, [])
 
@@ -285,7 +289,14 @@ async function saveStops($: EngineInterface, list: PendingStop[]) {
 async function takeAnswer($: EngineInterface, sent: Called) {
   if (resumeIn(sent)) await update($, resumeAsked, () => true)
   const instructions = instructionsOf(sent).filter(i => !/^resume\b/i.test(i))
-  if (instructions.length > 0) await update($, pendingInstructions, pending => [...pending, ...instructions])
+  // An approval answer that arrives with no turn running is shown and kept for the person's next prompt, not submitted as a turn of its own.
+  const answers = (await read($, turnRunning)) ? [] : instructions.filter(i => APPROVAL_MESSAGE.test(i))
+  if (answers.length > 0) {
+    $.ui.toast(`tick-it: ${answers.map(a => a.split('\n').find(line => APPROVAL_MESSAGE.test(line)) ?? a).join(' ')}`.slice(0, 300))
+    await update($, approvalAnswers, held => [...held, ...answers])
+  }
+  const rest = instructions.filter(i => !answers.includes(i))
+  if (rest.length > 0) await update($, pendingInstructions, pending => [...pending, ...rest])
 }
 
 /** Sends the stop reports Tick-it has not taken yet, once each; the ones that fail stay with their need. */
@@ -350,7 +361,7 @@ export async function report($: EngineInterface, status: StartedSession['status'
   }
   const sent = await callTickit($, REPORT_TOOL, args).catch(() => ({ ok: false as const, why: 'unreachable' }))
   await log($, sent.ok ? 'info' : 'warn', 'report', { ticket: s.ticket, session: s.id, claudeSession: s.claudeSession, status, sent: sent.ok, ...(stop === undefined ? {} : { stop: stop.code }) })
-  const next = { ...s, status, reportedAt: sent.ok ? now : s.reportedAt }
+  const next = { ...s, status, reportedAt: sent.ok ? now : s.reportedAt, ...(status === 'waiting' ? { waitingLines: await read($, diffLines) } : {}) }
   await update($, startedSession, () => next)
   await $.store.set(STARTED_KEY, next)
   // A stop that did not get through keeps its need; one that did, or a live report after it, makes the waiting one stale.

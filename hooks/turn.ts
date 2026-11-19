@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { Register } from 'claude-code'
 import type { ReviewRun, ReviewUsage, WorkRun } from '../types'
-import { BREAKDOWN_SUGGESTION, MAX_FINDINGS } from './state'
+import { APPROVAL_MESSAGE, BREAKDOWN_SUGGESTION, MAX_FINDINGS } from './state'
 import { findCurrent, refreshPullRequest, statusOnTickit, showStatus } from './board'
 import { refreshDiff, report, recordPullRequest, firstLine, finish } from './work'
 import { gaveVerdict, withoutStopMarks, costOf, openVerdictLines, readFindings, readVerdicts, parseFinding, saveReviews, setSteward, startRound, settleRound, checkIn } from './reviews'
@@ -20,6 +20,8 @@ const reviews = atom({ plugin: 'tick-it', key: 'reviews' } as const, [])
 const steward = atom({ plugin: 'tick-it', key: 'steward' } as const, null)
 /** The last UI-evidence refusal told to Claude at a turn end: the same one is not sent again, so a session that cannot fix it is not woken every turn. */
 const lastUiRefusal = atom({ plugin: 'tick-it', key: 'lastUiRefusal' } as const, null as string | null)
+const diffLines = atom({ plugin: 'tick-it', key: 'diffLines' } as const, 0)
+const turnRunning = atom({ plugin: 'tick-it', key: 'turnRunning' } as const, false)
 const pendingInstructions = atom({ plugin: 'tick-it', key: 'pendingInstructions' } as const, [] as string[])
 /** A ticket Claude moved to In review itself: its review agents start when the turn ends. */
 const reviewNext = atom({ plugin: 'tick-it', key: 'reviewNext' } as const, null)
@@ -29,6 +31,7 @@ export const registerTurn: Register = on => {
   // whether the round is over. The main loop's turn ending while a fix round
   // runs starts the next review round.
   on('turn.complete', async ($, e, next) => {
+    try {
     const done = await next(e)
     const s = await read($, steward)
     if (e.agentId === undefined) {
@@ -104,7 +107,14 @@ export const registerTurn: Register = on => {
         // A continue session's ticket is not moved to review here (it is Ready to merge, say): its turn is the work, so it is done.
         // Only on a status Tick-it confirmed that is not In review: a failed read, or a review that could not start, leaves it working.
         const done = session.continued === true && onTickit !== undefined && onTickit !== 'In review'
-        await report($, done ? 'done' : 'working', firstLine(e.answer), done)
+        // A session waiting on an approval stays waiting through a turn that only read: its changed lines are as they were when it began waiting.
+        const onlyRead = session.status === 'waiting' && session.waitingLines === (await read($, diffLines))
+        if (!onlyRead) await report($, done ? 'done' : 'working', firstLine(e.answer), done)
+        else {
+          // Still waiting, but the turn is over: a throttled report asks Tick-it whether the request has been answered, and an answer that comes back with no turn running is a toast kept for the next prompt.
+          await update($, turnRunning, () => false)
+          await report($, 'waiting', firstLine(e.answer))
+        }
       }
       if (toReview !== null) {
         await update($, reviewNext, () => null)
@@ -140,7 +150,12 @@ export const registerTurn: Register = on => {
         // Before the session goes idle on a ticket In review it reports and reads whose move it is: Tick-it's next step is submitted, or a resume starts the next round.
         const checked = await checkIn($).catch(() => ({}) as CheckIn)
         if (checked.resumed === true) return done
-        const pending = (await read($, steward))?.phase === 'reviewing' ? [] : await read($, pendingInstructions)
+        let pending = (await read($, steward))?.phase === 'reviewing' ? [] : await read($, pendingInstructions)
+        // An answer handed over this way ends the waiting: the session is working on it.
+        if (pending.some(i => APPROVAL_MESSAGE.test(i))) {
+          await report($, 'working', 'The approval was answered; continuing.', true)
+          pending = await read($, pendingInstructions)
+        }
         if (pending.length > 0) await update($, pendingInstructions, () => [])
         if (pending.length > 0 || checked.next !== undefined) await $.prompt.submit({ text: [...pending, ...(checked.next === undefined ? [] : [checked.next])].join('\n\n') })
       }
@@ -214,5 +229,9 @@ export const registerTurn: Register = on => {
     if (reviewing !== null && reviewing.ticket === run.ticket && reviewing.round === run.round && reviewing.phase === 'reviewing') await settleRound($, reviewing)
 
     return done
+    } finally {
+      // The turn is over only once its end has been handled, so a report made there still counts as inside it.
+      if (e.agentId === undefined) await update($, turnRunning, () => false)
+    }
   })
 }
