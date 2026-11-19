@@ -292,17 +292,18 @@ async function takeAnswer($: EngineInterface, sent: Called) {
 export async function sendWaitingStops($: EngineInterface): Promise<void> {
   const repository = await repositoryHere($)
   for (const stop of await read($, unsentStops)) {
-    // A stop kept for another repository waits for it.
-    if (repository !== undefined && !sameRepository(stop.repository, repository)) continue
-    // A session resumed since the stop is not stopped any more: the stale report is dropped, never sent.
-    if ((await read($, steward))?.phase !== 'stopped') {
+    // A stop kept for another repository, or with no repository to judge it by, waits.
+    if (repository === undefined || !sameRepository(stop.repository, repository)) continue
+    // A session of this Claude session resumed since the stop is not stopped any more: the stale report is dropped, never sent. A stop kept by an earlier Claude session has no steward here to judge it by, and is sent.
+    const mine = (await read($, startedSession))?.id === stop.session
+    if (mine && (await read($, steward))?.phase !== 'stopped') {
       await saveStops($, (await read($, unsentStops)).filter(w => w.session !== stop.session))
       continue
     }
     const sent = await callTickit($, REPORT_TOOL, stop.args).catch(() => ({ ok: false as const, why: 'unreachable' }))
     if (sent.ok) {
       await saveStops($, (await read($, unsentStops)).filter(w => w.session !== stop.session))
-      await takeAnswer($, sent)
+      if (mine) await takeAnswer($, sent)
     }
   }
 }

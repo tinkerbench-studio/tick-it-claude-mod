@@ -1224,6 +1224,8 @@ export async function checkIn($: EngineInterface): Promise<CheckIn> {
   if (waitingOn === undefined) return {}
   await showStatus($)
   const next = typeof sent.value.next === 'string' ? sent.value.next.trim().slice(0, 500) : ''
+  // Another move than the session's own ends the run of the same next: it may be asked again later.
+  if (waitingOn !== 'session') await update($, lastNext, () => null)
   if (waitingOn !== 'session' || next === '' || next === (await read($, lastNext))) return {}
   await update($, lastNext, () => next)
   return { next }

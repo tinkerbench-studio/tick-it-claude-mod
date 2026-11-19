@@ -295,3 +295,12 @@ test('a kept stop is dropped, not sent, once the session has resumed', async ($,
   expect(seen.ticketCalls.filter(c => c.derived === true)).toEqual([])
 })
 
+
+test('a stop kept by an earlier Claude session is sent from a new one, with its need', async ($, on) => {
+  const kept = { repository: 'acme/web-app', session: 's_old12345', args: { repository: 'acme/web-app', session: 's_old12345', status: 'stopped', stop: { code: 'budget', round: 1 }, needsHuman: { kind: 'no-clean-round', note: 'Review budget $3 reached.' } } }
+  const seen = engine(on, { lines: 10, stored: { 'unsent-stops': [kept] } }, true, PRINCIPAL)
+  await start($)
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'sync' })
+  expect(stops(seen)).toHaveLength(1)
+  expect(stops(seen)[0]).toMatchObject({ session: 's_old12345', stop: { code: 'budget' }, needsHuman: { note: 'Review budget $3 reached.' } })
+})

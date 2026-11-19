@@ -448,7 +448,6 @@ export const typed = (text: string) => ({ text, wait: false, origin: { kind: 'co
 
 export const reports = (seen: Seen) => seen.ticketCalls.filter(c => c.tool === 'report_session').map(c => c.args)
 
-
 export const finishReview = ($: Parameters<typeof start>[0] & { tool: { call: (e: never) => Promise<unknown> } }) => $.tool.call({ tool: 'mcp__plugin_tick-it_tickit__update_ticket', tool_use_id: 'tu-ui', repository: 'acme/web-app', key: 'TCK-151', status: 'In review' } as never) as Promise<{ deny?: string }>
 
 export const UI_FILES = `1\t0\tapps/web/src/pages.tsx\0`
