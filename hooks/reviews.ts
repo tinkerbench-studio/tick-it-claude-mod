@@ -476,9 +476,9 @@ export async function setSteward($: EngineInterface, next: Steward | null, stop?
 }
 
 /** The mod stops stewarding: one report_session call with status stopped, the stop reason and the need, never a report followed by set_needs_human. */
-async function stopByMod($: EngineInterface, s: Steward, code: string, note: string, needNote = note, skills?: string[]) {
+async function stopByMod($: EngineInterface, s: Steward, code: string, note: string, needNote = note, skills?: string[], extra: Partial<Steward> = {}) {
   const head = await checkedOut($)
-  await setSteward($, { ...s, phase: 'stopped', stoppedBy: 'mod', note }, { code, round: s.round, ...(skills === undefined ? {} : { skills }), ...(head === undefined ? {} : { head }), need: { kind: 'no-clean-round', note: needNote } })
+  await setSteward($, { ...s, ...extra, phase: 'stopped', stoppedBy: 'mod', note }, { code, round: s.round, ...(skills === undefined ? {} : { skills }), ...(head === undefined ? {} : { head }), need: { kind: 'no-clean-round', note: needNote } })
 }
 
 const BACKSLASH = String.fromCharCode(92)
@@ -1112,9 +1112,7 @@ export async function settleRound($: EngineInterface, s: Steward, withoutReviewe
       const name = `${first.id === undefined ? '' : `${first.id} `}[${first.skill}] ${first.file === undefined ? '' : `${first.file} `}${first.text}`
       await log($, 'debug', 'round-settled', { ticket: t.id, round: s.round, outcome: 'stopped-finding-repeated', findings: stuck.length })
       const note = `Finding ${name} is still open after ${FIX_ROUNDS_PER_FINDING} fix rounds${stuck.length > 1 ? ` (and ${stuck.length - 1} more)` : ''}: decide it (accepted or fix), no further round.`
-      await setSteward($, { ...s, phase: 'stopped', stoppedBy: 'mod', note, decidedFrom })
-      const repository = await repositoryHere($)
-      if (repository !== undefined) await callTickit($, 'set_needs_human', { repository, key: t.id, kind: 'no-clean-round', note: note.slice(0, 200) }).catch(() => undefined)
+      await stopByMod($, s, 'other', note, note.slice(0, 200), undefined, { decidedFrom })
       $.ui.toast(`tick-it: ${t.id} has a finding still open after ${FIX_ROUNDS_PER_FINDING} fix rounds, so it asks no further round. Over to you.`)
       return
     }
