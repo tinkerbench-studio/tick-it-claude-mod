@@ -1,9 +1,9 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
-import type { DroppedRun, OutboxRun } from '../types'
+import type { DroppedRun, OutboxRun, TickitRound } from '../types'
 import { OUTBOX_KEY, DROPPED_KEY, KEEP_DROPPED, BATCH_SIZE, RECORD_TOOL, AGENTS_TOOL } from './state'
 import { sendTickit, textOf, repositoryHere, madeHere } from './tickit'
-import { sendWaitingLinks } from './work'
+import { sendWaitingLinks, sendWaitingStops, heardSessionStopped } from './work'
 import { findSkills, saveReviews } from './reviews'
 import { log } from './log'
 
@@ -14,9 +14,28 @@ const dropped = atom({ plugin: 'tick-it', key: 'dropped' } as const, [])
 /** link_pull_request calls Tick-it has not taken yet: sent again with the outbox. */
 const unlinked = atom({ plugin: 'tick-it', key: 'unlinked' } as const, [])
 const startedSession = atom({ plugin: 'tick-it', key: 'started' } as const, null)
+/** What Tick-it's record_runs answer said of the round (roundVerdict and next), read by settleRound. */
+const tickitRound = atom({ plugin: 'tick-it', key: 'tickitRound' } as const, null as TickitRound | null)
 
 /** What record_runs answers, as JSON text (a plugin is handed the content blocks only, but a structuredContent is read when there is one). */
-export type RecordAnswer = { accepted: string[]; rejected: { agentId: string; reason: string }[] }
+export type RecordAnswer = { accepted: string[]; rejected: { agentId: string; reason: string }[]; roundVerdict?: unknown; next?: unknown; sessionStopped?: unknown; reviewers?: unknown; skills?: unknown }
+
+const VERDICTS = ['clean', 'blocked', 'incomplete', 'running'] as const
+
+/**
+ * The round verdict of a record_runs answer for the round of `run`: `roundVerdict` is one of clean, blocked, incomplete or running, as a word or as an object with the word
+ * (`verdict`, `value`, `state` or `status`) and the reviewers it names (`skills` or `reviewers`, also read beside it in the answer), and `next` says what to do. Undefined when the answer carries none, so the mod reads the round itself.
+ */
+export const readRound = (answer: RecordAnswer, run: { ticket: string; round?: number } | undefined): TickitRound | undefined => {
+  const v = answer.roundVerdict
+  const obj = typeof v === 'object' && v !== null ? (v as Record<string, unknown>) : {}
+  const word = typeof v === 'string' ? v : [obj.verdict, obj.value, obj.state, obj.status].find((w): w is string => typeof w === 'string')
+  const verdict = VERDICTS.find(x => x === word?.toLowerCase())
+  if (verdict === undefined || run === undefined || run.round === undefined) return undefined
+  const named = [obj.skills, obj.reviewers, answer.skills, answer.reviewers].find(Array.isArray) as unknown[] | undefined
+  const next = [obj.next, answer.next].find((n): n is string => typeof n === 'string' && n.trim() !== '')
+  return { ticket: run.ticket, round: run.round, verdict, skills: (named ?? []).filter((n): n is string => typeof n === 'string'), ...(next === undefined ? {} : { next: next.slice(0, 500) }) }
+}
 
 export const readAnswer = (result: { content: readonly { type: string; text?: string }[]; structuredContent?: unknown }): RecordAnswer | undefined => {
   const isAnswer = (v: unknown): v is RecordAnswer => typeof v === 'object' && v !== null && Array.isArray((v as RecordAnswer).accepted) && Array.isArray((v as RecordAnswer).rejected)
@@ -98,6 +117,7 @@ export async function adoptRuns($: EngineInterface): Promise<void> {
 /** Sends this repository's part of the outbox to Tick-it; answers what happened, for /tick-it sync. Runs made in other repositories stay waiting. */
 export async function flush($: EngineInterface): Promise<string> {
   await sendWaitingLinks($).catch(() => undefined)
+  await sendWaitingStops($).catch(() => undefined)
   await adoptRuns($)
   const repository = await repositoryHere($)
   const all = await read($, outbox)
@@ -137,6 +157,14 @@ export async function flush($: EngineInterface): Promise<string> {
       else {
         answer = readAnswer(sent.result)
         if (answer === undefined) why = `Tick-it's answer did not say which runs it took`
+      }
+      // A send that failed leaves no answer to follow, and an older one for the round no longer stands.
+      if (answer === undefined) await update($, tickitRound, () => null)
+      if (answer !== undefined) {
+        const round = readRound(answer, batch.filter(r => 'skill' in r && r.round !== undefined).at(-1))
+        // An answer with no verdict replaces an older one for the round: it falls back to the mod's own reading.
+        await update($, tickitRound, () => round ?? null)
+        await heardSessionStopped($, answer)
       }
       const at = await $.clock.now()
       const took = answer?.accepted ?? []

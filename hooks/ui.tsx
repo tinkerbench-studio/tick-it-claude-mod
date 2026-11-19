@@ -144,6 +144,8 @@ export const registerUi: Register = on => {
               </Text>
             ))}
             {s.note !== undefined && <Text color={COLOR.dim}>{s.note}</Text>}
+            {s.tickitStopped !== undefined && <Text color={COLOR.warn}>{s.tickitStopped}</Text>}
+            {s.waitingOn !== undefined && <Text color={COLOR.dim}>{`Tick-it: waiting on ${s.waitingOn}.`}</Text>}
             {s.carriedOver !== undefined && <Text color={COLOR.dim}>{s.carriedOver}</Text>}
             <Box key="steward-actions" flexDirection="row" gap={1}>
               <Button key="review-again" label="r review again now" onPress={async () => void $.ui.toast(await reviewAgain($))} />

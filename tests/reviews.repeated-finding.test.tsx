@@ -30,10 +30,12 @@ const rounds = async ($: Parameters<typeof start>[0], on: Parameters<typeof engi
 
 test('a finding still open after two fix rounds starts no further round and asks a person, naming it', async ($, on) => {
   const seen = await rounds($, on, { findings: [GAP], reviewRounds: { XS: 4, S: 4, M: 4, L: 4 } })
-  const needs = seen.ticketCalls.filter(c => c.tool === 'set_needs_human')
-  expect(needs).toHaveLength(1)
-  expect(needs[0]?.args).toMatchObject({ kind: 'no-clean-round', note: expect.stringContaining('f-7 [principal] api/a.ts no test for expiry') })
-  expect(needs[0]?.args.note).toContain('still open after 2 fix rounds')
+  // One typed report_session carries the stop and the need; no separate set_needs_human.
+  expect(seen.ticketCalls.filter(c => c.tool === 'set_needs_human' && c.derived !== true)).toEqual([])
+  const stops = seen.ticketCalls.filter(c => c.tool === 'report_session' && c.args.status === 'stopped')
+  expect(stops).toHaveLength(1)
+  expect(stops[0]?.args).toMatchObject({ stop: { code: 'other', round: 3 }, needsHuman: { kind: 'no-clean-round', note: expect.stringContaining('f-7 [principal] api/a.ts no test for expiry') } })
+  expect((stops[0]?.args.needsHuman as { note: string }).note).toContain('still open after 2 fix rounds')
   // No fix is asked for and no round 4 starts.
   expect(seen.submitted).toEqual([])
   expect(seen.spawned).toHaveLength(6)

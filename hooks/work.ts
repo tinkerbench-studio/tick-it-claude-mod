@@ -1,9 +1,9 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, ToolCallInput, ToolCallResult } from 'claude-code'
-import type { PendingLink, StartedSession, Ticket, TicketStatus } from '../types'
+import type { PendingLink, PendingStop, StartedSession, Ticket, TicketStatus } from '../types'
 import { patchFiles } from './security-areas'
 import type { ChangedFile } from './security-areas'
-import { STARTED_KEY, REPORT_EVERY_MS, REPORT_TOOL, APPROVAL_MESSAGE, SKILLS_DIR, EMPTY_TREE, UNLINKED_KEY, FILE_TYPES, MAX_ATTACH_BYTES, MAX_FILES, MAX_PATH, MAX_FILE_LINES } from './state'
+import { STARTED_KEY, REPORT_EVERY_MS, REPORT_TOOL, APPROVAL_MESSAGE, SKILLS_DIR, EMPTY_TREE, UNLINKED_KEY, STOPS_KEY, FILE_TYPES, MAX_ATTACH_BYTES, MAX_FILES, MAX_PATH, MAX_FILE_LINES } from './state'
 import { sendTickit, callTickit, repositoryHere, sameRepository } from './tickit'
 import type { Called } from './tickit'
 import { findCurrent, changeTicket, showStatus, save, fromRemote, readTicket, heldUntil } from './board'
@@ -27,6 +27,10 @@ const baseCommit = atom({ plugin: 'tick-it', key: 'baseCommit' } as const, null)
 const pullRequest = atom({ plugin: 'tick-it', key: 'pullRequest' } as const, null)
 const pullRequestError = atom({ plugin: 'tick-it', key: 'pullRequestError' } as const, null)
 const pendingInstructions = atom({ plugin: 'tick-it', key: 'pendingInstructions' } as const, [] as string[])
+/** Stop reports Tick-it has not taken yet, sent again with the outbox. */
+const unsentStops = atom({ plugin: 'tick-it', key: 'unsentStops' } as const, [] as PendingStop[])
+/** A report_session answer carried a resume instruction: the next check-in acts on it. */
+const resumeAsked = atom({ plugin: 'tick-it', key: 'resumeAsked' } as const, false)
 /** A ticket Claude moved to In review itself: its review agents start when the turn ends. */
 const reviewNext = atom({ plugin: 'tick-it', key: 'reviewNext' } as const, null)
 /** Whether a turn is running: set when a prompt is submitted, cleared when the main loop's turn ends. */
@@ -273,28 +277,18 @@ export async function refreshDiff($: EngineInterface) {
 /** What Tick-it answered a report with for the session to do, such as resolving a merge conflict. */
 export const instructionsOf = (sent: Called): string[] => (sent.ok && Array.isArray(sent.value.instructions) ? sent.value.instructions.filter((i): i is string => typeof i === 'string') : [])
 
-/**
- * Tells Tick-it how the session it started is going. Best effort: a report that
- * cannot be sent is not retried, since the next one says the same and more.
- */
-export async function report($: EngineInterface, status: StartedSession['status'], summary?: string, force = false) {
-  const s = await read($, startedSession)
-  if (s === null) return
-  const now = await $.clock.now()
-  if (!force && s.status === status && now - s.reportedAt < REPORT_EVERY_MS) return
-  const sent = await callTickit($, REPORT_TOOL, {
-    repository: s.repository,
-    session: s.id,
-    status,
-    changedLines: await read($, diffLines),
-    ...(summary === undefined ? {} : { summary: summary.slice(0, 500) }),
-  }).catch(() => ({ ok: false as const, why: 'unreachable' }))
-  await log($, sent.ok ? 'info' : 'warn', 'report', { ticket: s.ticket, session: s.id, claudeSession: s.claudeSession, status, sent: sent.ok })
-  const next = { ...s, status, reportedAt: sent.ok ? now : s.reportedAt, ...(status === 'waiting' ? { waitingLines: await read($, diffLines) } : {}) }
-  await update($, startedSession, () => next)
-  await $.store.set(STARTED_KEY, next)
-  // Tick-it hands over what it wants the session to do, such as resolving a merge conflict on its pull request.
-  const instructions = instructionsOf(sent)
+/** Why the mod stopped (the typed stop of report_session) and the need that goes with it, in the same call. */
+export type StopReport = { code: string; skills?: string[]; round?: number; head?: string; need: { kind: 'no-clean-round' | 'session-stopped'; note: string } }
+
+async function saveStops($: EngineInterface, list: PendingStop[]) {
+  await update($, unsentStops, () => list)
+  await $.store.set(STOPS_KEY, list)
+}
+
+/** What Tick-it's answer to a report asks of the session: a resume is noted for the next check-in, and instructions (such as resolving a merge conflict) wait for the turn's end, since submitting from inside a hook would wait on the turn the hook holds. */
+async function takeAnswer($: EngineInterface, sent: Called) {
+  if (resumeIn(sent)) await update($, resumeAsked, () => true)
+  const instructions = instructionsOf(sent).filter(i => !/^resume\b/i.test(i))
   // An approval answer that arrives with no turn running is shown and kept for the person's next prompt, not submitted as a turn of its own.
   const answers = (await read($, turnRunning)) ? [] : instructions.filter(i => APPROVAL_MESSAGE.test(i))
   if (answers.length > 0) {
@@ -302,8 +296,81 @@ export async function report($: EngineInterface, status: StartedSession['status'
     await update($, approvalAnswers, held => [...held, ...answers])
   }
   const rest = instructions.filter(i => !answers.includes(i))
-  // Submitting from inside a hook would wait on the turn the hook holds: the next turn.complete hands them to Claude.
   if (rest.length > 0) await update($, pendingInstructions, pending => [...pending, ...rest])
+}
+
+/** Sends the stop reports Tick-it has not taken yet, once each; the ones that fail stay with their need. */
+export async function sendWaitingStops($: EngineInterface): Promise<void> {
+  const repository = await repositoryHere($)
+  for (const stop of await read($, unsentStops)) {
+    // A stop kept for another repository, or with no repository to judge it by, waits.
+    if (repository === undefined || !sameRepository(stop.repository, repository)) continue
+    // A session of this Claude session resumed since the stop is not stopped any more: the stale report is dropped, never sent. A stop kept by an earlier Claude session has no steward here to judge it by, and is sent.
+    const mine = (await read($, startedSession))?.id === stop.session
+    if (mine && (await read($, steward))?.phase !== 'stopped') {
+      await saveStops($, (await read($, unsentStops)).filter(w => w.session !== stop.session))
+      continue
+    }
+    const sent = await callTickit($, REPORT_TOOL, stop.args).catch(() => ({ ok: false as const, why: 'unreachable' }))
+    if (sent.ok) {
+      await saveStops($, (await read($, unsentStops)).filter(w => w.session !== stop.session))
+      if (mine) await takeAnswer($, sent)
+    }
+  }
+}
+
+/** Whether Tick-it's answer asks the session to resume: a `resume` field, or an instruction that starts with the word. Such an instruction is not handed to Claude. */
+const resumeIn = (sent: Called): boolean => sent.ok && (sent.value.resume === true || (typeof sent.value.resume === 'string' && sent.value.resume !== '') || instructionsOf(sent).some(i => /^resume\b/i.test(i)))
+
+/** The reason Tick-it's answer gives for a stopped session (a `sessionStopped` that is true, a string or an object with a `reason`/`note`); undefined when it carries none. */
+export const stoppedIn = (value: unknown): string | undefined => {
+  const v = typeof value === 'object' && value !== null ? (value as { sessionStopped?: unknown }).sessionStopped : undefined
+  if (v === undefined || v === null || v === false) return undefined
+  const why = typeof v === 'string' ? v : typeof v === 'object' ? ((v as { reason?: unknown; note?: unknown }).reason ?? (v as { note?: unknown }).note) : undefined
+  return typeof why === 'string' && why !== '' ? why.slice(0, 200) : 'no reason given'
+}
+
+/** Tick-it said its session for the ticket is stopped (the answer of set_criterion_checked, add_criterion_note or record_runs): the pane shows it and Claude is told, so it does not say the ticket will merge. */
+export async function heardSessionStopped($: EngineInterface, value: unknown): Promise<void> {
+  const why = stoppedIn(value)
+  if (why === undefined) return
+  const started = await read($, startedSession)
+  const text = `tick-it: Tick-it says this session's Tick-it session${started === null ? '' : ` ${started.id} on ${started.ticket}`} is stopped (${why}), so Tick-it will not merge the ticket yet. Do not tell the person it will merge. To resume it, finish this turn: the mod reports to Tick-it, whose answer starts the next review round, or the person presses r in the stewarding pane.`
+  await update($, pendingInstructions, pending => (pending.includes(text) ? pending : [...pending, text]))
+  if ((await read($, steward)) !== null) await update($, steward, v => (v === null ? v : { ...v, tickitStopped: `Tick-it says its session is stopped: ${why}.` }))
+  $.ui.toast(`tick-it: Tick-it says its session${started === null ? '' : ` on ${started.ticket}`} is stopped (${why}).`)
+}
+
+/**
+ * Tells Tick-it how the session it started is going. Best effort: a report that
+ * cannot be sent is not retried, since the next one says the same and more; a stop is the exception:
+ * it carries the need, so one that cannot be sent is kept and sent again with the outbox.
+ */
+export async function report($: EngineInterface, status: StartedSession['status'], summary?: string, force = false, stop?: StopReport): Promise<Called | undefined> {
+  const s = await read($, startedSession)
+  if (s === null) return undefined
+  const now = await $.clock.now()
+  if (!force && s.status === status && now - s.reportedAt < REPORT_EVERY_MS) return undefined
+  const args = {
+    repository: s.repository,
+    session: s.id,
+    status,
+    changedLines: await read($, diffLines),
+    ...(summary === undefined ? {} : { summary: summary.slice(0, 500) }),
+    ...(stop === undefined ? {} : { stop: { code: stop.code, ...(stop.skills === undefined ? {} : { skills: stop.skills }), ...(stop.round === undefined ? {} : { round: stop.round }), ...(stop.head === undefined ? {} : { head: stop.head }) }, needsHuman: { kind: stop.need.kind, note: stop.need.note.slice(0, 200) } }),
+  }
+  const sent = await callTickit($, REPORT_TOOL, args).catch(() => ({ ok: false as const, why: 'unreachable' }))
+  await log($, sent.ok ? 'info' : 'warn', 'report', { ticket: s.ticket, session: s.id, claudeSession: s.claudeSession, status, sent: sent.ok, ...(stop === undefined ? {} : { stop: stop.code }) })
+  const next = { ...s, status, reportedAt: sent.ok ? now : s.reportedAt, ...(status === 'waiting' ? { waitingLines: await read($, diffLines) } : {}) }
+  await update($, startedSession, () => next)
+  await $.store.set(STARTED_KEY, next)
+  // A stop that did not get through keeps its need; one that did, or a live report after it, makes the waiting one stale.
+  const waiting = (await read($, unsentStops)).filter(w => w.session !== s.id)
+  if (stop !== undefined && !sent.ok) await saveStops($, [...waiting, { repository: s.repository, session: s.id, args }])
+  else if ((stop !== undefined || status !== 'stopped') && sent.ok) await saveStops($, waiting)
+  await takeAnswer($, sent)
+
+  return sent
 }
 
 /** The repository's default branch: origin/HEAD's, else main or master. */

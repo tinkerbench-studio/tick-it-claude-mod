@@ -5,7 +5,7 @@ import { SIZES, REQUEST_REVIEW_TOOL } from './state'
 import { areaNudge, touchedAreas } from './security-areas'
 import { repositoryHere, freshBriefOf, sameRepository } from './tickit'
 import { budgetOf, changedLines, nextSize, findCurrent, save, showStatus } from './board'
-import { measureDiff, refreshDiff, take, finishedByClaude, editEffect, applyEdit, editCount, report } from './work'
+import { heardSessionStopped, measureDiff, refreshDiff, take, finishedByClaude, editEffect, applyEdit, editCount, report } from './work'
 
 // Declared in this file: the engine reads an atom only where it is written (a module cannot use one imported from state.ts).
 const tickets = atom({ plugin: 'tick-it', key: 'tickets' } as const, [])
@@ -91,6 +91,21 @@ export const registerTools: Register = on => {
     const taken = await read($, current)
     if (typeof input.key !== 'string' || taken === null || input.key.toUpperCase() !== taken || !sameRepository(input.repository, await repositoryHere($)) || (await read($, startedSession))?.ticket !== taken) return ran
     await report($, 'waiting', `Asked for approval on ${taken}; waiting for the answer.`, true)
+    return ran
+  })
+
+  // Tick-it's answer to a criterion tick or note may say its session is stopped (sessionStopped): Claude is told, so it does not say the ticket will merge.
+  on('tool.call', { tool: /tick-?it.*__(set_criterion_checked|add_criterion_note)$/i }, async ($, e, next) => {
+    const ran = await next(e)
+    if (!('result' in ran) || ran.isError === true) return ran
+    // The answer as text: a plain string, or content blocks.
+    const result: unknown = ran.result
+    const text = typeof result === 'string' ? result : Array.isArray(result) ? result.map(b => (typeof b === 'object' && b !== null && typeof (b as { text?: unknown }).text === 'string' ? (b as { text: string }).text : '')).join(' ') : JSON.stringify(result)
+    try {
+      await heardSessionStopped($, JSON.parse(text))
+    } catch {
+      // An answer that is not JSON says nothing of the session.
+    }
     return ran
   })
 

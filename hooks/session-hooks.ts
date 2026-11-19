@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { Register } from 'claude-code'
-import type { DroppedRun, OutboxRun, PendingLink, ReviewRun, StartedSession, Ticket } from '../types'
-import { APPROVAL_MESSAGE, STORE_KEY, STORE_REPOSITORY_KEY, STARTED_KEY, START_LINE, CONTINUE_LINE, BREAKDOWN_LINE, BREAKDOWN_KEY, REPORT_TOOL, REVIEWS_KEY, OUTBOX_KEY, DROPPED_KEY, UNLINKED_KEY, RECORD_TOOL, AGENTS_TOOL } from './state'
+import type { DroppedRun, OutboxRun, PendingLink, PendingStop, ReviewRun, StartedSession, Ticket } from '../types'
+import { APPROVAL_MESSAGE, STORE_KEY, STORE_REPOSITORY_KEY, STARTED_KEY, START_LINE, CONTINUE_LINE, BREAKDOWN_LINE, BREAKDOWN_KEY, REPORT_TOOL, REVIEWS_KEY, OUTBOX_KEY, DROPPED_KEY, UNLINKED_KEY, STOPS_KEY, RECORD_TOOL, AGENTS_TOOL } from './state'
 import { callTickit, originHere, checkoutBeside, freshBriefOf, repositoryHere, sameRepository } from './tickit'
 import { refreshBoard, showStatus } from './board'
 import { reportsForItself, instructionsOf, take, resume, report } from './work'
@@ -26,6 +26,7 @@ const unlinked = atom({ plugin: 'tick-it', key: 'unlinked' } as const, [])
 const turnRunning = atom({ plugin: 'tick-it', key: 'turnRunning' } as const, false)
 /** Approval answers that reached the session while no turn was running: handed to Claude with the next prompt, once. */
 const approvalAnswers = atom({ plugin: 'tick-it', key: 'approvalAnswers' } as const, [] as string[])
+const unsentStops = atom({ plugin: 'tick-it', key: 'unsentStops' } as const, [] as PendingStop[])
 /** The Tick-it session id of a start line whose ticket the mod could not take: that session reports for itself. */
 const takeFailed = atom({ plugin: 'tick-it', key: 'takeFailed' } as const, null)
 
@@ -51,6 +52,10 @@ export const registerSession: Register = on => {
     if ((await read($, unlinked)).length === 0) {
       const waiting = await $.store.get(UNLINKED_KEY)
       if (Array.isArray(waiting)) await update($, unlinked, () => waiting as PendingLink[])
+    }
+    if ((await read($, unsentStops)).length === 0) {
+      const waiting = await $.store.get(STOPS_KEY)
+      if (Array.isArray(waiting)) await update($, unsentStops, () => waiting as PendingStop[])
     }
     if ((await read($, dropped)).length === 0) {
       const gone = await $.store.get(DROPPED_KEY)
