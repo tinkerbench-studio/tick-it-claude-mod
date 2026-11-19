@@ -206,6 +206,8 @@ export type Steward = {
   waitingOn?: string
   /** Tick-it said (sessionStopped) that its session is stopped: the pane shows it until a report says otherwise. */
   tickitStopped?: string
+  /** For a blocking finding (skill, file and text) a person decided (decide_finding), the round the mod first saw the decision in: appearances up to it no longer count towards the two-fix-round limit (TCK-80). */
+  decidedFrom?: Record<string, number>
 }
 
 /** A stop the mod made that Tick-it has not taken yet: the whole report_session call, sent again with the outbox so the need is not lost. */

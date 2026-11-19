@@ -2,9 +2,10 @@
 /**
  * The "Plugin version" merge check: `node scripts/plugin-version.mjs [base]`.
  *
- * Fails when a plugin path (hooks/, skills/, types/, .claude-plugin/plugin.json) differs from the base and `version` in
- * .claude-plugin/plugin.json is not above the base's. A pull request does not raise the version itself: the merge queue
- * rebases the head onto main, this check fails there, and the ticket's session raises it (.claude/skills/version-raise).
+ * Fails when a pull request changes the plugin's version: `version` in .claude-plugin/plugin.json, `MOD_VERSION` in
+ * hooks/state.ts or `modVersion` in tests/contract-fixtures.json differ from the base's. A change to hooks/, skills/,
+ * types/ or plugin.json passes with the version as it is: the release job raises it after the merge
+ * (scripts/raise-version.mjs, .github/workflows/release.yml).
  * The base is the first argument, else origin/$GITHUB_BASE_REF, else origin/main.
  */
 import { execFileSync } from 'node:child_process'
@@ -12,27 +13,19 @@ import { fileURLToPath } from 'node:url'
 
 export const PLUGIN_PATHS = ['hooks', 'skills', 'types', '.claude-plugin/plugin.json']
 
-/** True when `a` is above `b`, comparing the dot-separated numbers one by one. */
-export const isAbove = (a, b) => {
-  const x = a.split('.').map(Number)
-  const y = b.split('.').map(Number)
-  for (let i = 0; i < Math.max(x.length, y.length); i++) {
-    const d = (x[i] ?? 0) - (y[i] ?? 0)
-    if (d !== 0) return d > 0
-  }
-  return false
-}
-
 const git = (...args) => execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] })
-const versionAt = ref => JSON.parse(git('show', `${ref}:.claude-plugin/plugin.json`)).version
+const at = (ref, file) => git('show', `${ref}:${file}`)
+const versions = ref => [
+  JSON.parse(at(ref, '.claude-plugin/plugin.json')).version,
+  /MOD_VERSION = '([^']+)'/.exec(at(ref, 'hooks/state.ts'))?.[1],
+  /"modVersion": "([^"]+)"/.exec(at(ref, 'tests/contract-fixtures.json'))?.[1],
+]
 
 /** What is wrong, or null when the check passes. */
 export const problem = base => {
-  const changed = git('diff', '--name-only', `${base}...HEAD`, '--', ...PLUGIN_PATHS).trim()
-  if (changed === '') return null
-  const old = versionAt(base)
-  const now = JSON.parse(git('show', 'HEAD:.claude-plugin/plugin.json')).version
-  return isAbove(now, old) ? null : `The plugin changed but version is ${now}, not above ${old} on ${base}. Raise it (.claude/skills/version-raise/SKILL.md).`
+  const mergeBase = git('merge-base', base, 'HEAD').trim()
+  const [old, now] = [versions(mergeBase), versions('HEAD')]
+  return old.every((v, i) => v === now[i]) ? null : `This pull request changes the plugin version (${old[0]} on ${base}, ${now[0]} here). Leave it: the release job raises it after the merge (.claude/skills/version-raise/SKILL.md).`
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

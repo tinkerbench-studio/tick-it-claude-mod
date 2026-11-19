@@ -1,11 +1,3 @@
 {
-  "mergeChecks": [
-    {
-      "name": "Plugin version",
-      "paths": ["hooks/**", "skills/**", "types/**", ".claude-plugin/plugin.json"],
-      "check": "Plugin version",
-      "resolve": ".claude/skills/version-raise/SKILL.md",
-      "attempts": 2
-    }
-  ]
+  "mergeChecks": []
 }

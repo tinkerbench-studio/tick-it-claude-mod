@@ -45,8 +45,8 @@ The mod logs the decisions it makes, so a cause can be read afterwards: whether 
 
 The marketplace (`tinkerbench-studio/marketplace`) pins this plugin to a git tag, `v<version>`, so an install gets a release and not whatever is on `main`. To release:
 
-1. A pull request leaves `version` as it is. The merge queue's `Plugin version` check (`scripts/plugin-version.mjs`, the rule in `.tick-it/config.json`) fails a head that changes `hooks/`, `skills/`, `types/` or `plugin.json` without a `version` above main's, and the ticket's session raises it (`.claude/skills/version-raise`) in `plugin.json`, `MOD_VERSION` in `hooks/state.ts` and `tests/contract-fixtures.json`.
-2. Merge it. CI tags the merge commit `v<version>` and creates a GitHub release (`.github/workflows/release.yml`); nothing is done by hand.
+1. A pull request leaves `version` as it is. The `Plugin version` check (`scripts/plugin-version.mjs`) fails a pull request that changes `version` in `plugin.json`, `MOD_VERSION` in `hooks/state.ts` or `modVersion` in `tests/contract-fixtures.json`, and passes one that changes `hooks/`, `skills/`, `types/` or `plugin.json` without it.
+2. Merge it. When the merge changed one of those paths, the release job (`.github/workflows/release.yml`) raises the patch version in those three files (`scripts/raise-version.mjs`, `.claude/skills/version-raise`), commits that to main, tags the commit `v<version>` and creates a GitHub release; nothing is done by hand.
 3. In the marketplace, set `ref` of the `tick-it` entry to `v<version>` and merge that.
 
 Installed copies update only after step 3, and only when `version` changed.
@@ -277,6 +277,13 @@ For each reviewer run, tick-it records the following from its `turn.complete`:
 The cost is what those tokens would cost at API list prices. On a Claude plan they count against the plan's usage instead. Prices are in `PRICES` in `hooks/state.ts`, and a model with no price there shows `—`.
 
 `/tick-it reviews [id]` shows each run, then totals by reviewer and overall. The history is kept in the mod's store across sessions (the last 500 runs). Each run carries the repository it was made in, and the list, the round numbers and the earlier blockers read only this repository's runs (names compared without regard to letter case); runs of other repositories are counted apart. A run an older mod stored with no repository belongs to the repository it is first read in.
+
+## Re-checking fixes and the repeated finding
+
+Each extra round re-runs every applicable reviewer, and in a week of tickets 15 of 70 blocking findings in round 3 and later were the same defect raised again because its fix was incomplete (TCK-80). Two behaviours keep that loop cheaper:
+
+- **The session checks its own fixes first.** The brief (`RECHECK_LINES` in `hooks/board.ts`) tells the session, before it asks for another review round, to go through each blocking finding it fixed and confirm against the finding's text and the current diff that it is fixed, and to fix it again rather than ask for a round when it is not. It also tells the session that after a merge of the base branch into the ticket's branch it re-checks the findings earlier rounds confirmed fixed, since a merge can undo a fix. The brief states this; the mod does not check that the session did it.
+- **A finding still open after two fix rounds goes to a person.** The steward counts, per skill, file and text, how many rounds a blocking finding has stayed open: its first appearance is 1 and each later round that verifies it open (a `FINDING: <n> open` verdict) adds one; a round of the skill that lists it fixed or gone starts the count again. When a finding reaches 3 (raised, then still open after two fixes, `FIX_ROUNDS_PER_FINDING`), the mod asks for no further fix or round: the steward stops (`stoppedBy` mod) and calls `set_needs_human` with kind `no-clean-round`, naming the finding (its Tick-it id when `get_ticket` has one, the skill, the file and the text). A finding raised again as a new `BLOCKING:` line is a new finding and counts from 1. A person's `decide_finding` (accepted or fix) restarts the count: the mod reads the decision from `get_ticket` (findings) when a finding is about to stop the rounds, and counts only the rounds from the one it first saw the decision in, so a finding decided before that round counts that round once. The count reads this session's recorded runs only: after a restart in a fresh container it starts from the runs the mod has stored.
 
 ## Review spend budget and the stopping rule
 

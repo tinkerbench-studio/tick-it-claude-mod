@@ -6,7 +6,8 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 
 // Run with: node --test checks/*.test.mjs
-const script = new URL('../scripts/plugin-version.mjs', import.meta.url).pathname
+const check = new URL('../scripts/plugin-version.mjs', import.meta.url).pathname
+const raiser = new URL('../scripts/raise-version.mjs', import.meta.url).pathname
 const read = path => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8')
 
 const git = (cwd, ...args) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd, stdio: 'ignore' })
@@ -14,64 +15,88 @@ const write = (dir, file, text) => {
   mkdirSync(join(dir, file, '..'), { recursive: true })
   writeFileSync(join(dir, file), text)
 }
-const plugin = version => JSON.stringify({ name: 'tick-it', version })
+const copies = version => ({
+  '.claude-plugin/plugin.json': JSON.stringify({ name: 'tick-it', version }, null, 2),
+  'hooks/state.ts': `export const MOD_VERSION = '${version}'\n`,
+  'tests/contract-fixtures.json': `{ "calls": [{ "args": { "modVersion": "${version}" } }] }\n`,
+})
 
-/** A repository with main at 0.5.0 and a branch that changes `file` and sets `version`; the script's exit status against main. */
-const run = (file, version) => {
+/** A repository with main at 0.5.9 and a branch that writes `files` over it. */
+const repo = files => {
   const dir = mkdtempSync(join(tmpdir(), 'plugin-version-'))
   git(dir, 'init', '-b', 'main')
-  write(dir, '.claude-plugin/plugin.json', plugin('0.5.0'))
-  write(dir, 'hooks/a.ts', 'a')
-  write(dir, 'README.md', 'a')
+  for (const [f, t] of Object.entries({ ...copies('0.5.9'), 'hooks/a.ts': 'a', 'README.md': 'a' })) write(dir, f, t)
   git(dir, 'add', '.')
   git(dir, 'commit', '-m', 'base')
   git(dir, 'checkout', '-b', 'pr')
-  write(dir, file, 'changed')
-  write(dir, '.claude-plugin/plugin.json', plugin(version))
+  for (const [f, t] of Object.entries(files)) write(dir, f, t)
   git(dir, 'add', '.')
   git(dir, 'commit', '-m', 'change')
-  return spawnSync('node', [script, 'main'], { cwd: dir, encoding: 'utf8' })
+  return dir
 }
+const checkIn = dir => spawnSync('node', [check, 'main'], { cwd: dir, encoding: 'utf8' })
 
-test('a changed plugin path with the version unchanged fails, naming the version', () => {
-  const r = run('hooks/a.ts', '0.5.0')
-  assert.equal(r.status, 1)
-  assert.match(r.stderr, /version is 0\.5\.0, not above 0\.5\.0/)
+test('a pull request that changes a plugin path without changing the version passes', () => {
+  for (const file of ['hooks/a.ts', 'skills/x/SKILL.md', 'types/index.d.ts']) assert.equal(checkIn(repo({ [file]: 'changed' })).status, 0, file)
 })
 
-test('a changed plugin path with a lower version fails', () => {
-  assert.equal(run('hooks/a.ts', '0.4.9').status, 1)
+test('a pull request that changes the version in any of the three copies fails, naming both versions', () => {
+  for (const file of Object.keys(copies('0.5.9'))) {
+    const r = checkIn(repo({ [file]: copies('0.5.10')[file] }))
+    assert.equal(r.status, 1, file)
+    assert.match(r.stderr, /changes the plugin version \(0\.5\.9 on main, /)
+  }
 })
 
-test('a changed plugin path with a higher version passes, comparing numbers and not text', () => {
-  assert.equal(run('hooks/a.ts', '0.5.1').status, 0)
-  assert.equal(run('hooks/a.ts', '0.10.0').status, 0)
+test('raise-version raises the three copies to the next patch after a merge that changed a plugin path, comparing numbers', () => {
+  const dir = repo({ 'hooks/a.ts': 'changed' })
+  const r = spawnSync('node', [raiser, 'main'], { cwd: dir, encoding: 'utf8' })
+  assert.equal(r.status, 0, r.stderr)
+  assert.equal(r.stdout.trim(), '0.5.10')
+  for (const [file, text] of Object.entries(copies('0.5.10'))) assert.equal(readFileSync(join(dir, file), 'utf8'), text, file)
 })
 
-test('no changed plugin path passes with the version unchanged', () => {
-  assert.equal(run('README.md', '0.5.0').status, 0)
+test('a branch behind main passes when main took a raise it does not have', () => {
+  const dir = repo({ 'hooks/a.ts': 'changed' })
+  git(dir, 'checkout', 'main')
+  for (const [f, t] of Object.entries(copies('0.5.10'))) write(dir, f, t)
+  git(dir, 'commit', '-qam', 'raise')
+  git(dir, 'checkout', 'pr')
+  assert.equal(checkIn(dir).status, 0)
 })
 
-test('the Plugin version rule in .tick-it/config.json names its paths, check, resolve skill and attempts', () => {
-  const rule = JSON.parse(read('.tick-it/config.json')).mergeChecks.find(r => r.name === 'Plugin version')
-  assert.deepEqual(rule.paths, ['hooks/**', 'skills/**', 'types/**', '.claude-plugin/plugin.json'])
-  assert.equal(rule.check, 'Plugin version')
-  assert.equal(rule.resolve, '.claude/skills/version-raise/SKILL.md')
-  assert.equal(rule.attempts, 2)
-  assert.ok(read(rule.resolve).length > 0)
+test('raise-version changes nothing and prints nothing when no plugin path changed', () => {
+  const dir = repo({ 'README.md': 'changed' })
+  const r = spawnSync('node', [raiser, 'main'], { cwd: dir, encoding: 'utf8' })
+  assert.equal(r.status, 0)
+  assert.equal(r.stdout, '')
+  for (const [file, text] of Object.entries(copies('0.5.9'))) assert.equal(readFileSync(join(dir, file), 'utf8'), text, file)
 })
 
-test('release.yml runs the script in a job whose check run is Plugin version, and no job needs it', () => {
+test('raise-version fails and leaves the other copies alone when a copy has no version to raise', () => {
+  const dir = repo({ 'hooks/state.ts': 'export const OTHER = 1\n' })
+  const r = spawnSync('node', [raiser, 'main'], { cwd: dir, encoding: 'utf8' })
+  assert.notEqual(r.status, 0)
+  assert.match(r.stderr, /hooks\/state\.ts has no/)
+  assert.equal(JSON.parse(readFileSync(join(dir, '.claude-plugin/plugin.json'), 'utf8')).version, '0.5.9')
+})
+
+test('.tick-it/config.json has no Plugin version merge rule and the skill it used to resolve with is the flow description', () => {
+  assert.deepEqual(JSON.parse(read('.tick-it/config.json')).mergeChecks, [])
+})
+
+test('release.yml checks a pull request in a job named Plugin version, and its push job raises, commits, tags and releases', () => {
   const workflow = read('.github/workflows/release.yml')
   const jobs = workflow.split(/^jobs:\n/m)[1].split(/^  (?=[a-z-]+:\n)/m).filter(Boolean)
   const job = jobs.find(j => /^ {4}name: Plugin version$/m.test(j))
   assert.ok(job, 'no job is named Plugin version')
   assert.match(job, /run: node scripts\/plugin-version\.mjs/)
-  const id = /^([a-z-]+):/.exec(job)[1]
-  for (const other of jobs) assert.doesNotMatch(other.split('\n').filter(l => /^\s+needs:/.test(l)).join('\n'), new RegExp(`\\b${id}\\b|Plugin version`), `a job needs ${id}`)
+  const release = jobs.find(j => /^release:/.test(j))
+  assert.ok(release, 'no release job')
+  for (const words of ['node scripts/raise-version.mjs "$BEFORE" "$GITHUB_SHA"', 'group: release', 'ref: main', "grep -q '^Raise the plugin version to '", 'git commit -am "Raise the plugin version to $version"', 'git push origin HEAD:main', 'gh release create "v$version"']) assert.ok(release.includes(words), `release job no longer has ${words}`)
 })
 
-test('the README says a pull request leaves the version and the merge queue check has it raised', () => {
+test('the README says a pull request leaves the version and the release job raises it after the merge', () => {
   const readme = read('README.md')
-  for (const words of ['A pull request leaves `version` as it is', "merge queue's `Plugin version` check", 'the ticket\'s session raises it']) assert.ok(readme.includes(words), `README no longer says "${words}"`)
+  for (const words of ['A pull request leaves `version` as it is', 'the release job (`.github/workflows/release.yml`) raises the patch version', 'tags the commit `v<version>`']) assert.ok(readme.includes(words), `README no longer says "${words}"`)
 })
