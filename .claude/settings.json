@@ -1,0 +1,8 @@
+{
+  "extraKnownMarketplaces": {
+    "tinkerbench-studio": { "source": { "source": "github", "repo": "tinkerbench-studio/marketplace" } }
+  },
+  "enabledPlugins": {
+    "vibesec@tinkerbench-studio": true
+  }
+}

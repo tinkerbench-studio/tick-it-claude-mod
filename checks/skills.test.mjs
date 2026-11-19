@@ -171,6 +171,14 @@ test('review-agents and the README explain how a repository’s skill adds its r
   expect(read('hooks/state.ts')).toContain("BASES_DIR = 'skills/review-agents/bases'")
 })
 
+test('the repository enables vibesec from tinkerbench-studio and keeps no local copy, and not the tick-it plugin it is the source of', () => {
+  const settings = JSON.parse(read('.claude/settings.json'))
+  assert.deepEqual(settings.extraKnownMarketplaces['tinkerbench-studio'], { source: { source: 'github', repo: 'tinkerbench-studio/marketplace' } })
+  assert.equal(settings.enabledPlugins['vibesec@tinkerbench-studio'], true)
+  assert.equal(settings.enabledPlugins['tick-it@tinkerbench-studio'], undefined, 'this repository is the tick-it plugin source')
+  assert.equal(existsSync(new URL('../.claude/skills/' + 'VibeSec-Skill', import.meta.url)), false, 'the plugin ships the skill; no local copy')
+})
+
 test('this repository has no marketplace of its own, and the README installs only from tinkerbench-studio', () => {
   assert.equal(existsSync(new URL('../.claude-plugin/marketplace.json', import.meta.url)), false, 'the tinkerbench-studio marketplace is the only one')
   const readme = read('README.md')
