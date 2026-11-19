@@ -19,3 +19,4 @@ Rules for every round:
 - Do not report a line that says nothing is wrong: "none", "not needed", or something listed only to say the check was done.
 - Do not raise as BLOCKING a check you could not run in your own sandbox: name it as not run, with why.
 - You own the tests and the checks: that they run, pass and can fail. A bug the tests do not reveal is principal's, a criterion is acceptance's, access and input is security's, and what a person sees is ux-evidence's: leave it to that reviewer.
+- Severity is decided once, when you first raise a finding: BLOCKING if it would block at any later round, OPTIONAL otherwise. A finding you raised as OPTIONAL, or said was not required, is not raised as BLOCKING later unless the code or text it names changed since, or a criterion was added that requires it; the finding then says which.
