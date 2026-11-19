@@ -177,6 +177,12 @@ export const DONE_LINE =
 export const budgetLine = (rounds: number, budget: number) =>
   `The review budget for this ticket's size is $${budget}, with a ceiling of ${rounds} rounds (and the one further round): run another round while blocking findings are open, spend is under budget and rounds are under the ceiling. Before a further round, read the ticket's reviewSpend with get_ticket (costUsd, budget, remaining), and do not start a round whose cost, judged by the cost of the rounds so far, would clearly overshoot the remaining budget. If reviewSpend is null (you cannot see costs), go by the round ceiling alone and do not guess the spend. If the budget is reached with BLOCKING findings still open, do not start another round: call set_needs_human with kind no-clean-round and a note naming the budget and the BLOCKING findings still open, and leave the ticket In review. A fix already made is still reviewed once first. The exception: when the reviewers found nothing and the only blocking findings are the pull request's own (failing CI, a branch behind its base), the budget does not stop the round: fix them, and the pull request is read again; with no budget for a reviewer round it is clean when CI passes and the branch is up to date.`
 
+/** What a session does before it asks for another review round (TCK-80): check each fix against the finding, and after a merge of the base the fixes earlier rounds confirmed. A round re-runs every reviewer, so a fix that is not complete is cheaper to find here. */
+export const RECHECK_LINES = [
+  "Before you ask for another review round, go through each blocking finding you fixed and confirm against the finding's text and the current diff that it is fixed; when it is not, fix it again instead of asking for a round.",
+  'After you merge the base branch into the ticket\'s branch, re-check the findings earlier rounds confirmed fixed against the merged code, since a merge can undo a fix; fix again any that came back.',
+]
+
 /** How a session names another repository's ticket or pull request in text it writes: a bare key or #n always means the text's own repository (TCK-32). */
 export const OTHER_REPOSITORY_LINE = "In any text you write into a ticket or a pull request (a description, comment or note), name another repository's ticket as owner/name#KEY and its pull request as owner/name#n, never a bare key or #n: a bare one always means this repository, and repositories can share a prefix."
 
@@ -201,6 +207,7 @@ export const brief = (t: Ticket, board: Ticket[] = [], instructions = '', files:
     ...(lines?.wake === undefined ? [] : [lines.wake]),
     ...(reviewBudget === null ? [] : [budgetLine(reviewRounds, reviewBudget)]),
     `When it is built and its checks pass, move ${t.id} to In review yourself with Tick-it's update_ticket, without waiting to be asked: tick-it then runs its review agents on it.`,
+    ...RECHECK_LINES,
     ...(lines?.addToTicket ?? addToTicketLines(t.id)),
     OTHER_REPOSITORY_LINE,
     lines?.branch ?? branchLine(t.id),

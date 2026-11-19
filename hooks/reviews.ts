@@ -3,7 +3,7 @@ import type { EngineInterface } from 'claude-code'
 import type { PullRequestView, ReviewRun, ReviewUsage, Steward, Ticket, TicketSize } from '../types'
 import { SIZES, REVIEWS_KEY, SKILLS_DIR, OLD_SKILLS_DIR, BASES_DIR, KEEP_REVIEWS, MAX_FINDING_TEXT, PRICES } from './state'
 import { callTickit, fetchInstructions, fetchModConfig, hasModLimits, madeHere, repositoryHere, reviewBudgetOf, roundLimit } from './tickit'
-import { setStatus, showStatus, refreshPullRequest, servedConfig } from './board'
+import { setStatus, showStatus, refreshPullRequest, servedConfig, RECHECK_LINES } from './board'
 import { report, changedContent, mergeBaseOfDefault, defaultBase } from './work'
 import { queue, flush, plural } from './outbox'
 import { AREA_SKILL_DIR, AREA_NAMES, areaSkill, changesFor, parseChanges, touchedAreas, touchedLine, unknownChanges } from './security-areas'
@@ -224,6 +224,54 @@ export const earlierBlockers = (runs: ReviewRun[], ticket: string, skill: string
     open = next
   }
   return [...open.values()].map(v => v.f)
+}
+
+/** How many fix rounds a finding may survive: raised, then still open after this many fixes, and it goes to a person (TCK-80). */
+export const FIX_ROUNDS_PER_FINDING = 2
+
+const findingKey = (skill: string, f: { file?: string; text: string }) => `${skill}\0${f.file ?? ''}\0${f.text.slice(0, MAX_FINDING_TEXT)}`
+
+/**
+ * The blocking findings of the rounds up to `round` still blocking, counted per finding (skill, file and text; an open verdict keeps the earlier finding's file and text, so it is the same one).
+ * A finding raised afresh as a BLOCKING line counts as 1, and each open verdict on it in a later round adds one. A round of the skill that did not list it (a fixed or gone verdict) starts the count again, as does a round at or before the finding's `decidedFrom`; a round that skipped the skill (clean verdict carried forward) changes nothing.
+ */
+export const openRounds = (runs: ReviewRun[], ticket: string, round: number, decidedFrom: Record<string, number> = {}): Map<string, { skill: string; file?: string; text: string; rounds: number }> => {
+  const counted = new Map<string, { skill: string; file?: string; text: string; rounds: number }>()
+  const done = runs.filter(r => r.ticket === ticket && r.round <= round && r.status === 'done' && r.notApplicable === undefined).sort((a, b) => a.round - b.round || a.startedAt - b.startedAt)
+  for (const r of done) {
+    const here = new Set<string>()
+    for (const f of r.items ?? []) {
+      if (f.severity !== 'blocking') continue
+      const key = findingKey(r.skill, f)
+      here.add(key)
+      if (r.round <= (decidedFrom[key] ?? 0)) continue
+      const before = counted.get(key)
+      counted.set(key, { skill: r.skill, ...(f.file === undefined ? {} : { file: f.file }), text: f.text, rounds: f.open === true ? (before?.rounds ?? 0) + 1 : 1 })
+    }
+    for (const [key, v] of counted) if (v.skill === r.skill && !here.has(key)) counted.delete(key)
+  }
+  return counted
+}
+
+/** The findings the session has now fixed more than FIX_ROUNDS_PER_FINDING times and that are still open, with the id Tick-it gives them when it can say; a finding a person decided since counts from the round the decision was first seen (the steward's decidedFrom, returned updated). */
+export async function stuckFindings($: EngineInterface, s: Steward, runs: ReviewRun[]): Promise<{ stuck: { id?: string; skill: string; file?: string; text: string }[]; decidedFrom: Record<string, number> }> {
+  let decidedFrom = s.decidedFrom ?? {}
+  const over = (m: ReturnType<typeof openRounds>) => [...m].filter(([, v]) => v.rounds > FIX_ROUNDS_PER_FINDING)
+  if (over(openRounds(runs, s.ticket, s.round, decidedFrom)).length === 0) return { stuck: [], decidedFrom }
+  const repository = await repositoryHere($)
+  const got = repository === undefined ? undefined : await callTickit($, 'get_ticket', { repository, key: s.ticket, include: ['findings'] }).catch(() => undefined)
+  const list = got?.ok === true ? (got.value.ticket as { findings?: unknown } | undefined)?.findings : undefined
+  const rows = (Array.isArray(list) ? list : []) as { id?: unknown; skill?: unknown; file?: unknown; text?: unknown; decision?: unknown }[]
+  const same = (r: (typeof rows)[number], key: string) => typeof r.skill === 'string' && typeof r.text === 'string' && findingKey(r.skill, { ...(typeof r.file === 'string' ? { file: r.file } : {}), text: r.text }) === key
+  // A decision first seen now was made before this round's review or during it: counting starts from the round before, so at most this round's appearance stands.
+  for (const [key] of over(openRounds(runs, s.ticket, s.round, decidedFrom))) {
+    if (decidedFrom[key] === undefined && rows.some(r => same(r, key) && (r.decision === 'accepted' || r.decision === 'fix'))) decidedFrom = { ...decidedFrom, [key]: s.round - 1 }
+  }
+  const stuck = over(openRounds(runs, s.ticket, s.round, decidedFrom)).map(([key, v]) => {
+    const id = rows.find(r => same(r, key))?.id
+    return { ...(typeof id === 'string' ? { id } : {}), skill: v.skill, ...(v.file === undefined ? {} : { file: v.file }), text: v.text }
+  })
+  return { stuck, decidedFrom }
 }
 
 /** The ticket's open required findings Tick-it holds, per skill: raised by any session, so a fresh container sees them. Undefined when Tick-it cannot say. */
@@ -1035,6 +1083,23 @@ export async function settleRound($: EngineInterface, s: Steward, withoutReviewe
     await setSteward($, { ...s, phase: 'done', note: waitsForMerge ? `Clean after ${rounds}; Done when its pull request merges.` : `Clean after ${rounds}.` })
     $.ui.toast(why === undefined ? `tick-it: ${t.id} is Done. Round ${s.round} reviews were clean (${spent}).` : waitsForMerge ? `tick-it: round ${s.round} reviews of ${t.id} were clean (${spent}). ${why}` : `tick-it: round ${s.round} reviews of ${t.id} were clean (${spent}), but Tick-it did not take it to Done: ${why}. /tick-it steward ${t.id} to try again.`)
     return
+  }
+  // A finding still open after two rounds of fixes is better sent to a person than tried a third time: no further round, and a need naming it (TCK-80).
+  if (reviewed.length > 0 && !withoutReviewers) {
+    const { stuck, decidedFrom } = await stuckFindings($, s, (await hereRuns($)).filter(r => r.ticket === t.id))
+    if (!(await stillReviewing())) return
+    if (stuck.length > 0) {
+      const first = stuck[0]!
+      const name = `${first.id === undefined ? '' : `${first.id} `}[${first.skill}] ${first.file === undefined ? '' : `${first.file} `}${first.text}`
+      await log($, 'debug', 'round-settled', { ticket: t.id, round: s.round, outcome: 'stopped-finding-repeated', findings: stuck.length })
+      const note = `Finding ${name} is still open after ${FIX_ROUNDS_PER_FINDING} fix rounds${stuck.length > 1 ? ` (and ${stuck.length - 1} more)` : ''}: decide it (accepted or fix), no further round.`
+      await setSteward($, { ...s, phase: 'stopped', stoppedBy: 'mod', note, decidedFrom })
+      const repository = await repositoryHere($)
+      if (repository !== undefined) await callTickit($, 'set_needs_human', { repository, key: t.id, kind: 'no-clean-round', note: note.slice(0, 200) }).catch(() => undefined)
+      $.ui.toast(`tick-it: ${t.id} has a finding still open after ${FIX_ROUNDS_PER_FINDING} fix rounds, so it asks no further round. Over to you.`)
+      return
+    }
+    if (decidedFrom !== s.decidedFrom) s = { ...s, decidedFrom }
   }
   const limit = await roundLimit($, t.size, t.id)
   // The review of a fix made after the mod stopped is the last: it asks for no further fix or round, whatever the limit or budget say.
