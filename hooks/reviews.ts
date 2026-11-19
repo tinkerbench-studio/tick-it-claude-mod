@@ -409,7 +409,7 @@ export async function saveReviews($: EngineInterface, fn: (list: ReviewRun[]) =>
 
 /** The steward as a person's action leaves it: what marks a stop the mod made, or the review of a fix after it, belongs to that stop only. */
 export const withoutStopMarks = (s: Steward): Steward => {
-  const { stoppedBy: _by, afterStop: _after, ...rest } = s
+  const { stoppedBy: _by, afterStop: _after, tickitStopped: _said, waitingOn: _waiting, ...rest } = s
   return rest
 }
 
@@ -1154,8 +1154,9 @@ export async function checkIn($: EngineInterface): Promise<CheckIn> {
     }
   }
   const waitingOn = WAITING_ON.find(w => w === sent.value.waitingOn)
+  // A value Tick-it did not give (or one the mod does not know) leaves no old one on the pane.
+  await update($, steward, v => (v === null ? v : { ...v, ...(waitingOn === undefined ? { waitingOn: undefined } : { waitingOn }) }))
   if (waitingOn === undefined) return {}
-  await update($, steward, v => (v === null ? v : { ...v, waitingOn }))
   await showStatus($)
   const next = typeof sent.value.next === 'string' ? sent.value.next.trim().slice(0, 500) : ''
   if (waitingOn !== 'session' || next === '' || next === (await read($, lastNext))) return {}

@@ -86,8 +86,9 @@ export const registerTools: Register = on => {
   on('tool.call', { tool: /tick-?it.*__(set_criterion_checked|add_criterion_note)$/i }, async ($, e, next) => {
     const ran = await next(e)
     if (!('result' in ran) || ran.isError === true) return ran
+    // The answer as text: a plain string, or content blocks.
     const result: unknown = ran.result
-    const text = typeof result === 'string' ? result : JSON.stringify(result)
+    const text = typeof result === 'string' ? result : Array.isArray(result) ? result.map(b => (typeof b === 'object' && b !== null && typeof (b as { text?: unknown }).text === 'string' ? (b as { text: string }).text : '')).join(' ') : JSON.stringify(result)
     try {
       await heardSessionStopped($, JSON.parse(text))
     } catch {

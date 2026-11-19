@@ -281,14 +281,29 @@ async function saveStops($: EngineInterface, list: PendingStop[]) {
   await $.store.set(STOPS_KEY, list)
 }
 
+/** What Tick-it's answer to a report asks of the session: a resume is noted for the next check-in, and instructions (such as resolving a merge conflict) wait for the turn's end, since submitting from inside a hook would wait on the turn the hook holds. */
+async function takeAnswer($: EngineInterface, sent: Called) {
+  if (resumeIn(sent)) await update($, resumeAsked, () => true)
+  const instructions = instructionsOf(sent).filter(i => !/^resume\b/i.test(i))
+  if (instructions.length > 0) await update($, pendingInstructions, pending => [...pending, ...instructions])
+}
+
 /** Sends the stop reports Tick-it has not taken yet, once each; the ones that fail stay with their need. */
 export async function sendWaitingStops($: EngineInterface): Promise<void> {
   const repository = await repositoryHere($)
   for (const stop of await read($, unsentStops)) {
     // A stop kept for another repository waits for it.
     if (repository !== undefined && !sameRepository(stop.repository, repository)) continue
+    // A session resumed since the stop is not stopped any more: the stale report is dropped, never sent.
+    if ((await read($, steward))?.phase !== 'stopped') {
+      await saveStops($, (await read($, unsentStops)).filter(w => w.session !== stop.session))
+      continue
+    }
     const sent = await callTickit($, REPORT_TOOL, stop.args).catch(() => ({ ok: false as const, why: 'unreachable' }))
-    if (sent.ok) await saveStops($, (await read($, unsentStops)).filter(w => w.session !== stop.session))
+    if (sent.ok) {
+      await saveStops($, (await read($, unsentStops)).filter(w => w.session !== stop.session))
+      await takeAnswer($, sent)
+    }
   }
 }
 
@@ -341,12 +356,7 @@ export async function report($: EngineInterface, status: StartedSession['status'
   const waiting = (await read($, unsentStops)).filter(w => w.session !== s.id)
   if (stop !== undefined && !sent.ok) await saveStops($, [...waiting, { repository: s.repository, session: s.id, args }])
   else if ((stop !== undefined || status !== 'stopped') && sent.ok) await saveStops($, waiting)
-  // Tick-it hands over what it wants the session to do, such as resolving a merge conflict on its pull request.
-  const resume = resumeIn(sent)
-  const instructions = instructionsOf(sent).filter(i => !/^resume\b/i.test(i))
-  if (resume) await update($, resumeAsked, () => true)
-  // Submitting from inside a hook would wait on the turn the hook holds: the next turn.complete hands them to Claude.
-  if (instructions.length > 0) await update($, pendingInstructions, pending => [...pending, ...instructions])
+  await takeAnswer($, sent)
 
   return sent
 }

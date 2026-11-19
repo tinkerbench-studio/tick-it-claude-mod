@@ -266,3 +266,32 @@ test('a sessionStopped in the answer of record_runs is queued for Claude', async
   await $.turn.complete(finishTurn(undefined, 'Carrying on.'))
   expect(sent(seen).some(t => t.includes('is stopped') && t.includes('Do not tell the person it will merge'))).toBe(true)
 })
+
+test('after a resume the pane no longer says Tick-it is stopped or what it waits on', async ($, on) => {
+  const net: Net = { toolResult: JSON.stringify({ sessionStopped: true }) }
+  const seen = await stoppedByMod($, on, net)
+  await $.tool.call({ tool: 'mcp__plugin_tick-it_tickit__set_criterion_checked', tool_use_id: 'tu-2', repository: 'acme/web-app', key: 'TCK-143' } as never)
+  net.reportAnswers = [{ resume: true, waitingOn: 'person' }]
+  await $.turn.complete(finishTurn(undefined, 'Ticked.'))
+  await $.turn.complete(finishTurn(undefined, 'Nothing to fix.'))
+  expect(seen.spawned.at(-1)?.description).toContain('round 2')
+  const ui = await $.ui.mount({ plugin: 'tick-it', surface: 'terminal', ...PANE })
+  expect(await ui.find({ type: 'Text', text: /Tick-it says its session is stopped/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /Tick-it: waiting on/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('a kept stop is dropped, not sent, once the session has resumed', async ($, on) => {
+  const net: Net = { reportFails: 0 }
+  const seen = await begin($, on, net)
+  net.reportFails = 1
+  await $.turn.complete(finishTurn('agent-1', 'Looks fine.'))
+  await $.turn.complete(finishTurn('agent-2', 'Still none.'))
+  const ui = await $.ui.mount({ plugin: 'tick-it', surface: 'terminal', ...PANE })
+  await ui.press({ key: 'review-again' })
+  await ui.unmount()
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'sync' })
+  expect(stops(seen)).toHaveLength(1)
+  expect(seen.ticketCalls.filter(c => c.derived === true)).toEqual([])
+})
+
