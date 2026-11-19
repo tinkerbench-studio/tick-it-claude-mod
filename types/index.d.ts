@@ -173,7 +173,9 @@ export type StartedSession = {
   id: string
   repository: string
   ticket: string
-  status: 'working' | 'reviewing' | 'fixing' | 'done' | 'stopped'
+  status: 'working' | 'reviewing' | 'fixing' | 'waiting' | 'done' | 'stopped'
+  /** The diff's changed lines when it was last reported waiting: a turn that leaves them as they are only read, and does not report it working. */
+  waitingLines?: number
   /** When it last reported, by the engine's clock. */
   reportedAt: number
   /** The Claude Code session it belongs to: a later session in the same folder does not pick it up. */
