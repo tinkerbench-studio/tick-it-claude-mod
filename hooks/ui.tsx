@@ -261,8 +261,8 @@ export const registerUi: Register = on => {
     // The open request, and the latest answered one (open first). Read only: answering is on the Tick-it ticket page. A reply without approvals (an older Tick-it) draws nothing.
     const open = (t.approvals ?? []).find(a => a.state === 'open')
     // An answer the session has taken (the hand-off of TCK-44) is no longer shown: Claude has it.
-    const taken = await read($, approvalsTaken)
-    const answered = (t.approvals ?? []).find(a => a.state !== 'open' && !taken.includes(`ar_${a.id}`))
+    const handed = await read($, approvalsTaken)
+    const answered = (t.approvals ?? []).find(a => a.state !== 'open' && !handed.includes(`ar_${a.id}`))
     const request = (a: typeof open) => (a === undefined || t.url === undefined ? undefined : `${t.url}#ar_${a.id}`)
 
     return (
