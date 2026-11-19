@@ -162,7 +162,8 @@ export async function flush($: EngineInterface): Promise<string> {
       if (answer === undefined) await update($, tickitRound, () => null)
       if (answer !== undefined) {
         const round = readRound(answer, batch.filter(r => 'skill' in r && r.round !== undefined).at(-1))
-        if (round !== undefined) await update($, tickitRound, () => round)
+        // An answer with no verdict replaces an older one for the round: it falls back to the mod's own reading.
+        await update($, tickitRound, () => round ?? null)
         await heardSessionStopped($, answer)
       }
       const at = await $.clock.now()
