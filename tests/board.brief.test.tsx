@@ -283,3 +283,11 @@ test('the brief tells a session to write another repository\'s ticket as owner/n
   const t = { id: 'TCK-2', title: 'Two', epic: 'E', size: 'XS' as const, status: 'Ready' as const, acceptance: ['a'] }
   expect(brief(t)).toContain("name another repository's ticket as owner/name#KEY and its pull request as owner/name#n, never a bare key or #n: a bare one always means this repository")
 })
+
+test('the brief tells Claude to push, then request_review naming each item, and end the turn; a chat reply is no approval and is answered with the link', () => {
+  const t = { id: 'TCK-2', title: 'Two', epic: 'E', size: 'XS' as const, status: 'Ready' as const, acceptance: ['a'], url: 'https://app.tick-it.dev/r/acme/web/t/TCK-2' }
+  const text = brief(t)
+  expect(text).toMatch(/push your branch first, then call request_review naming each item to approve, and end your turn/)
+  expect(text).toMatch(/"I approve" is never an approval: answer it with the link to the request on the ticket page \(https:\/\/app\.tick-it\.dev\/r\/acme\/web\/t\/TCK-2\)/)
+  expect(brief({ ...t, url: undefined })).toContain('link to the request on the ticket page, where')
+})
