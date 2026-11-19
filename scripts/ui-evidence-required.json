@@ -1,0 +1,7 @@
+{
+  "about": "The pictures a UI change must have uploaded to Tick-it (list_screenshots), for each story or page it touches. The ux-evidence skill, docs/design-system.md 'Showing a UX change' and scripts/ui-evidence-check.mjs all read this file; change it here only.",
+  "variants": ["dark", "light", "phone"],
+  "phoneWidth": 390,
+  "sides": ["before", "after"],
+  "name": "<target>-<variant>-<side>.png, where <side> is before, after or before-after (the ui:compare picture, which draws both)"
+}
