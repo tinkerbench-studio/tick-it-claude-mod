@@ -1,6 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
-import { SKILLS, engine, start, STARTED, typed, reports } from './helpers'
+import { MOD_VERSION } from '../hooks/state'
+import { SKILLS, engine, start, STARTED, typed, reports, finishTurn } from './helpers'
 
 test("a breakdown session reports for itself, once armed by its first line; every other report_session call stays the mod's", async ($, on) => {
   engine(on, { lines: 10 }, true, SKILLS)
@@ -106,4 +107,14 @@ test('the model cannot report the review agents itself', async ($, on) => {
   expect(byModel.decision).toBe('deny')
   const read = await $.tool.check({ tool: 'mcp__plugin_tick-it_tickit__list_review_agents', input: {} })
   expect(read.decision).not.toBe('deny')
+})
+
+test("every report_session call the mod makes carries modVersion, the mod's package version", async ($, on) => {
+  const seen = engine(on, { lines: 12 }, true, SKILLS)
+  await start($)
+  await $.tool.call({ tool: 'mcp__plugin_tick-it_tickit__update_ticket', tool_use_id: 'tu-1', repository: 'acme/web-app', key: 'TCK-147', status: 'In progress', assignee: 'me' } as never)
+  await $.turn.complete(finishTurn(undefined, 'Wrapped the client.'))
+  const sent = reports(seen)
+  expect(sent.length).toBeGreaterThan(0)
+  for (const r of sent) expect(r.modVersion).toBe(MOD_VERSION)
 })

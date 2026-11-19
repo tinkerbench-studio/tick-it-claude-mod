@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { BREAKDOWN_LINE, CONTINUE_LINE, START_LINE } from '../hooks/state'
+import { BREAKDOWN_LINE, CONTINUE_LINE, MOD_VERSION, START_LINE } from '../hooks/state'
 import { RUN, SKILLS, engine, finishTurn, start, typed, reports } from './helpers'
 
 const LINE = 'Tick-it session s_abc12345: work on TCK-151 in acme/web-app.'
@@ -64,7 +64,7 @@ test('a session started with the indented line is recorded as started and report
   const entered = await $.prompt.submit(typed(WRAPPED))
   expect('context' in entered ? entered.context?.some(c => c.includes('TCK-151')) : false).toBe(true)
   expect(seen.server.find(t => t.key === 'TCK-151')).toMatchObject({ status: 'In progress' })
-  expect(reports(seen)).toEqual([{ repository: 'acme/web-app', session: 's_abc12345', status: 'working', claudeSessionId: 'session-1', summary: 'Took TCK-151.' }])
+  expect(reports(seen)).toEqual([{ repository: 'acme/web-app', session: 's_abc12345', status: 'working', claudeSessionId: 'session-1', modVersion: MOD_VERSION, summary: 'Took TCK-151.' }])
 })
 
 test('moving the ticket of an indented-line session to review starts its review agents and ends clean', async ($, on) => {
@@ -180,7 +180,7 @@ for (const [name, text] of [['plain', CONTINUE], ['indented', `    ${CONTINUE}`]
     expect('context' in entered ? entered.context?.some(c => c.includes('TCK-151')) : false).toBe(true)
     expect(seen.server.find(t => t.key === 'TCK-151')).toMatchObject({ status: 'In review', assignee: null })
     expect(seen.ticketCalls.filter(c => c.tool === 'update_ticket')).toEqual([])
-    expect(reports(seen)).toEqual([{ repository: 'acme/web-app', session: 's_abc12345', status: 'working', claudeSessionId: 'session-1', summary: 'Continuing TCK-151.' }])
+    expect(reports(seen)).toEqual([{ repository: 'acme/web-app', session: 's_abc12345', status: 'working', claudeSessionId: 'session-1', modVersion: MOD_VERSION, summary: 'Continuing TCK-151.' }])
     for (const tool of TOOLS) {
       const denied = await check($, tool)
       expect(denied.decision).toBe('deny')

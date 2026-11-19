@@ -5,7 +5,7 @@ import type { AttachmentRef, MemoryRef, Ticket, TicketSize } from '../types'
 import { brief, servedConfig, storeServed } from './board'
 import type { BriefLines } from './board'
 import type { UiPaths } from './ui-evidence'
-import { MOD_VERSION, TICKIT_SERVER, TICKIT_CONNECTORS, DEFAULT_ROUNDS, MAX_ROUND_LIMIT, SIZES } from './state'
+import { MOD_VERSION, REPORT_TOOL, TICKIT_SERVER, TICKIT_CONNECTORS, DEFAULT_ROUNDS, MAX_ROUND_LIMIT, SIZES } from './state'
 
 // Declared in this file: the engine reads an atom only where it is written (a module cannot use one imported from state.ts).
 const tickets = atom({ plugin: 'tick-it', key: 'tickets' } as const, [])
@@ -27,7 +27,11 @@ export type Sent = { ok: true; result: Awaited<ReturnType<EngineInterface['mcp']
 /** Calls a Tick-it tool on the plugin's own server, or when that will not connect, on the claude.ai connector; the own server's failure is the one reported. */
 export async function sendTickit($: EngineInterface, tool: string, args: Record<string, unknown> | ((place: 'local' | 'cloud') => Record<string, unknown>)): Promise<Sent> {
   // Where the session runs is how it got through: the plugin's own server and the connector a local session lists (`claude.ai Tick-It`) are a machine, the connector a cloud session lists (`Tick-It`) is the cloud.
-  const given = (place: 'local' | 'cloud') => (typeof args === 'function' ? args(place) : args)
+  const given = (place: 'local' | 'cloud') => {
+    const made = typeof args === 'function' ? args(place) : args
+    // Every report_session call names the mod release, the same string get_mod_config gets, so a problem on a session can be checked against an old mod.
+    return tool === REPORT_TOOL ? { ...made, modVersion: MOD_VERSION } : made
+  }
   const own = await $.mcp.connect(TICKIT_SERVER)
   if (own.isConnected) {
     try {
