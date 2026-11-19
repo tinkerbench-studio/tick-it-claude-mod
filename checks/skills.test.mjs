@@ -268,9 +268,10 @@ test('the README says a reviewer reviews the ticket’s whole change against the
   for (const words of ['review the ticket\'s whole change against the base', 'the diff from the merge base with the base branch']) expect(readme).toContain(words, `README no longer says "${words}"`)
 })
 
-test('the version-raise skill acts only on a failing Plugin version check and names the three copies and the checks', () => {
+test('the version-raise skill says a pull request leaves the version and the release job raises it after the merge', () => {
   const skill = read('.claude/skills/version-raise/SKILL.md')
-  for (const words of ['Act only when Tick-it reports the `Plugin version` check failing', '`.claude-plugin/plugin.json`', '`hooks/state.ts`', '`tests/contract-fixtures.json`', 'above', 'node --test checks/*.test.mjs']) expect(skill).toContain(words, `the version-raise skill no longer says "${words}"`)
+  for (const words of ['A pull request never changes the plugin version', '`.claude-plugin/plugin.json`', '`hooks/state.ts`', '`tests/contract-fixtures.json`', 'scripts/raise-version.mjs', 'tags that commit `v<version>`']) expect(skill).toContain(words, `the version-raise skill no longer says "${words}"`)
+  assert.ok(!skill.includes('Act only when Tick-it reports'), 'the version-raise skill still waits for a failing check')
 })
 
 test('tests reviewer keeps a README-only criterion optional and a skill-dependent wording check blocking', () => {
@@ -279,10 +280,10 @@ test('tests reviewer keeps a README-only criterion optional and a skill-dependen
   expect(tests).toContain('A wording check in `checks/skills.test.mjs` stays BLOCKING for wording a skill or hook depends on.')
 })
 
-test('review skills agree: the merge queue raises the plugin version, a pull request does not, a missing raise is no finding', () => {
+test('review skills agree: the release job raises the plugin version after the merge, a pull request does not, a missing raise is no finding', () => {
   for (const name of ['acceptance', 'principal']) {
     const skill = read(`.tick-it/skills/${name}/SKILL.md`)
-    for (const words of ["raised by the merge queue's Plugin version check", 'not by a pull request', 'a missing raise is not a finding']) expect(skill).toContain(words, `${name} no longer says "${words}"`)
+    for (const words of ['raised by the release job after the merge', 'not by a pull request', 'a missing raise is not a finding']) expect(skill).toContain(words, `${name} no longer says "${words}"`)
     assert.ok(!/BLOCKING:[^\n]*(missing|without|no) (a )?(version )?(bump|raise)/i.test(skill), `${name} blocks a missing version raise`)
     assert.ok(!/(must|should|needs to|has to) (raise|bump)[^\n]*version/i.test(skill), `${name} asks a pull request to raise the version`)
   }

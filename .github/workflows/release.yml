@@ -5,9 +5,8 @@ on:
     branches: [main]
 
 jobs:
-  # The merge queue's "Plugin version" check: a change to the plugin must end up with a version above main's, or installs never see it.
-  # A pull request does not raise it; the queue's head does (.claude/skills/version-raise). Keep this job out of every `needs`:
-  # the queue acts on a rule's check only when it is the only failure on the commit.
+  # A pull request never changes the plugin version: the release job below raises it after the merge
+  # (.claude/skills/version-raise). This check fails a pull request that does, so a raise cannot clash with main.
   plugin-version:
     name: Plugin version
     if: github.event_name == 'pull_request'
@@ -20,21 +19,34 @@ jobs:
         env:
           GITHUB_BASE_REF: ${{ github.base_ref }}
 
-  # Merged to main with a version that has no tag yet: tag that commit and cut a release.
-  tag:
+  # Merged to main: when the merge changed hooks/, skills/, types/ or plugin.json, raise the version in plugin.json,
+  # MOD_VERSION and modVersion (scripts/raise-version.mjs), commit that to main, tag that commit v<version> and cut a release.
+  # The raise commit is skipped by this job itself, and a push made with GITHUB_TOKEN starts no workflow.
+  release:
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
-      - name: Tag v<version> and release it
+        with:
+          fetch-depth: 0
+      - name: Raise the version, tag v<version> and release it
         env:
           GH_TOKEN: ${{ github.token }}
+          BEFORE: ${{ github.event.before }}
         run: |
-          tag=v$(node -p 'require("./.claude-plugin/plugin.json").version')
-          if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null; then
-            echo "$tag already exists."
+          if git log -1 --format=%s | grep -q '^Raise the plugin version to '; then
+            echo "This is the raise commit."
             exit 0
           fi
-          gh release create "$tag" --target "$GITHUB_SHA" --title "$tag" --generate-notes
+          version=$(node scripts/raise-version.mjs "$BEFORE")
+          if [ -z "$version" ]; then
+            echo "No plugin path changed: no new version."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "Raise the plugin version to $version"
+          git push origin HEAD:main
+          gh release create "v$version" --target "$(git rev-parse HEAD)" --title "v$version" --generate-notes
