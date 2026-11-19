@@ -93,7 +93,7 @@ test('release.yml checks a pull request in a job named Plugin version, and its p
   assert.match(job, /run: node scripts\/plugin-version\.mjs/)
   const release = jobs.find(j => /^release:/.test(j))
   assert.ok(release, 'no release job')
-  for (const words of ['node scripts/raise-version.mjs "$BEFORE" "$GITHUB_SHA"', 'group: release', 'ref: main', 'git commit -am "Raise the plugin version to $version"', 'git push origin HEAD:main', 'gh release create "v$version"']) assert.ok(release.includes(words), `release job no longer has ${words}`)
+  for (const words of ['node scripts/raise-version.mjs "$BEFORE" "$GITHUB_SHA"', 'group: release', 'ref: main', "grep -q '^Raise the plugin version to '", 'git commit -am "Raise the plugin version to $version"', 'git push origin HEAD:main', 'gh release create "v$version"']) assert.ok(release.includes(words), `release job no longer has ${words}`)
 })
 
 test('the README says a pull request leaves the version and the release job raises it after the merge', () => {
