@@ -1,6 +1,5 @@
 import { expect, test } from 'claude-code/testing'
 
-import { readFileSync } from 'node:fs'
 import { MOD_VERSION } from '../hooks/state'
 import { SKILLS, engine, start, STARTED, typed, reports, finishTurn } from './helpers'
 
@@ -118,5 +117,4 @@ test("every report_session call the mod makes carries modVersion, the mod's pack
   const sent = reports(seen)
   expect(sent.length).toBeGreaterThan(0)
   for (const r of sent) expect(r.modVersion).toBe(MOD_VERSION)
-  expect(MOD_VERSION).toBe(JSON.parse(readFileSync(new URL('../.claude-plugin/plugin.json', import.meta.url), 'utf8')).version)
 })

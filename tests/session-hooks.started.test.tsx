@@ -1,6 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import { brief } from '../hooks/register'
+import { MOD_VERSION } from '../hooks/state'
 import { RUN, SKILLS, engine, finishTurn, start, STARTED, typed, reports } from './helpers'
 import type { Net } from './helpers'
 
@@ -10,7 +11,7 @@ test('a session Tick-it started takes its ticket from the first message, hands C
   const entered = await $.prompt.submit(typed(STARTED))
   expect('context' in entered ? entered.context?.some(c => c.includes('TCK-151')) : false).toBe(true)
   expect(seen.server.find(t => t.key === 'TCK-151')).toMatchObject({ status: 'In progress', assignee: 'maddiecs84' })
-  expect(reports(seen)).toEqual([{ repository: 'acme/web-app', session: 's_abc12345', status: 'working', claudeSessionId: 'session-1', summary: 'Took TCK-151.' }])
+  expect(reports(seen)).toEqual([{ repository: 'acme/web-app', session: 's_abc12345', status: 'working', claudeSessionId: 'session-1', modVersion: MOD_VERSION, summary: 'Took TCK-151.' }])
 })
 
 test('a started session hands Claude what Tick-it already wants of it, when its first turn ends', async ($, on) => {
