@@ -49,6 +49,7 @@ export const KEEP_REVIEWS = 500
 export const OUTBOX_KEY = 'outbox'
 export const DROPPED_KEY = 'dropped'
 export const UNLINKED_KEY = 'unlinked'
+export const STOPS_KEY = 'unsent-stops'
 export const KEEP_DROPPED = 100
 /** Runs to a record_runs call: Tick-it takes at most 500, and a call over it is refused whole. */
 export const BATCH_SIZE = 100

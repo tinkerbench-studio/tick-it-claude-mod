@@ -202,9 +202,19 @@ export type Steward = {
   carriedOver?: string
   /** The round's only blocking findings were the pull request's own and the review budget has no room for a reviewer round: after the fix the pull request is read again and settles the round. */
   pullRequestOnly?: boolean
+  /** Whose move it is, as Tick-it last said at the check-in before the session went idle (`session`, `reviewers`, `queue`, `person` or `nothing`); the pane shows it. */
+  waitingOn?: string
+  /** Tick-it said (sessionStopped) that its session is stopped: the pane shows it until a report says otherwise. */
+  tickitStopped?: string
   /** For a blocking finding (skill, file and text) a person decided (decide_finding), the round the mod first saw the decision in: appearances up to it no longer count towards the two-fix-round limit (TCK-80). */
   decidedFrom?: Record<string, number>
 }
+
+/** A stop the mod made that Tick-it has not taken yet: the whole report_session call, sent again with the outbox so the need is not lost. */
+export type PendingStop = { repository: string; session: string; args: Record<string, unknown> }
+
+/** What Tick-it's record_runs answer said of a round (roundVerdict, next): `skills` are the reviewers an `incomplete` round names. */
+export type TickitRound = { ticket: string; round: number; verdict: 'clean' | 'blocked' | 'incomplete' | 'running'; skills: string[]; next?: string }
 
 /** What a resumed session keeps, stored beside the started session (hooks/resume.ts). */
 export type ResumeState = {
@@ -243,6 +253,14 @@ declare module 'claude-code' {
       reviewNext: string | null
       /** What Tick-it asked of the session (resolving a merge conflict), handed to Claude when the turn ends. */
       pendingInstructions: string[]
+      /** The stop reports Tick-it has not taken yet. */
+      unsentStops: PendingStop[]
+      /** The round verdict Tick-it's last record_runs answer gave, with the reviewers it names. */
+      tickitRound: TickitRound | null
+      /** A report_session answer carried a resume instruction that the next check-in acts on. */
+      resumeAsked: boolean
+      /** The `next` the last check-in submitted as a prompt, so the same one is never submitted twice in a row. */
+      lastNext: string | null
       /** Finished runs not yet accepted by Tick-it. */
       outbox: OutboxRun[]
       /** Why the last send to Tick-it failed; null once one succeeds. */

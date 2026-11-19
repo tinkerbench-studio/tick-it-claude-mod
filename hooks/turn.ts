@@ -4,7 +4,8 @@ import type { ReviewRun, ReviewUsage, WorkRun } from '../types'
 import { BREAKDOWN_SUGGESTION, MAX_FINDINGS } from './state'
 import { findCurrent, refreshPullRequest, statusOnTickit, showStatus } from './board'
 import { refreshDiff, report, recordPullRequest, firstLine, finish } from './work'
-import { gaveVerdict, withoutStopMarks, costOf, openVerdictLines, readFindings, readVerdicts, parseFinding, saveReviews, setSteward, startRound, settleRound } from './reviews'
+import { gaveVerdict, withoutStopMarks, costOf, openVerdictLines, readFindings, readVerdicts, parseFinding, saveReviews, setSteward, startRound, settleRound, checkIn } from './reviews'
+import type { CheckIn } from './reviews'
 import { queue, flush } from './outbox'
 import { saveResume } from './resume'
 
@@ -136,11 +137,12 @@ export const registerTurn: Register = on => {
         if (t !== undefined) await startRound($, t, fixingNow.round + 1, fixingNow.ticking, fixingNow.afterStop === true ? 'after-stop' : 'after-fix')
       } else {
         // What the reports above brought are handed over last, with the session idle; while a review round runs they wait for the next turn's end.
+        // Before the session goes idle on a ticket In review it reports and reads whose move it is: Tick-it's next step is submitted, or a resume starts the next round.
+        const checked = await checkIn($).catch(() => ({}) as CheckIn)
+        if (checked.resumed === true) return done
         const pending = (await read($, steward))?.phase === 'reviewing' ? [] : await read($, pendingInstructions)
-        if (pending.length > 0) {
-          await update($, pendingInstructions, () => [])
-          await $.prompt.submit({ text: pending.join('\n\n') })
-        }
+        if (pending.length > 0) await update($, pendingInstructions, () => [])
+        if (pending.length > 0 || checked.next !== undefined) await $.prompt.submit({ text: [...pending, ...(checked.next === undefined ? [] : [checked.next])].join('\n\n') })
       }
       return done
     }
