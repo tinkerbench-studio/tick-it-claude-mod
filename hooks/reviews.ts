@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 import type { PullRequestView, ReviewRun, ReviewUsage, Steward, Ticket, TicketSize, TickitRound } from '../types'
-import { SIZES, REVIEWS_KEY, SKILLS_DIR, OLD_SKILLS_DIR, BASES_DIR, KEEP_REVIEWS, MAX_FINDING_TEXT, PRICES } from './state'
+import { SIZES, REVIEWS_KEY, SKILLS_DIR, OLD_SKILLS_DIR, BASES_DIR, KEEP_REVIEWS, MAX_FINDING_TEXT, PRICES, WARN_AT } from './state'
 import { callTickit, fetchInstructions, fetchModConfig, hasModLimits, madeHere, repositoryHere, reviewBudgetOf, roundLimit } from './tickit'
 import { setStatus, showStatus, refreshPullRequest, servedConfig, RECHECK_LINES } from './board'
 import { report, changedContent, mergeBaseOfDefault, defaultBase } from './work'
@@ -18,6 +18,8 @@ const tickets = atom({ plugin: 'tick-it', key: 'tickets' } as const, [])
 const startedSession = atom({ plugin: 'tick-it', key: 'started' } as const, null)
 const reviews = atom({ plugin: 'tick-it', key: 'reviews' } as const, [])
 const steward = atom({ plugin: 'tick-it', key: 'steward' } as const, null)
+/** The ticket's spend as budgetStop last read it from get_ticket (reviewSpend.costUsd), kept so the stewarding pane shows it without a Tick-it call of its own. */
+const spendKept = atom({ plugin: 'tick-it', key: 'spendKept' } as const, { ticket: '', costUsd: null as number | null })
 const pullRequest = atom({ plugin: 'tick-it', key: 'pullRequest' } as const, null)
 const pullRequestError = atom({ plugin: 'tick-it', key: 'pullRequestError' } as const, null)
 /** What Tick-it's record_runs answer said of the round (roundVerdict, next): settleRound follows it, and reads the round itself when there is none. */
@@ -965,6 +967,7 @@ export async function budgetStop($: EngineInterface, ticket: string, rounds: num
   if (spend === null || spend === undefined) return undefined
   const { costUsd, budget, remaining } = spend
   if (typeof costUsd !== 'number' || typeof budget !== 'number' || typeof remaining !== 'number') return undefined
+  await update($, spendKept, () => ({ ticket, costUsd }))
   // The spend covers every session's rounds, so it is divided by the rounds recorded for the ticket, not by this session's count alone.
   const recorded = await recordedReviews($, ticket)
   const ran = recorded === undefined ? rounds : Math.max(rounds, recorded.length)
@@ -972,6 +975,19 @@ export async function budgetStop($: EngineInterface, ticket: string, rounds: num
   if (remaining <= 0) return { budget, costUsd, reached: true }
   if (ran >= 1 && costUsd / ran > remaining) return { budget, costUsd, reached: false }
   return undefined
+}
+
+/** The spend against the budget the stewarding band and pane heading show next to the rounds, e.g. `$1.20/$3` (`$3.40/$3 over` at or past the budget), with its tone; undefined, so the line is as with the round limit alone, when there is no budget or the spend is unknown. */
+export const spendPart = (costUsd: number | null, budget: number | null): { text: string; tone: 'ok' | 'warn' | 'over' } | undefined => {
+  if (costUsd === null || budget === null) return undefined
+  const over = costUsd >= budget
+  return { text: `${usd.format(costUsd)}/$${budget}${over ? ' over' : ''}`, tone: over ? 'over' : costUsd >= budget * WARN_AT ? 'warn' : 'ok' }
+}
+
+/** The spend kept for the ticket (see spendKept) against its kept reviewBudget; no Tick-it call. */
+export async function keptSpendPart($: EngineInterface, ticket: string) {
+  const kept = await read($, spendKept)
+  return spendPart(kept.ticket === ticket ? kept.costUsd : null, await reviewBudgetOf($, ticket))
 }
 
 /** A review round Tick-it has recorded for a ticket, from its timeline: each agent's skill, blocking count and (when Tick-it names it) the head commit it reviewed. */
