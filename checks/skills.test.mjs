@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { test } from 'node:test'
 
 const read = path => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8')
@@ -286,5 +286,14 @@ test('review skills agree: the release job raises the plugin version after the m
     for (const words of ['raised by the release job after the merge', 'not by a pull request', 'a missing raise is not a finding']) expect(skill).toContain(words, `${name} no longer says "${words}"`)
     assert.ok(!/BLOCKING:[^\n]*(missing|without|no) (a )?(version )?(bump|raise)/i.test(skill), `${name} blocks a missing version raise`)
     assert.ok(!/(must|should|needs to|has to) (raise|bump)[^\n]*version/i.test(skill), `${name} asks a pull request to raise the version`)
+  }
+})
+
+test('each sample review skill says accepted findings are not raised again, not as a finding and not with a verdict of open', () => {
+  const samples = readdirSync(new URL('../skills/review-agents/samples/', import.meta.url))
+  assert.ok(samples.length > 0)
+  for (const sample of samples) {
+    const text = read(`skills/review-agents/samples/${sample}/SKILL.md`)
+    for (const words of ['Accepted findings are not raised again.', 'not as BLOCKING or OPTIONAL and not with a verdict of open', 'A new finding with different text is still raised.']) expect(text).toContain(words, `${sample} lacks "${words}"`)
   }
 })
