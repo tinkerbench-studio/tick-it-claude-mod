@@ -531,6 +531,34 @@ export async function changedSince($: EngineInterface, sha: string): Promise<str
   return [...diff.stdout.split('\0'), ...others.stdout.split('\0')].filter(f => f !== '')
 }
 
+/** A branch name safe as a git argument: no leading dash, no `..`, no control or glob characters. */
+const SAFE_BRANCH = /^[A-Za-z0-9_][A-Za-z0-9._/-]*$/
+
+/**
+ * Fetches origin's branch of the pull request and checks out its head (TCK-85), only when nothing is lost: a safe branch name, a clean tree,
+ * nothing unpushed on HEAD or the local branch, and origin's head the one Tick-it reports. Anything else leaves the checkout as it was and returns false.
+ */
+async function checkOutHead($: EngineInterface, pr: PullRequestView): Promise<boolean> {
+  const branch = pr.branch
+  if (branch === undefined || pr.headSha === undefined || !SAFE_BRANCH.test(branch) || branch.includes('..') || branch.endsWith('/') || branch.endsWith('.lock')) return false
+  const git = (args: string[]) => $.process.run(['git', ...args]).catch(() => undefined)
+  const status = await git(['status', '--porcelain', '--untracked-files=no'])
+  if (status === undefined || status.exitCode !== 0 || status.stdout.trim() !== '') return false
+  const unpushed = async (rev: string) => {
+    const out = await git(['rev-list', '--count', rev, '--not', '--remotes'])
+    return out === undefined || out.exitCode !== 0 || out.stdout.trim() !== '0'
+  }
+  if (await unpushed('HEAD')) return false
+  const local = await git(['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`])
+  if (local !== undefined && local.exitCode === 0 && (await unpushed(`refs/heads/${branch}`))) return false
+  const fetched = await git(['fetch', 'origin', branch])
+  if (fetched === undefined || fetched.exitCode !== 0) return false
+  const origin = await git(['rev-parse', 'FETCH_HEAD'])
+  if (origin === undefined || origin.exitCode !== 0 || origin.stdout.trim() !== pr.headSha) return false
+  const out = await git(['checkout', '-B', branch, pr.headSha])
+  return out !== undefined && out.exitCode === 0
+}
+
 /**
  * What stops a round before any reviewer starts (TCK-51): the checkout is not at the head of the ticket's open pull request, or the change against the base is empty.
  * `stop` says why; `note` is set when the head could not be checked (Tick-it unreadable, or it gave no head), and the round then runs as before.
@@ -539,14 +567,18 @@ export async function roundGate($: EngineInterface, ticket: string): Promise<{ s
   await refreshPullRequest($, ticket).catch(() => update($, pullRequestError, () => 'could not read the pull request'))
   const pr = await read($, pullRequest)
   // Listed once for the round: the paths of the reviewers use it too.
-  const changed = await changedSinceBase($).catch(() => null)
+  let changed = await changedSinceBase($).catch(() => null)
   if ((await read($, pullRequestError)) !== null) return { note: 'The pull request head could not be checked: Tick-it could not be read.', changed }
   // A ticket with no open pull request is reviewed as before.
   if (pr !== null && pr.state === 'open') {
     if (pr.headSha === undefined) return { note: 'The pull request head could not be checked: Tick-it gave no head commit.', changed }
     const here = (await $.process.run(['git', 'rev-parse', 'HEAD']).catch(() => undefined))?.stdout.trim()
     if (here === undefined || here === '') return { note: 'The pull request head could not be checked: git did not say which commit is checked out.', changed }
-    if (here !== pr.headSha) return { why: 'head-differs', stop: `No review started: the checkout is at ${here}, but pull request #${pr.number} is at ${pr.headSha}. Check out or push the pull request's head, then review again.`, changed }
+    if (here !== pr.headSha) {
+      // A recovery session starts on the default branch: take the pull request's head itself when that loses nothing (TCK-85).
+      if (!(await checkOutHead($, pr))) return { why: 'head-differs', stop: `No review started: the checkout is at ${here}, but pull request #${pr.number} is at ${pr.headSha}. Check out or push the pull request's head, then review again.`, changed }
+      changed = await changedSinceBase($).catch(() => null)
+    }
   }
   // Nothing changed against the base branch (the working tree, untracked files included): there is nothing to review. A listing that cannot be had does not stop the round.
   if (changed !== null && changed.length === 0) return { stop: 'No review started: git diff against the base branch is empty, so there is nothing to review.', why: 'empty-diff', changed }
