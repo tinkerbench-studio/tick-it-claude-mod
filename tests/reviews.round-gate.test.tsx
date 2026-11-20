@@ -74,3 +74,30 @@ test('a merged pull request whose head differs does not stop the round', async (
   await run($)
   expect(seen.spawned.length).toBeGreaterThan(0)
 })
+
+// TCK-85: a checkout elsewhere is moved to the pull request's head when that loses nothing.
+const BRANCH = 'tck-143-picker'
+test('a clean checkout on another commit fetches the branch, checks out the head and starts the reviewers', async ($, on) => {
+  const seen = engine(on, { lines: 10, changed: ['hooks/a.ts'], originHead: OTHER }, true, SKILLS, { pullRequests: [pr({ headSha: OTHER, branch: BRANCH })] })
+  await run($)
+  expect(seen.processes).toContain(`git fetch origin ${BRANCH}`)
+  expect(seen.processes).toContain(`git checkout -B ${BRANCH} ${OTHER}`)
+  expect(seen.spawned.length).toBeGreaterThan(0)
+})
+
+const refused: [string, Record<string, unknown>, Record<string, unknown>][] = [
+  ['uncommitted changes', { dirty: true, originHead: OTHER }, { branch: BRANCH }],
+  ['unpushed commits', { unpushed: true, originHead: OTHER }, { branch: BRANCH }],
+  ['a failed fetch', { fetchFails: true, originHead: OTHER }, { branch: BRANCH }],
+  ['an origin head that differs from Tick-it\'s', { originHead: HEAD }, { branch: BRANCH }],
+  ['an unsafe branch name', { originHead: OTHER }, { branch: '--upload-pack=x' }],
+]
+for (const [name, diff, prExtra] of refused) {
+  test(`${name} leave the checkout as it was and stop the round`, async ($, on) => {
+    const seen = engine(on, { lines: 10, changed: ['hooks/a.ts'], ...diff }, true, SKILLS, { pullRequests: [pr({ headSha: OTHER, ...prExtra })] })
+    const out = await run($)
+    expect(out.text).toContain('No review started: the checkout is at')
+    expect(seen.processes.some(p => p.startsWith('git checkout'))).toBe(false)
+    expect(seen.spawned).toEqual([])
+  })
+}
