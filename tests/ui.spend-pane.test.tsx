@@ -36,11 +36,14 @@ test('under budget: the heading shows the spend after the rounds, as $x/$y', asy
   expect(heading).not.toContain('over')
 })
 
-test('at or over budget: the spend is marked over, exactly at the budget too', async ($, on) => {
-  for (const cost of [3, 3.4]) {
-    const { heading } = await lines($, on, { modConfig: served(3), reviewSpend: spend(cost) })
-    expect(heading).toContain(`round 1/4 · $${cost.toFixed(2)}/$3 over · `)
-  }
+test('at the budget: the spend is marked over', async ($, on) => {
+  const { heading } = await lines($, on, { modConfig: served(3), reviewSpend: spend(3) })
+  expect(heading).toContain('round 1/4 · $3.00/$3 over · ')
+})
+
+test('over the budget: the spend is marked over', async ($, on) => {
+  const { heading } = await lines($, on, { modConfig: served(3), reviewSpend: spend(3.4) })
+  expect(heading).toContain('round 1/4 · $3.40/$3 over · ')
 })
 
 test('no budget: both lines read exactly as with the round limit alone', async ($, on) => {
