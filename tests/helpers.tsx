@@ -116,7 +116,7 @@ export type Net = {
   /** Tick-it gives no headSha for a pull request; otherwise one without it is at the checked-out commit. */
   noHeadSha?: boolean
   /** What list_pull_requests answers; 'unreachable' makes it fail. */
-  pullRequests?: 'unreachable' | { number: number; state: string; draft: boolean; ci: string | null; behind?: boolean | null; mergeState?: string; mergeQueue?: unknown; ciInstructed?: boolean; headSha?: string }[]
+  pullRequests?: 'unreachable' | { number: number; state: string; draft: boolean; ci: string | null; behind?: boolean | null; mergeState?: string; mergeQueue?: unknown; ciInstructed?: boolean; headSha?: string; branch?: string }[]
   /** What list_milestones answers; no milestones when absent. */
   milestones?: { title: string; dueOn: string | null; epics: { id?: string; title: string; tickets: number; done: number }[]; tickets: number; done: number }[]
   /** list_tickets answers this many tickets a page with a nextCursor (the page's offset); `failAt` refuses the page with that cursor. */
@@ -131,7 +131,7 @@ export type Net = {
 /** The engine beneath the mod: a store, a repo whose diff is `diff.lines` lines, and quiet UI calls. */
 export const engine = (
   on: On,
-  diff: { lines: number; merged?: boolean; byCommit?: Record<string, { lines?: number; numstatZ?: string; patch?: string }>; failDiff?: boolean; branch?: string; defaultBranch?: string; branchThrows?: boolean; siblings?: Record<string, string> | 'unlistable'; pr?: number; origin?: string | null; noCommit?: boolean; numstatZ?: string; failFiles?: boolean; changed?: string[] | null; since?: string[] | null; failUntracked?: boolean; truncateNames?: boolean; bases?: string[]; failNames?: 'exit' | 'throw'; subdir?: string; stored?: Record<string, unknown>; kept?: Map<string, unknown>; refuse?: (model: string | undefined, description: string) => string | undefined; patch?: string; dirty?: boolean; untracked?: Record<string, string>; binary?: Record<string, string>; gh?: (argv: string[]) => { exitCode: number; stdout: string; stderr: string } | undefined; pictures?: { key: string; name: string }[] | 'unreachable' | 'odd'; copies?: { exitCode: number; stdout: string; stderr: string } | 'hang' | 'throw'; files?: Record<string, string>; base?: Record<string, string>; ignored?: string[]; throwShow?: boolean },
+  diff: { lines: number; merged?: boolean; byCommit?: Record<string, { lines?: number; numstatZ?: string; patch?: string }>; failDiff?: boolean; branch?: string; defaultBranch?: string; branchThrows?: boolean; siblings?: Record<string, string> | 'unlistable'; pr?: number; origin?: string | null; noCommit?: boolean; numstatZ?: string; failFiles?: boolean; changed?: string[] | null; since?: string[] | null; failUntracked?: boolean; truncateNames?: boolean; bases?: string[]; failNames?: 'exit' | 'throw'; subdir?: string; stored?: Record<string, unknown>; kept?: Map<string, unknown>; refuse?: (model: string | undefined, description: string) => string | undefined; patch?: string; dirty?: boolean; untracked?: Record<string, string>; binary?: Record<string, string>; gh?: (argv: string[]) => { exitCode: number; stdout: string; stderr: string } | undefined; pictures?: { key: string; name: string }[] | 'unreachable' | 'odd'; copies?: { exitCode: number; stdout: string; stderr: string } | 'hang' | 'throw'; files?: Record<string, string>; base?: Record<string, string>; ignored?: string[]; throwShow?: boolean; remoteHead?: string; failFetch?: boolean; unpushed?: boolean; localAhead?: boolean },
   isPlaced = true,
   skills: Record<string, string> = {},
   net: Net = {},
@@ -324,9 +324,19 @@ export const engine = (
   })
   on('prompt.compose', () => ({ sections: [{ id: 'intro', text: 'base', scope: 'shared' as const }] }))
   on('tool.call', () => ({ result: net.toolResult ?? 'ok' }) as never)
+  // The commit checked out: a `git checkout -B <branch> FETCH_HEAD` moves it to what `git fetch` gave (`remoteHead`).
+  let head = 'ab12'.repeat(10)
   on('process.run', (_$, e) => {
     const [cmd, sub] = e.argv
     seen.processes.push(e.argv.join(' '))
+    const ok = (stdout = '', exitCode = 0) => ({ value: { exitCode, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })
+    if (cmd === 'git' && sub === 'fetch') return ok('', diff.failFetch === true ? 1 : 0)
+    if (cmd === 'git' && sub === 'rev-parse' && e.argv.at(-1) === 'FETCH_HEAD') return ok(`${diff.remoteHead ?? 'ab12'.repeat(10)}\n`)
+    if (cmd === 'git' && sub === 'rev-list') return e.argv[2]?.startsWith('refs/heads/') ? ok(diff.localAhead === true ? 'ee55\n' : '') : ok(diff.unpushed === true ? 'ff66\n' : '')
+    if (cmd === 'git' && sub === 'checkout') {
+      head = diff.remoteHead ?? head
+      return ok()
+    }
     if (cmd === 'npm' && diff.copies !== undefined) {
       if (diff.copies === 'throw') throw new Error('$.process.run(npm) failed to start: ENOENT')
       if (diff.copies === 'hang') return new Promise(resolve => setTimeout(() => resolve({ value: { exitCode: 1, stdout: 'late hits', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }), 300)) as never
@@ -386,7 +396,7 @@ export const engine = (
             : cmd === 'git' && sub === 'rev-parse' && e.argv.includes('--abbrev-ref')
               ? `${diff.branch ?? 'tck-151-picker'}\n`
               : cmd === 'git' && sub === 'rev-parse'
-                ? `${'ab12'.repeat(10)}\n`
+                ? `${head}\n`
                 : cmd === 'git' && sub === 'status' && diff.dirty === true
                   ? ' M hooks/reviews.ts\n'
                   : cmd === 'gh' && diff.pr !== undefined

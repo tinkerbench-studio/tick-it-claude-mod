@@ -531,11 +531,39 @@ export async function changedSince($: EngineInterface, sha: string): Promise<str
   return [...diff.stdout.split('\0'), ...others.stdout.split('\0')].filter(f => f !== '')
 }
 
+/** A branch name safe to pass to git as an argument: no option, no range, no ref syntax git refuses. */
+const SAFE_BRANCH = /^(?!-)(?!.*\.\.)(?!.*\/\/)[A-Za-z0-9._/-]{1,200}$/
+
+/** Runs git and answers its stdout when it exits 0, else undefined. */
+async function git($: EngineInterface, argv: string[]): Promise<string | undefined> {
+  const out = await $.process.run(['git', ...argv]).catch(() => undefined)
+  return out === undefined || out.exitCode !== 0 ? undefined : out.stdout
+}
+
+/**
+ * Checks out the open pull request's head when the checkout is elsewhere: only when the working tree is clean, nothing on HEAD or on a local branch of that name is
+ * unpushed, and what origin gives for the branch is the head Tick-it names. Answers whether HEAD is now that head; anything else leaves the checkout as it was.
+ */
+export async function checkOutHead($: EngineInterface, pr: PullRequestView): Promise<boolean> {
+  if (pr.headSha === undefined || pr.branch === undefined || !SAFE_BRANCH.test(pr.branch)) return false
+  const status = await git($, ['status', '--porcelain'])
+  if (status === undefined || status.trim() !== '') return false
+  if ((await git($, ['fetch', 'origin', pr.branch])) === undefined) return false
+  if ((await git($, ['rev-parse', 'FETCH_HEAD']))?.trim() !== pr.headSha) return false
+  // Unpushed commits on HEAD, or on a local branch the checkout would reset, are someone's work: they stay, and the round stops as before.
+  const unpushed = await git($, ['rev-list', 'HEAD', '--not', '--remotes'])
+  if (unpushed === undefined || unpushed.trim() !== '') return false
+  const local = await $.process.run(['git', 'rev-list', `refs/heads/${pr.branch}`, '--not', '--remotes']).catch(() => undefined)
+  if (local === undefined || (local.exitCode === 0 && local.stdout.trim() !== '')) return false
+  if ((await git($, ['checkout', '-B', pr.branch, 'FETCH_HEAD'])) === undefined) return false
+  return (await git($, ['rev-parse', 'HEAD']))?.trim() === pr.headSha
+}
+
 /**
  * What stops a round before any reviewer starts (TCK-51): the checkout is not at the head of the ticket's open pull request, or the change against the base is empty.
  * `stop` says why; `note` is set when the head could not be checked (Tick-it unreadable, or it gave no head), and the round then runs as before.
  */
-export async function roundGate($: EngineInterface, ticket: string): Promise<{ stop?: string; why?: 'head-differs' | 'empty-diff'; note?: string; changed: string[] | null }> {
+export async function roundGate($: EngineInterface, ticket: string): Promise<{ stop?: string; why?: 'head-differs' | 'empty-diff'; note?: string; checkedOut?: boolean; changed: string[] | null }> {
   await refreshPullRequest($, ticket).catch(() => update($, pullRequestError, () => 'could not read the pull request'))
   const pr = await read($, pullRequest)
   // Listed once for the round: the paths of the reviewers use it too.
@@ -546,7 +574,15 @@ export async function roundGate($: EngineInterface, ticket: string): Promise<{ s
     if (pr.headSha === undefined) return { note: 'The pull request head could not be checked: Tick-it gave no head commit.', changed }
     const here = (await $.process.run(['git', 'rev-parse', 'HEAD']).catch(() => undefined))?.stdout.trim()
     if (here === undefined || here === '') return { note: 'The pull request head could not be checked: git did not say which commit is checked out.', changed }
-    if (here !== pr.headSha) return { why: 'head-differs', stop: `No review started: the checkout is at ${here}, but pull request #${pr.number} is at ${pr.headSha}. Check out or push the pull request's head, then review again.`, changed }
+    if (here !== pr.headSha) {
+      // A session started on another commit (a recovery session starts on the default branch) checks out the head itself, when that loses no work, and reviews it.
+      const moved = await checkOutHead($, pr).catch(() => false)
+      if (!moved) return { why: 'head-differs', stop: `No review started: the checkout is at ${here}, but pull request #${pr.number} is at ${pr.headSha}. Check out or push the pull request's head, then review again.`, changed }
+      await log($, 'info', 'head-checked-out', { ticket, pullRequest: pr.number, from: here, to: pr.headSha })
+      const after = await changedSinceBase($).catch(() => null)
+      if (after !== null && after.length === 0) return { stop: 'No review started: git diff against the base branch is empty, so there is nothing to review.', why: 'empty-diff', changed: after }
+      return { changed: after, checkedOut: true, note: `Checked out pull request #${pr.number}'s head ${pr.headSha.slice(0, 12)} (the checkout was at ${here.slice(0, 12)}).` }
+    }
   }
   // Nothing changed against the base branch (the working tree, untracked files included): there is nothing to review. A listing that cannot be had does not stop the round.
   if (changed !== null && changed.length === 0) return { stop: 'No review started: git diff against the base branch is empty, so there is nothing to review.', why: 'empty-diff', changed }
@@ -619,7 +655,7 @@ export async function startRound($: EngineInterface, t: Ticket, fromRound: numbe
   }
   if (gate.note !== undefined) {
     $.ui.toast(`tick-it: ${gate.note}`)
-    await log($, 'debug', 'head-not-checked', { ticket: t.id, round })
+    if (gate.checkedOut !== true) await log($, 'debug', 'head-not-checked', { ticket: t.id, round })
   }
   const fromCommand = trigger === 'done-command' || trigger === 'steward-command'
   // Reviewers read the working tree against HEAD: edits made since a review at this head (uncommitted or untracked) have not been reviewed, so the head alone does not say it was.
