@@ -104,7 +104,7 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/upload-screenshots.mjs" plan ./shots        
 node "${CLAUDE_PLUGIN_ROOT}/scripts/upload-screenshots.mjs" put ./shots presigned.json      # PUTs them, prints what to confirm
 #    Claude calls confirm_screenshot for each name printed
 
-# 2. Before review, check a UI change does not commit pictures (the branch side only; whether pictures were uploaded is read from Tick-it by `/tick-it done`):
+# 2. Before review, check a UI change commits no pictures and has every before and after uploaded (read from Tick-it with list_screenshots, with TICKIT_TOKEN set; the required variants are listed in scripts/ui-evidence-required.json):
 node "${CLAUDE_PLUGIN_ROOT}/scripts/ui-evidence-check.mjs" ABC-12 --base origin/main --pictures-under docs/screenshots
 ```
 

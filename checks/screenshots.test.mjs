@@ -9,7 +9,7 @@ import { test } from 'node:test'
 
 import { isUiPath as sharedIsUiPath } from '../scripts/ui-paths.mjs'
 import { plan, put } from '../scripts/upload-screenshots.mjs'
-import { checkEvidence, globToRegExp, isUiPath, parseConfig } from '../scripts/ui-evidence-check.mjs'
+import { checkEvidence, checkPictures, globToRegExp, isUiPath, listPictures, main, parseConfig } from '../scripts/ui-evidence-check.mjs'
 
 const UPLOAD = new URL('../scripts/upload-screenshots.mjs', import.meta.url).pathname
 const CHECK = new URL('../scripts/ui-evidence-check.mjs', import.meta.url).pathname
@@ -83,7 +83,7 @@ test('the skill names its steps in order and never commits pictures', () => {
   const steps = SKILL.split('\n').filter(l => /^\d\. /.test(l))
   assert.equal(steps.length, 4)
   steps.forEach((l, n) => assert.ok(l.includes(['upload-screenshots.mjs plan', 'presign_screenshot_upload', 'upload-screenshots.mjs put', 'confirm_screenshot'][n]), `step ${n + 1}`))
-  for (const phrase of ['Only then is a picture confirmed', 'Never commit the pictures', 'ui-evidence-check.mjs', 'does not ask Tick-it whether pictures were uploaded']) assert.ok(SKILL.includes(phrase), phrase)
+  for (const phrase of ['Only then is a picture confirmed', 'Never commit the pictures', 'ui-evidence-check.mjs', 'list_screenshots']) assert.ok(SKILL.includes(phrase), phrase)
   assert.match(SKILL, /^argument-hint: <ticket key> <picture folder>$/m)
 })
 
@@ -170,9 +170,6 @@ test('the evidence check command reads the change from git and exits 0, 1 or 2',
   writeFileSync(join(repo, 'src/ui/a.tsx'), 'x')
   git('add', '.')
   git('commit', '-qm', 'ui')
-  const passing = check('ABC-1', '--base', 'main', '--pictures-under', 'docs/shots')
-  assert.equal(passing.status, 0)
-  assert.match(passing.stdout, /ABC-1: no pictures committed/)
   mkdirSync(join(repo, 'docs/shots'), { recursive: true })
   writeFileSync(join(repo, 'docs/shots/after.png'), 'p')
   git('add', '.')
@@ -180,6 +177,8 @@ test('the evidence check command reads the change from git and exits 0, 1 or 2',
   const failing = check('ABC-1', '--base', 'main', '--pictures-under', 'docs/shots')
   assert.equal(failing.status, 1)
   assert.match(failing.stderr, /docs\/shots\/after\.png is committed/)
+  git('rm', '-q', '-r', 'docs/shots')
+  git('commit', '-qm', 'no picture')
   assert.equal(check('not a key').status, 2)
   assert.equal(check('ABC-1', '--base').status, 2)
   assert.equal(check('ABC-1', '--base', 'no-such-ref').status, 2)
@@ -198,4 +197,103 @@ test('the evidence script runs with node alone: its folder holds the shared modu
   assert.deepEqual([...readFileSync(CHECK, 'utf8').matchAll(/^import .* from '(.*)'/gm)].map(m => m[1]).filter(s => !s.startsWith('node:')), ['./ui-paths.mjs'])
   assert.equal(isUiPath('apps/web/src/pages.tsx', []), true)
   assert.equal(isUiPath, sharedIsUiPath)
+})
+
+// A fake of Tick-it's MCP endpoint: answers initialize, the initialized notice and list_screenshots, and records each method it was asked.
+const tickit = names => {
+  const asked = []
+  const send = async (_url, init) => {
+    const body = JSON.parse(init.body)
+    asked.push(body.method === 'tools/call' ? `${body.params.name} ${body.params.arguments.repository} ${body.params.arguments.ticket} ${init.headers.authorization}` : body.method)
+    const result = body.method === 'tools/call' ? { structuredContent: { screenshots: names.map(name => ({ name })) } } : {}
+    return new Response(body.id === undefined ? '' : `event: message\ndata: ${JSON.stringify({ jsonrpc: '2.0', id: body.id, result })}\n\n`, { status: 200, headers: { 'mcp-session-id': 's1' } })
+  }
+  return { asked, send }
+}
+const required = ['dark', 'light', 'phone']
+
+test('checkPictures fails an after-only or before-only picture, naming each, and passes when every before and after is there', () => {
+  const side = (t, s) => required.map(v => `${t}-${v}-${s}.png`)
+  assert.deepEqual(checkPictures({ pictures: [...side('pages-ticket', 'before'), ...side('pages-ticket', 'after')] }), [])
+  assert.deepEqual(checkPictures({ pictures: required.map(v => `story-row-${v}-before-after.png`) }), [])
+  assert.deepEqual(checkPictures({ pictures: side('pages-ticket', 'after') }), required.map(v => `pages-ticket: no before picture for ${v}${v === 'phone' ? ' (390 px)' : ''} (pages-ticket-${v}-before.png or pages-ticket-${v}-before-after.png)`))
+  assert.deepEqual(checkPictures({ pictures: side('pages-ticket', 'before') }).map(l => l.split(' picture')[0]), required.map(() => 'pages-ticket: no after'))
+  // One variant short: only that one is named. A named page with no pictures fails; none at all fails.
+  assert.equal(checkPictures({ pictures: [...side('a', 'before'), ...side('a', 'after').slice(0, 2)] }).length, 1)
+  assert.equal(checkPictures({ pictures: side('a', 'after'), touches: ['b'] }).filter(l => l.startsWith('b:')).length, 3)
+  assert.match(checkPictures({ pictures: ['board-beside-story-Menu.png'] })[0], /no before\/after picture is uploaded/)
+  // A target the change adds needs its after alone.
+  assert.deepEqual(checkPictures({ pictures: side('new-story', 'after'), fresh: ['new-story'] }), [])
+})
+
+test('listPictures asks Tick-it for list_screenshots, and fails saying so when it has no token or cannot be reached', async () => {
+  const fake = tickit(['a-dark-after.png'])
+  assert.deepEqual(await listPictures({ repository: 'o/r', ticket: 'ABC-1', url: 'http://x/mcp', token: 'tok', send: fake.send }), ['a-dark-after.png'])
+  assert.deepEqual(fake.asked, ['initialize', 'notifications/initialized', 'list_screenshots o/r ABC-1 Bearer tok'])
+  await assert.rejects(listPictures({ repository: 'o/r', ticket: 'ABC-1', url: 'http://x/mcp', send: fake.send }), /TICKIT_TOKEN is not set/)
+  await assert.rejects(listPictures({ repository: 'o/r', ticket: 'ABC-1', url: 'http://x/mcp', token: 't', send: async () => { throw new Error('ECONNREFUSED') } }), /could not be reached at http:\/\/x\/mcp: ECONNREFUSED/)
+  await assert.rejects(listPictures({ repository: 'o/r', ticket: 'ABC-1', url: 'http://x/mcp', token: 't', send: async () => new Response('no', { status: 401 }) }), /answered 401.*TICKIT_TOKEN/)
+})
+
+test('the evidence check reads uploaded pictures for a UI change, and never reads Tick-it for a change with no UI path', async () => {
+  const repo = mkdtempSync(join(tmpdir(), 'repo-'))
+  const git = (...a) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...a], { cwd: repo, stdio: 'pipe' })
+  git('init', '-q', '-b', 'main')
+  mkdirSync(join(repo, '.tick-it'))
+  writeFileSync(join(repo, '.tick-it/config.json'), '{"design":{"uiPaths":["src/ui/**"]}}')
+  git('add', '.')
+  git('commit', '-qm', 'base')
+  git('remote', 'add', 'origin', 'https://github.com/o/r.git')
+  git('checkout', '-qb', 'work')
+  mkdirSync(join(repo, 'src/server'), { recursive: true })
+  writeFileSync(join(repo, 'src/server/a.ts'), 'x')
+  git('add', '.')
+  git('commit', '-qm', 'server')
+  const cwd = process.cwd()
+  process.chdir(repo)
+  const log = []
+  const keep = { out: console.log, err: console.error }
+  console.log = (...a) => log.push(a.join(' '))
+  console.error = (...a) => log.push(a.join(' '))
+  const run = async (names, env = { TICKIT_TOKEN: 'tok' }) => {
+    const fake = tickit(names)
+    log.length = 0
+    return { status: await main(['ABC-1', '--base', 'main'], env, fake.send), asked: fake.asked, log: log.join('\n') }
+  }
+  try {
+    const none = await run(['a-dark-after.png'])
+    assert.equal(none.status, 0)
+    assert.deepEqual(none.asked, [])
+    assert.match(none.log, /no UI path changed/)
+    mkdirSync(join(repo, 'src/ui'), { recursive: true })
+    writeFileSync(join(repo, 'src/ui/a.tsx'), 'x')
+    git('add', '.')
+    git('commit', '-qm', 'ui')
+    const names = s => required.map(v => `pages-ticket-${v}-${s}.png`)
+    const afterOnly = await run(names('after'))
+    assert.equal(afterOnly.status, 1)
+    assert.equal(afterOnly.asked.length, 3)
+    assert.match(afterOnly.log, /pages-ticket: no before picture for dark/)
+    const beforeOnly = await run(names('before'))
+    assert.equal(beforeOnly.status, 1)
+    assert.match(beforeOnly.log, /pages-ticket: no after picture for phone \(390 px\)/)
+    const both = await run([...names('before'), ...names('after')])
+    assert.equal(both.status, 0)
+    assert.match(both.log, /every required before and after is uploaded/)
+    const noToken = await run(names('after'), {})
+    assert.equal(noToken.status, 2)
+    assert.match(noToken.log, /could not check the uploaded pictures: TICKIT_TOKEN is not set/)
+  } finally {
+    process.chdir(cwd)
+    console.log = keep.out
+    console.error = keep.err
+  }
+})
+
+test('the required list is one file that the script reads, and the README and the skill name', () => {
+  const list = JSON.parse(readFileSync(new URL('../scripts/ui-evidence-required.json', import.meta.url), 'utf8'))
+  assert.deepEqual(list.variants, required)
+  assert.deepEqual(list.sides, ['before', 'after'])
+  assert.ok(readFileSync(CHECK, 'utf8').includes('ui-evidence-required.json'))
+  assert.ok(SKILL.includes('ui-evidence-required.json'))
 })
