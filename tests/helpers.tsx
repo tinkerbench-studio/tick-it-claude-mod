@@ -464,6 +464,19 @@ export const UI_FILES = `1\t0\tapps/web/src/pages.tsx\0`
 
 export const BOARD_FILES = `${UI_FILES}1\t0\tdesign/canvas/boards/Board.map.json\0`
 
+/** A repository's design section (.tick-it/config.json), as get_repository_settings gives it in config: what makes the UI-evidence gate and checklist run at all. */
+export const DESIGN_CHECKLIST = ['UI evidence: a before/after picture of each changed screen, uploaded to Tick-it', 'UI evidence: the pull request names every visible difference']
+export const DESIGN_CONFIG = [
+  {
+    branch: 'main',
+    design: {
+      workflow: 'docs/design-system.md',
+      uiPaths: ['apps/web/src/**', 'design/**'],
+      checklist: DESIGN_CHECKLIST,
+      pictures: [{ when: ['design/canvas/boards/*.map.json', 'design/canvas/boards/*.dc.html'], name: 'board-beside-story-*', why: 'Run the board shots and copy each to board-beside-story-<Board>.png.' }],
+    },
+  },
+]
 export const PIC = { key: 'acme/web-app/TCK-151/board-before-after.png', name: 'board-before-after.png' }
 
 export const PAGED = [161, 162, 163, 164, 165]

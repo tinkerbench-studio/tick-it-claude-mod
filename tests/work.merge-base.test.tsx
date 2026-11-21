@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { RUN, UI_FILES, engine, finishReview, start, STARTED, typed } from './helpers'
+import { RUN, UI_FILES, DESIGN_CONFIG, engine, finishReview, start, STARTED, typed } from './helpers'
 import type { Seen as Net } from './helpers'
 
 // A ticket taken at A (what the fake's rev-parse answers), the base branch merged in afterwards: merge base B, a descendant of A.
@@ -59,7 +59,7 @@ test('the size guard allows an edit within budget after a merge of the base that
 
 test('the UI-evidence gate does not refuse a ticket whose only UI files came in with the merge', async ($, on) => {
   const own = { ...merged, byCommit: { [A]: { numstatZ: UI_FILES }, [B]: { numstatZ: '3\t0\tapi/a.ts\0' } } }
-  const seen = engine(on, { lines: 5, ...own, pictures: [] })
+  const seen = engine(on, { lines: 5, ...own, pictures: [] }, true, {}, { config: DESIGN_CONFIG })
   await start($)
   await $.prompt.submit(typed(STARTED))
   expect((await finishReview($ as never)).deny).toBeUndefined()

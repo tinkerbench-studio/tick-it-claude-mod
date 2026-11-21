@@ -1,11 +1,6 @@
 // The one reading of a UI path, shared by the `/tick-it done` gate (hooks/ui-evidence.ts) and the evidence script
 // (scripts/ui-evidence-check.mjs). Plain JavaScript with no imports, so the script runs with node alone.
 
-/**
- * Paths a ticket that changes what a person sees touches when a repository sets no design.uiPaths: the web app's pages and components
- * (not its server code or tests), the design system or canvas, a story or a stylesheet. A path may follow a space, a quote, a bracket, "./" or a directory.
- */
-export const DEFAULT_UI_PATH = /(^|[^\w-])apps\/web\/src\/(design\/|(pages|client|links|markdown|pictures|render|style|dropzone)\.tsx?\b)|(?<![\w-]|docs\/)design\/|\.storybook\/|[\w./-]*\.stories\.tsx?\b|[\w./-]*\.css(\.ts)?(?![\w-])/
 
 /** A glob ("**" crosses folders, "*" and "?" stay in one) as a regular expression on a whole path. */
 export function globToRegExp(glob) {
@@ -25,8 +20,11 @@ export function globToRegExp(glob) {
   return new RegExp(`^${re}$`)
 }
 
-/** With the repository's design.uiPaths a path matches one of those globs; with none, the default rule. */
-export const isUiPath = (path, uiPaths) => (uiPaths.length === 0 ? DEFAULT_UI_PATH.test(path) : uiPaths.some(g => globToRegExp(g).test(path)))
+/**
+ * A path matches one of the repository's design.uiPaths globs. With none, no path is a UI path: Tick-it assumes no
+ * layout or design process of its own, so a repository opts in by setting design.uiPaths in .tick-it/config.json.
+ */
+export const isUiPath = (path, uiPaths) => uiPaths.some(g => globToRegExp(g).test(path))
 
 /** A file whose change can be test-only: a story (its play function asserts) or the Storybook configuration (its test settings). A stylesheet or a design file never is. */
 export const TESTABLE_UI_FILE = /(^|\/)\.storybook\/|\.stories\.tsx?$/

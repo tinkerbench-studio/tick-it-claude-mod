@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 import { withUiEvidence } from './ui-evidence'
 import { SECURE_CODING_LINE } from './security-areas'
-import type { UiPaths } from './ui-evidence'
+import type { Design } from './ui-evidence'
 import type { Approval, AttachmentRef, MemoryRef, MilestoneView, PullRequestView, Ticket, TicketSize, TicketStatus } from '../types'
 import { PANE, STORE_KEY, STORE_REPOSITORY_KEY, BUDGET, SIZES, MONTHS } from './state'
 import { callTickit, repositoryHere } from './tickit'
@@ -128,11 +128,12 @@ export const nextToTake = (list: Ticket[], now = Date.now()): Ticket | undefined
 export const attachmentLines = (files: AttachmentRef[]): string[] =>
   files.length === 0 ? [] : ['Attachments:', ...files.map(f => `- ${f.name} (${f.type}, id ${f.id})${f.type === 'application/pdf' ? ': a PDF, a link you cannot read yourself; ask a person for what it says' : ''}`), ...(files.some(f => ['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(f.type)) ? ["Fetch each image with Tick-it's get_attachment (its id above) before building, and build to what it shows."] : [])]
 
-/** The brief's acceptance lines: the ticket's own, then the fixed UI-evidence checklist when it touches what a person sees and does not list it, with a note that those lines are not items on the ticket. */
-export const uiEvidenceLines = (t: Ticket, uiPaths: UiPaths = null): string[] => {
-  const withChecklist = withUiEvidence(t.acceptance, [t.title, t.description ?? '', ...t.acceptance].join('\n'), uiPaths)
+/** The brief's acceptance lines: the repository's UI-evidence checklist (design.checklist) when the ticket touches its UI paths and does not list it, with a note that those lines are not items on the ticket. None when the repository sets no checklist. */
+export const uiEvidenceLines = (t: Ticket, design: Design | null = null): string[] => {
+  const withChecklist = withUiEvidence(t.acceptance, [t.title, t.description ?? '', ...t.acceptance].join('\n'), design)
   const added = withChecklist.slice(t.acceptance.length)
-  return added.length === 0 ? [] : [...added.map(a => `- ${a}`), 'The "UI evidence:" lines are acceptance this change must meet, though they are not ticked on the ticket: deliver them as the ux-evidence review skill and the drawing-board canvas-sync skill describe, and say in the pull request description and the ticket comment where each is.']
+  const how = design?.workflow ? `this repository's design workflow (${design.workflow}) and its ux-evidence review skill describe` : "this repository's ux-evidence review skill describes"
+  return added.length === 0 ? [] : [...added.map(a => `- ${a}`), `The "UI evidence:" lines are acceptance this change must meet, though they are not ticked on the ticket: deliver them as ${how}, and say in the pull request description where each is.`]
 }
 
 /** One line of flat, bounded text, as Tick-it quotes ticket data in the start message. A copy of quoted in apps/mcp/src/sessions.ts: the mod cannot import from apps/mcp. */
@@ -186,7 +187,7 @@ export const RECHECK_LINES = [
 /** How a session names another repository's ticket or pull request in text it writes: a bare key or #n always means the text's own repository (TCK-32). */
 export const OTHER_REPOSITORY_LINE = "In any text you write into a ticket or a pull request (a description, comment or note), name another repository's ticket as owner/name#KEY and its pull request as owner/name#n, never a bare key or #n: a bare one always means this repository, and repositories can share a prefix."
 
-export const brief = (t: Ticket, board: Ticket[] = [], instructions = '', files: AttachmentRef[] = [], memories: MemoryRef[] = [], from: Served | null = null, uiPaths: UiPaths = null, reviewBudget: number | null = null, reviewRounds = 0): string => {
+export const brief = (t: Ticket, board: Ticket[] = [], instructions = '', files: AttachmentRef[] = [], memories: MemoryRef[] = [], from: Served | null = null, design: Design | null = null, reviewBudget: number | null = null, reviewRounds = 0): string => {
   const budget = from?.sizeBudgets[t.size] ?? BUDGET[t.size]
   const lines = from !== null && from.ticket === t.id ? from.briefLines : null
   return [
@@ -194,7 +195,7 @@ export const brief = (t: Ticket, board: Ticket[] = [], instructions = '', files:
     ...(t.description === undefined ? [] : ['Description:', t.description]),
     'Acceptance:',
     ...t.acceptance.map(a => `- ${a}`),
-    ...uiEvidenceLines(t, uiPaths),
+    ...uiEvidenceLines(t, design),
     ...attachmentLines(files),
     ...(heldUntil(t) === undefined ? [] : [`Held: ${t.id} is waiting until ${heldUntil(t)} (its notBefore). Do not start work on it before then.`]),
     ...((t.blockedBy ?? []).length > 0 ? [`Builds on: ${named(t.blockedBy ?? [], board)}.`] : []),

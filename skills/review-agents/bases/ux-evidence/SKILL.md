@@ -6,7 +6,7 @@ model: claude-sonnet-5-5
 
 First decide whether this is a UX change: it touches what a person sees, such as a component, a page, a story, a stylesheet, a token, a label or the layout. If it is not, the only thing to check is that nothing visible changed by accident, and a change with no findings is clean.
 
-A UX change carries evidence, produced like this (the builder does it before the ticket goes to review; you check it). The repository's own rules say how it draws and pictures a component or page, and how it uploads a picture:
+A UX change carries evidence, produced like this (the builder does it before the ticket goes to review; you check it). The repository's own rules say how it draws and pictures a component or page, and how it uploads a picture: its design workflow doc (`design.workflow` of `.tick-it/config.json`) and the rules this skill's repository copy adds. This base assumes no design tool, canvas or variant list of its own; a repository that has a design canvas, prototypes or required variants says so in its copy:
 
 1. **Something to picture for every changed or new piece.** Each component and state the change touches can be drawn on its own (a story, or a page the repository pictures). A new state that cannot is a gap.
 2. **Before.** A picture of each affected piece at the commit the branch starts from (`git merge-base HEAD origin/<base branch>`, after a fetch).
@@ -17,7 +17,6 @@ A UX change carries evidence, produced like this (the builder does it before the
 - BLOCKING: a UX change whose pull request description has no before and after images for what changed, or whose images do not show what the diff changes (a piece the change touches is missing).
 - BLOCKING: the images are not on the ticket as well: Tick-it's own comment (starting `<!-- tick-it:ticket-pictures -->`), a comment or the ticket's description links them. Never block on the builder not adding that comment.
 - BLOCKING: a visible difference in the images that the description does not name, or one the ticket did not ask for and nobody has accepted. Say what it is, with the image and where in the diff it comes from.
-- BLOCKING: a prototype on the canvas (the boards the ticket's designs comment names) that lacks a dark board, a light board or a mobile (390 px) view of each, or an approval comment ("Designs approved") that does not name the dark, light and mobile boards approved.
 - BLOCKING: a UX change that adds or changes a component or a state with nothing that draws it on its own.
 - BLOCKING: images that do not mark where the change is, so a reviewer has to hunt for it, or marks that miss a difference you can see.
 - OPTIONAL: images that are hard to compare: different widths, a different theme, sample data that differs between before and after.

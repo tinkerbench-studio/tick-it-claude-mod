@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import { brief } from '../hooks/register'
-import { RUN, COMPOSE, SKILLS, engine, finishTurn, start, STARTED, typed, reports, UI_FILES } from './helpers'
+import { RUN, COMPOSE, SKILLS, engine, finishTurn, start, STARTED, typed, reports, UI_FILES, DESIGN_CONFIG, DESIGN_CHECKLIST } from './helpers'
 
 test('Claude taking a ticket itself is /tick-it take: the brief, then progress to its session, then the review agents', async ($, on) => {
   const seen = engine(on, { lines: 12 }, true, { '.tick-it/skills/principal/SKILL.md': SKILLS['.tick-it/skills/principal/SKILL.md'] ?? '' })
@@ -40,7 +40,7 @@ test('a ticket Claude moved to In review where the hook did not see it is stewar
 })
 
 test('a UI change moved to In review where the hook did not see it is refused at the turn end, and Claude is told what is missing', async ($, on) => {
-  const seen = engine(on, { lines: 12, numstatZ: UI_FILES }, true, { '.tick-it/skills/principal/SKILL.md': SKILLS['.tick-it/skills/principal/SKILL.md'] ?? '' })
+  const seen = engine(on, { lines: 12, numstatZ: UI_FILES }, true, { '.tick-it/skills/principal/SKILL.md': SKILLS['.tick-it/skills/principal/SKILL.md'] ?? '' }, { config: DESIGN_CONFIG })
   await start($)
   await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-147' })
   seen.server.find(t => t.key === 'TCK-147')!.status = 'In review'
@@ -70,26 +70,29 @@ const takeBrief = async ($: Parameters<typeof start>[0] & { tool: { call: (e: ne
   return (await $.prompt.compose(COMPOSE as never)).sections.find(s => s.id === 'tick-it:brief')?.text ?? ''
 }
 
-test("the brief a taken ticket gets uses the repository's design.uiPaths, fetched from Tick-it, for the UI-evidence checklist", async ($, on) => {
-  const config = [{ branch: 'main', design: { uiPaths: ['src/ui/**'] } }]
-  const mine = engine(on, { lines: 12 }, true, {}, { config })
-  mine.server.find(t => t.key === 'TCK-147')!.acceptance = ['Edit src/ui/x.tsx']
+test("the brief a taken ticket gets carries the repository's design.checklist, fetched from Tick-it, when it touches its design.uiPaths", async ($, on) => {
+  const mine = engine(on, { lines: 12 }, true, {}, { config: DESIGN_CONFIG })
+  mine.server.find(t => t.key === 'TCK-147')!.acceptance = ['Edit apps/web/src/pages.tsx']
   await start($)
-  expect((await takeBrief($ as never)).match(/^- UI evidence: /gm)).toHaveLength(5)
+  const brief = await takeBrief($ as never)
+  expect(brief.match(/^- UI evidence: /gm)).toHaveLength(DESIGN_CHECKLIST.length)
+  for (const line of DESIGN_CHECKLIST) expect(brief).toContain(`- ${line}`)
+  expect(brief).toContain("deliver them as this repository's design workflow (docs/design-system.md) and its ux-evidence review skill describe")
+  expect(brief).not.toMatch(/drawing-board|canvas-sync/)
 })
 
-test("a ticket naming a built-in UI path gets no checklist when the repository's design.uiPaths does not list it, and gets it when none are set", async ($, on) => {
-  const set = engine(on, { lines: 12 }, true, {}, { config: [{ branch: 'main', design: { uiPaths: ['src/ui/**'] } }] })
+test("a ticket gets no checklist when it touches none of the repository's design.uiPaths, or the repository sets no checklist", async ($, on) => {
+  const set = engine(on, { lines: 12 }, true, {}, { config: [{ branch: 'main', design: { uiPaths: ['src/ui/**'], checklist: DESIGN_CHECKLIST } }] })
   set.server.find(t => t.key === 'TCK-147')!.acceptance = ['Edit apps/web/src/pages.tsx']
   await start($)
   expect(await takeBrief($ as never)).not.toContain('UI evidence')
 })
 
-test('with no design.uiPaths set, the brief of a ticket naming a built-in UI path carries the checklist', async ($, on) => {
+test('with no design section, the brief of a ticket naming any page or story carries no checklist: the mod has none of its own', async ($, on) => {
   const seen = engine(on, { lines: 12 })
-  seen.server.find(t => t.key === 'TCK-147')!.acceptance = ['Edit apps/web/src/pages.tsx']
+  seen.server.find(t => t.key === 'TCK-147')!.acceptance = ['Edit apps/web/src/pages.tsx', 'Add a state to components.stories.tsx']
   await start($)
-  expect((await takeBrief($ as never)).match(/^- UI evidence: /gm)).toHaveLength(5)
+  expect(await takeBrief($ as never)).not.toContain('UI evidence')
 })
 
 test('Claude moving a same-key ticket of another repository to In review leaves the taken ticket alone', async ($, on) => {
