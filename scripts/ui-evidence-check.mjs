@@ -16,7 +16,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 
 import { fileURLToPath } from 'node:url'
-import { globToRegExp, isUiPath } from './ui-paths.mjs'
+import { globToRegExp, isTestOnlyChange, isUiPath, patchLines } from './ui-paths.mjs'
 
 const DEFAULT_PICTURES = 'docs/change-screenshots/'
 const DEFAULT_MCP = 'https://mcp.tick-it.dev/mcp'
@@ -35,8 +35,9 @@ export function parseConfig(text) {
 }
 
 /** The problems with a change's evidence, each naming the offending file; none when it passes. changed: paths touched; added: files the change adds, changes or renames. */
-export function checkEvidence({ changed, added = [], uiPaths, picturesUnder = DEFAULT_PICTURES }) {
-  if (!changed.some(p => isUiPath(p, uiPaths))) return []
+export function checkEvidence({ changed, added = [], uiPaths, picturesUnder = DEFAULT_PICTURES, lines = new Map() }) {
+  // A story or .storybook/ change that only waits, asserts or comments is a test change, not a UI one (isTestOnlyChange).
+  if (!changed.some(p => isUiPath(p, uiPaths) && !isTestOnlyChange(p, lines.get(p)))) return []
   const dir = picturesUnder.endsWith('/') ? picturesUnder : `${picturesUnder}/`
   return added
     .filter(f => IMAGE.test(f) && f.startsWith(dir))
@@ -108,20 +109,22 @@ async function main(argv, env = process.env, send = fetch) {
     console.error(`${file}: ${error.message}`)
     return 2
   }
-  let changed, problems
+  let changed, problems, lines
   try {
     const base = git('merge-base', 'HEAD', opt('--base') ?? 'origin/main')[0]
     changed = git('diff', '--name-only', base)
-    problems = checkEvidence({ changed, added: git('diff', '--name-only', '--diff-filter=AMR', base), uiPaths, picturesUnder: opt('--pictures-under') })
+    lines = patchLines(git('diff', '-U0', '--no-color', '--no-ext-diff', base).join('\n'))
+    problems = checkEvidence({ changed, added: git('diff', '--name-only', '--diff-filter=AMR', base), uiPaths, picturesUnder: opt('--pictures-under'), lines })
   } catch (error) {
     console.error(`could not read the change from git (is --base, default origin/main, fetched?): ${error.message.split('\n')[0]}`)
     return 2
   }
-  if (!changed.some(p => isUiPath(p, uiPaths))) {
+  const touchesUi = p => isUiPath(p, uiPaths) && !isTestOnlyChange(p, lines.get(p))
+  if (!changed.some(touchesUi)) {
     console.log(`${key}: no UI path changed, nothing to check`)
     return 0
   }
-  const subjects = subjectsOf(changed.filter(p => isUiPath(p, uiPaths)))
+  const subjects = subjectsOf(changed.filter(touchesUi))
   const repository = opt('--repository') ?? /github\.com[:/]([A-Za-z0-9-]+\/[A-Za-z0-9._-]+?)(?:\.git)?\/?$/.exec(git('remote', 'get-url', 'origin').at(0) ?? '')?.[1]
   if (!repository) {
     console.error('which repository is the ticket in? Pass --repository <owner/name>')

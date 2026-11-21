@@ -10,6 +10,7 @@ import { findCurrent, changeTicket, showStatus, save, fromRemote, readTicket, he
 import type { RemoteTicket } from './board'
 import { findSkills, setSteward } from './reviews'
 import { uiEvidenceRefusal } from './ui-check'
+import { TESTABLE_UI_FILE } from '../scripts/ui-paths.mjs'
 import { runCopiesCheck, copiesRefusal, copiesNote } from './copies-check'
 import { log } from './log'
 import { saveResume } from './resume'
@@ -502,11 +503,13 @@ export async function changedFiles($: EngineInterface, status: TicketStatus) {
 
 /** The refusal for the current ticket's UI change that lacks its pictures, or undefined. */
 export async function uiRefusal($: EngineInterface, ticket: string): Promise<string | undefined> {
-  return uiEvidenceRefusal(
-    $,
-    ticket,
-    (await measureFiles($)).map(f => f.path),
-  )
+  const paths = (await measureFiles($)).map(f => f.path)
+  return uiEvidenceRefusal($, ticket, paths, await storyContent($, paths))
+}
+
+/** The changed lines of the ticket, read only when a story or .storybook/ file changed (the only files that can be test-only): any other change reads no patch. */
+async function storyContent($: EngineInterface, paths: readonly string[]) {
+  return paths.some(p => TESTABLE_UI_FILE.test(p)) ? changedContent($) : []
 }
 
 /** The current ticket's copies:check as the steward command needs it: the refusal when it fails, or the note when it could not run; neither when it passed or there is none. */
@@ -522,11 +525,8 @@ export async function finish($: EngineInterface, status: TicketStatus): Promise<
   let copiesUnrun: string | undefined
   // A UI change goes to review with its before/after pictures, or not at all: the reviewer would only send it back.
   if (status === 'In review') {
-    const missing = await uiEvidenceRefusal(
-      $,
-      t.id,
-      (await measureFiles($)).map(f => f.path),
-    )
+    const paths = (await measureFiles($)).map(f => f.path)
+    const missing = await uiEvidenceRefusal($, t.id, paths, await storyContent($, paths))
     if (missing !== undefined) return missing
     // The repository's own stale-copy check (its package.json copies:check script) must pass: a failure refuses the move and changes nothing. A check that cannot run is only said, with the move.
     const copies = await runCopiesCheck($)

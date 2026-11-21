@@ -1,5 +1,6 @@
 import type { EngineInterface } from 'claude-code'
 import { touchesUi } from './ui-evidence'
+import { isTestOnlyChange } from '../scripts/ui-paths.mjs'
 import { callTickit, repositoryHere, uiPathsHere } from './tickit'
 import type { UiPaths } from './ui-evidence'
 
@@ -43,7 +44,10 @@ export function picturesOf(value: Record<string, unknown>): Picture[] | null {
  * Pictures live in Tick-it, so it asks Tick-it (list_screenshots) and runs no git or gh command to look for them.
  * Never throws and lets a change through when Tick-it cannot answer: a check that cannot run must not stop a ticket.
  */
-export async function uiEvidenceRefusal($: EngineInterface, ticket: string, changed: readonly string[]): Promise<string | undefined> {
+export async function uiEvidenceRefusal($: EngineInterface, ticket: string, allChanged: readonly string[], content: readonly { path: string; lines: string }[] = []): Promise<string | undefined> {
+  // A story or .storybook/ change that only waits, asserts or comments is a test change: it shows nothing a person sees, so it needs no pictures.
+  const lines = new Map(content.map(f => [f.path, f.lines]))
+  const changed = allChanged.filter(p => !isTestOnlyChange(p, lines.get(p)))
   let pictures: Picture[] | null = null
   let uiPaths: UiPaths = null
   try {

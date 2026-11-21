@@ -4,7 +4,7 @@ import type { EngineInterface, Register } from 'claude-code'
 import { PANE, TICKET_PANE, WARN_AT, groupsOf, COLOR } from './state'
 import { budgetOf, linkTickets, boardStops, heldUntil, nextToTake, pickMilestone, nextMilestone, milestoneLine, milestoneOf, findCurrent, readTicket, itemCounts, waitedFor, pullRequestLine, startSession, fixCi, rerunFailed, openPullRequest } from './board'
 import { take } from './work'
-import { hereRuns, reviewAgain, stopStewarding, summarise, reviewLine, findingRows } from './reviews'
+import { hereRuns, reviewAgain, stopStewarding, summarise, reviewLine, findingRows, keptSpendPart } from './reviews'
 
 // Declared in this file: the engine reads an atom only where it is written (a module cannot use one imported from state.ts).
 const tickets = atom({ plugin: 'tick-it', key: 'tickets' } as const, [])
@@ -44,13 +44,19 @@ export const registerUi: Register = on => {
       const runs = (await hereRuns($)).filter(r => r.ticket === s.ticket)
       const round = runs.filter(r => r.round === s.round)
       const answered = round.filter(r => r.status !== 'running').length
+      const spend = await keptSpendPart($, s.ticket)
       return (
         <Box flexDirection="row" gap={1} flexWrap="wrap">
           <Text color={COLOR.accent}>◇</Text>
           <Text bold>{s.ticket}</Text>
-          <Text color={COLOR.dim}>{`stewarding · round ${s.round}/${s.maxRounds} · ${s.phase}`}</Text>
+          <Text color={COLOR.dim}>
+            {`stewarding · round ${s.round}/${s.maxRounds}`}
+            {spend !== undefined && <Text color={COLOR[spend.tone]}>{` · ${spend.text}`}</Text>}
+            {` · ${s.phase}`}
+          </Text>
           <Text>{`${answered}/${round.length} reviewers`}</Text>
-          <Text color={COLOR.dim}>{summarise(runs)}</Text>
+          {/* With the spend on the line, the summary drops its own trailing cost so the line never shows two figures. */}
+          <Text color={COLOR.dim}>{spend === undefined ? summarise(runs) : summarise(runs).replace(/ · [^·]*$/, '')}</Text>
           {s.phase === 'fixing' && <Text color={COLOR.dim}>{`round ${s.round + 1} starts when this turn ends`}</Text>}
         </Box>
       )
@@ -108,6 +114,7 @@ export const registerUi: Register = on => {
     const stewarded = s === null ? [] : (await hereRuns($)).filter(r => r.ticket === s.ticket)
     const optionalShown = await read($, showOptional)
     const pr = await read($, pullRequest)
+    const spend = s === null ? undefined : await keptSpendPart($, s.ticket)
     const rows = s === null ? [] : findingRows(stewarded, s.round, optionalShown)
     const planned = await read($, milestones)
     const roadmap = boardStops(planned, list)
@@ -131,7 +138,12 @@ export const registerUi: Register = on => {
         {s !== null && (
           <Box key="steward" flexDirection="column">
             <Text bold>
-              Stewarding {s.ticket} <Text color={COLOR.dim}>{`round ${s.round}/${s.maxRounds} · ${s.phase}`}</Text>
+              Stewarding {s.ticket}{' '}
+              <Text color={COLOR.dim}>
+                {`round ${s.round}/${s.maxRounds}`}
+                {spend !== undefined && <Text color={COLOR[spend.tone]}>{` · ${spend.text}`}</Text>}
+                {` · ${s.phase}`}
+              </Text>
             </Text>
             {stewarded.map(r => (
               <Text key={`review-${r.agentId}`} color={r.status === 'running' ? COLOR.dim : undefined}>

@@ -2,7 +2,7 @@ import { expect, test } from 'claude-code/testing'
 
 import { UI_EVIDENCE_CHECKLIST, hasUiEvidence, touchesUi, withUiEvidence } from '../hooks/ui-evidence'
 import { uiPathsOf } from '../hooks/tickit'
-import { isUiPath } from '../scripts/ui-paths.mjs'
+import { isTestOnlyChange, isUiPath, patchLines } from '../scripts/ui-paths.mjs'
 
 test('the UI-evidence checklist is added to the criteria of a ticket that touches apps/web pages or design files, and left off one that does not', () => {
   const page = ['Header shows the account menu on every page in apps/web/src/pages.tsx']
@@ -61,4 +61,20 @@ test('the gate and the evidence script agree on each glob and path, and on the d
   }
   for (const path of ['apps/web/src/pages.tsx', 'design/tokens.json', 'x/a.css', 'apps/mcp/src/tools.ts']) expect(isUiPath(path, [])).toBe(touchesUi(path, null))
   expect(isUiPath('apps/web/src/pages.tsx', [])).toBe(true)
+})
+
+test('a story or .storybook/ change that only waits, asserts or comments is test-only; any other line makes it a UI change', () => {
+  const testLines = ["import { configure } from 'storybook/test';", '', '// wait for the iframe (NOK-925).', 'configure({ asyncUtilTimeout: 10_000 });'].join('\n')
+  expect(isTestOnlyChange('.storybook/preview.ts', testLines)).toBe(true)
+  expect(isTestOnlyChange('stories/pages/AdminPage.stories.tsx', "// wait\nawait waitFor(() => expect(doc.querySelector('.rail')).toBeTruthy());")).toBe(true)
+  // A line that is not a test line, in the same file, makes it a UI change.
+  expect(isTestOnlyChange('stories/pages/AdminPage.stories.tsx', "await waitFor(() => expect(a).toBe(b));\nexport const Empty: Story = { args: { rows: [] } };")).toBe(false)
+  expect(isTestOnlyChange('stories/pages/AdminPage.stories.tsx', '  <p class="note">New copy</p>')).toBe(false)
+  // Only stories and .storybook/ can be test-only: a stylesheet or page never is, and a file with no lines to read is not.
+  expect(isTestOnlyChange('apps/web/src/pages.tsx', '// a comment')).toBe(false)
+  expect(isTestOnlyChange('assets/site.css', '/* a comment */')).toBe(false)
+  expect(isTestOnlyChange('stories/a.stories.tsx', '')).toBe(false)
+  expect(isTestOnlyChange('stories/a.stories.tsx', undefined)).toBe(false)
+  const patch = ['diff --git a/x.stories.tsx b/x.stories.tsx', '--- a/x.stories.tsx', '+++ b/x.stories.tsx', '@@ -1 +1 @@', '-old', '+await waitFor(() => 1)'].join('\n')
+  expect(patchLines(patch).get('x.stories.tsx')).toBe('old\nawait waitFor(() => 1)')
 })
