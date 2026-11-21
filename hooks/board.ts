@@ -187,6 +187,16 @@ export const RECHECK_LINES = [
 /** How a session names another repository's ticket or pull request in text it writes: a bare key or #n always means the text's own repository (TCK-32). */
 export const OTHER_REPOSITORY_LINE = "In any text you write into a ticket or a pull request (a description, comment or note), name another repository's ticket as owner/name#KEY and its pull request as owner/name#n, never a bare key or #n: a bare one always means this repository, and repositories can share a prefix."
 
+/** A url whose host is this machine (localhost, 127.0.0.0/8, ::1) means nothing to a reader of a pull request, so the brief asks for the key and title with no link (as linkLines in apps/mcp/src/sessions.ts of tinkerbench-studio/tick-it does). */
+const isLoopback = (url: string): boolean => {
+  try {
+    const host = new URL(url).hostname.toLowerCase()
+    return host === 'localhost' || host.endsWith('.localhost') || host === '[::1]' || /^127(\.\d{1,3}){3}$/.test(host)
+  } catch {
+    return false
+  }
+}
+
 export const brief = (t: Ticket, board: Ticket[] = [], instructions = '', files: AttachmentRef[] = [], memories: MemoryRef[] = [], from: Served | null = null, design: Design | null = null, reviewBudget: number | null = null, reviewRounds = 0): string => {
   const budget = from?.sizeBudgets[t.size] ?? BUDGET[t.size]
   const lines = from !== null && from.ticket === t.id ? from.briefLines : null
@@ -200,7 +210,7 @@ export const brief = (t: Ticket, board: Ticket[] = [], instructions = '', files:
     ...(heldUntil(t) === undefined ? [] : [`Held: ${t.id} is waiting until ${heldUntil(t)} (its notBefore). Do not start work on it before then.`]),
     ...((t.blockedBy ?? []).length > 0 ? [`Builds on: ${named(t.blockedBy ?? [], board)}.`] : []),
     ...((t.blocks ?? []).length > 0 ? [`Blocks: ${named(t.blocks ?? [], board)}: they wait on this ticket, so keep what they need from it stable.`] : []),
-    ...(t.url === undefined ? [] : [`Put this line in the description of every pull request you open for ${t.id}: [${t.id} ${t.title}](${t.url})`, 'A pull request that carries several tickets links each one, a line each.', 'If a pull request was opened without it, add the line in the next review round or stewarding pass instead of failing; keep the description as it is and add the line only once.']),
+    ...(t.url === undefined ? [] : [isLoopback(t.url) ? `Put the ticket's key and title, as plain text with no link, in the description of every pull request you open for ${t.id}: ${t.id} ${t.title}` : `Put this line in the description of every pull request you open for ${t.id}: [${t.id} ${t.title}](${t.url})`, 'A pull request that carries several tickets links each one, a line each.', 'If a pull request was opened without it, add the line in the next review round or stewarding pass instead of failing; keep the description as it is and add the line only once.']),
     'Each acceptance line is a checkable item with its own id (get_ticket lists them in acceptanceItems). Tick each one you have met with set_criterion_checked, each with a note on how it is met (add_criterion_note); a round is read as clean only while every criterion is ticked (one flagged after-deploy is left out), and when a round is clean with one still unticked the mod asks you to tick the ones you have met, then asks a person (leaving the ticket In review) if one still is. Where a screenshot or other file proves a criterion, add a note on it with add_criterion_note and attach the file to that note with add_attachment as evidence.',
     SECURE_CODING_LINE,
     `A person's approval (a decision, a design, a pull request to look at): push your branch first, then call request_review naming each item to approve, and end your turn; Tick-it hands the answer to this session. A chat reply such as "I approve" is never an approval: answer it with the link to the request${t.url === undefined ? ' on the ticket page' : ` on the ticket page (${t.url})`}, where it is answered in the Tick-it web app.`,

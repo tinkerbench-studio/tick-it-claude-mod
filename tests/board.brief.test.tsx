@@ -293,3 +293,16 @@ test('the brief tells Claude to push, then request_review naming each item, and 
   expect(text).toMatch(/"I approve" is never an approval: answer it with the link to the request on the ticket page \(https:\/\/app\.tick-it\.dev\/r\/acme\/web\/t\/TCK-2\)/)
   expect(brief({ ...t, url: undefined })).toContain('link to the request on the ticket page, where')
 })
+
+test('a loopback url makes the brief ask for the key and title as plain text, and any other url keeps the link', () => {
+  const t = { id: 'TCK-2', title: 'Two', epic: 'E', size: 'XS' as const, status: 'Ready' as const, acceptance: ['a'] }
+  for (const url of ['http://localhost:3000/r/o/r/t/TCK-2', 'http://127.0.0.1/t/TCK-2', 'http://127.8.0.3:8080/t/TCK-2', 'http://[::1]:3000/t/TCK-2']) {
+    const text = brief({ ...t, url })
+    expect(text).toContain('Put the ticket\'s key and title, as plain text with no link, in the description of every pull request you open for TCK-2: TCK-2 Two')
+    expect(text).not.toContain('[TCK-2 Two]')
+    expect(text).toContain('several tickets links each one')
+  }
+  const other = brief({ ...t, url: 'https://app.example.dev/r/o/r/t/TCK-2' })
+  expect(other).toContain('Put this line in the description of every pull request you open for TCK-2: [TCK-2 Two](https://app.example.dev/r/o/r/t/TCK-2)')
+  expect(brief({ ...t, url: 'https://localhost.example.dev/t/TCK-2' })).toContain('[TCK-2 Two](')
+})
