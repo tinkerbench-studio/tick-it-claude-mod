@@ -506,6 +506,7 @@ export async function uiRefusal($: EngineInterface, ticket: string): Promise<str
     $,
     ticket,
     (await measureFiles($)).map(f => f.path),
+    await changedContent($),
   )
 }
 
@@ -526,6 +527,7 @@ export async function finish($: EngineInterface, status: TicketStatus): Promise<
       $,
       t.id,
       (await measureFiles($)).map(f => f.path),
+      await changedContent($),
     )
     if (missing !== undefined) return missing
     // The repository's own stale-copy check (its package.json copies:check script) must pass: a failure refuses the move and changes nothing. A check that cannot run is only said, with the move.
