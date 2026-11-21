@@ -1,7 +1,7 @@
 // The branch side of the UI evidence check: a UI change must not commit its pictures, and must have uploaded a before and an after of each thing it touches:
 //   node scripts/ui-evidence-check.mjs <TCK-key> [--base <ref>] [--config <file>] [--pictures-under <folder>] [--repository <owner/name>]
 // The UI path globs are `design.uiPaths` of the repository's .tick-it/config.json, the file Tick-it's GitHub App reads
-// (--config names another). With none, the built-in tick-it paths of scripts/ui-paths.mjs apply, as at the gate.
+// (--config names another). With none, no path is a UI path and the check passes, as at the gate (scripts/ui-paths.mjs).
 // A change that touches no UI path passes at once, without asking Tick-it. For one that does, it fails when:
 // 1. a picture file (PNG, JPEG, GIF, WebP) is added or changed under --pictures-under (default docs/change-screenshots/): upload with
 //    presign_screenshot_upload and confirm_screenshot (scripts/upload-screenshots.mjs), never commit;

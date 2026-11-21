@@ -4,15 +4,15 @@ import type { AttachmentRef, MemoryRef, Ticket, TicketSize } from '../types'
 
 import { brief, servedConfig, storeServed } from './board'
 import type { BriefLines } from './board'
-import type { UiPaths } from './ui-evidence'
+import type { Design, PictureRule } from './ui-evidence'
 import { MOD_VERSION, REPORT_TOOL, TICKIT_SERVER, TICKIT_CONNECTORS, DEFAULT_ROUNDS, MAX_ROUND_LIMIT, SIZES } from './state'
 
 // Declared in this file: the engine reads an atom only where it is written (a module cannot use one imported from state.ts).
 const tickets = atom({ plugin: 'tick-it', key: 'tickets' } as const, [])
 /** The repository's instructions for every brief, fetched when a ticket is taken and read locally after. */
 const instructions = atom({ plugin: 'tick-it', key: 'instructions' } as const, '')
-/** The repository's UI globs (design.uiPaths), fetched with the instructions; null when it sets none or Tick-it cannot say, so the built-in paths apply. */
-const uiPathsHeld = atom({ plugin: 'tick-it', key: 'uiPaths' } as const, { repository: '', paths: null } as { repository: string; paths: string[] | null })
+/** The repository's design section (uiPaths, checklist, pictures, workflow), fetched with the instructions; null when it sets no uiPaths, so no change is a UI change. */
+const designHeld = atom({ plugin: 'tick-it', key: 'design' } as const, { repository: '', design: null } as { repository: string; design: Design | null })
 /** The review rounds by ticket size, fetched with the instructions and kept as they were when Tick-it cannot say. */
 const rounds = atom({ plugin: 'tick-it', key: 'rounds' } as const, { repository: '', limits: DEFAULT_ROUNDS } as { repository: string; limits: Record<TicketSize, number> })
 /** The round limit and review budget get_mod_config gave for one ticket (null when it gave none, or something that is not a whole number of 1 or more), kept as they were when Tick-it cannot say. */
@@ -130,32 +130,50 @@ export async function repositoryHere($: EngineInterface): Promise<string | undef
 /** A stored run belongs here when stamped with this repository, or with none (an older mod's, which the repository it is first read in takes). */
 export const madeHere = (run: { repository?: string }, repository: string | undefined): boolean => run.repository === undefined || repository === undefined || sameRepository(run.repository, repository)
 
-/** The design.uiPaths of get_repository_settings' config (one entry per base branch: the first that sets any), or null when none does. */
-export function uiPathsOf(value: Record<string, unknown>): string[] | null {
+const strings = (value: unknown): string[] | null => (Array.isArray(value) && value.every(v => typeof v === 'string' && v !== '') ? (value as string[]) : null)
+
+/** The picture rules of a design section, each kept only when well formed (Tick-it validated them; an odd one is skipped, never guessed at). */
+const pictureRules = (value: unknown): PictureRule[] =>
+  Array.isArray(value)
+    ? value.flatMap(rule => {
+        const { when, name, why } = (rule ?? {}) as Record<string, unknown>
+        const globs = strings(when)
+        return globs !== null && globs.length > 0 && typeof name === 'string' && name !== '' ? [{ when: globs, name, ...(typeof why === 'string' && why !== '' ? { why } : {}) }] : []
+      })
+    : []
+
+/**
+ * The design section of get_repository_settings' config (one entry per base branch: the first that sets uiPaths), or
+ * null when none does: then no change is a UI change. Its checklist, pictures and workflow come from the same entry.
+ */
+export function designOf(value: Record<string, unknown>): Design | null {
   if (!Array.isArray(value.config)) return null
   for (const entry of value.config as unknown[]) {
-    const paths = (entry as { design?: { uiPaths?: unknown } } | null)?.design?.uiPaths
-    if (Array.isArray(paths) && paths.length > 0 && paths.every(p => typeof p === 'string' && p !== '')) return paths as string[]
+    const design = (entry as { design?: Record<string, unknown> | null } | null)?.design
+    if (design === null || design === undefined || typeof design !== 'object') continue
+    const uiPaths = strings(design.uiPaths)
+    if (uiPaths === null || uiPaths.length === 0) continue
+    return { uiPaths, checklist: strings(design.checklist) ?? [], pictures: pictureRules(design.pictures), workflow: typeof design.workflow === 'string' && design.workflow !== '' ? design.workflow : null }
   }
   return null
 }
 
-/** The repository's UI globs for the gate: asked of Tick-it now; as last fetched when it cannot answer; null (built-in paths) when it has none. */
-export async function uiPathsHere($: EngineInterface, repository: string): Promise<UiPaths> {
+/** The repository's design for the gate: asked of Tick-it now; as last fetched when it cannot answer; null when it sets none. */
+export async function designHere($: EngineInterface, repository: string): Promise<Design | null> {
   const got = await callTickit($, 'get_repository_settings', { repository }).catch(() => ({ ok: false as const, why: 'unreachable' }))
   if (got.ok) {
-    const paths = uiPathsOf(got.value)
-    await update($, uiPathsHeld, () => ({ repository, paths }))
-    return paths
+    const design = designOf(got.value)
+    await update($, designHeld, () => ({ repository, design }))
+    return design
   }
-  const held = await read($, uiPathsHeld)
-  return sameRepository(held.repository, repository) ? held.paths : null
+  const held = await read($, designHeld)
+  return sameRepository(held.repository, repository) ? held.design : null
 }
 
-/** The UI globs last fetched, for this repository only: another repository's are not this one's. */
-async function heldUiPaths($: EngineInterface): Promise<UiPaths> {
-  const held = await read($, uiPathsHeld)
-  return sameRepository(held.repository, await repositoryHere($)) ? held.paths : null
+/** The design last fetched, for this repository only: another repository's is not this one's. */
+async function heldDesign($: EngineInterface): Promise<Design | null> {
+  const held = await read($, designHeld)
+  return sameRepository(held.repository, await repositoryHere($)) ? held.design : null
 }
 
 /** Fetches the repository's instructions for every brief (get_repository_settings) into the mod's state; kept as they were when Tick-it cannot say. */
@@ -167,7 +185,7 @@ export async function fetchInstructions($: EngineInterface): Promise<void> {
     const text = got.value.instructions
     await update($, instructions, () => text)
   }
-  if (got.ok) await update($, uiPathsHeld, () => ({ repository, paths: uiPathsOf(got.value) }))
+  if (got.ok) await update($, designHeld, () => ({ repository, design: designOf(got.value) }))
   const given = got.ok ? got.value.reviewRounds : undefined
   if (typeof given === 'object' && given !== null) {
     const held = given as Record<string, unknown>
@@ -229,7 +247,7 @@ export async function hasModLimits($: EngineInterface, ticket: string): Promise<
 /** A ticket's brief with the repository's instructions, as of the last fetch. */
 export async function briefOf($: EngineInterface, t: Ticket): Promise<string> {
   const held = await read($, attachments)
-  return brief(t, await read($, tickets), await read($, instructions), held.ticket === t.id ? held.files : [], held.ticket === t.id ? held.memories : [], await servedConfig($), await heldUiPaths($), await reviewBudgetOf($, t.id), await roundLimit($, t.size, t.id))
+  return brief(t, await read($, tickets), await read($, instructions), held.ticket === t.id ? held.files : [], held.ticket === t.id ? held.memories : [], await servedConfig($), await heldDesign($), await reviewBudgetOf($, t.id), await roundLimit($, t.size, t.id))
 }
 
 /** Fetches the ticket's attachments (get_ticket) into the mod's state; none when Tick-it cannot say. */
