@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 
 import { brief } from '../hooks/register'
-import { RUN, COMPOSE, engine, start, reports } from './helpers'
+import { RUN, COMPOSE, DESIGN_CHECKLIST, engine, start, reports } from './helpers'
 import type { Net } from './helpers'
 
 test('taking a ticket Tick-it gave a description puts it in the brief, and a null one adds nothing', async ($, on) => {
@@ -38,30 +38,32 @@ test('the brief carries the ticket description above the acceptance, and nothing
   expect(brief(t)).not.toContain('Description:')
 })
 
-test("the brief uses the repository's design.uiPaths for the UI-evidence checklist when set, and the built-in paths otherwise", () => {
+test("the brief adds the repository's design.checklist for its design.uiPaths, and nothing with no design section", () => {
   const t = { id: 'TCK-2', title: 'Two', epic: 'E', size: 'XS' as const, status: 'Ready' as const, acceptance: ['Header shows the menu in src/ui/menu.tsx'] }
-  const none = brief(t)
-  expect(none).not.toContain('UI evidence')
-  const set = brief(t, [], '', [], [], null, ['src/ui/**'])
-  expect(set.match(/^- UI evidence: /gm)).toHaveLength(5)
-  expect(brief({ ...t, acceptance: ['Edit apps/web/src/pages.tsx'] }, [], '', [], [], null, ['src/ui/**'])).not.toContain('UI evidence')
-  expect(brief({ ...t, acceptance: ['Edit apps/web/src/pages.tsx'] }, [], '', [], [], null, null).match(/^- UI evidence: /gm)).toHaveLength(5)
+  const design = { uiPaths: ['src/ui/**'], checklist: DESIGN_CHECKLIST, pictures: [], workflow: null }
+  expect(brief(t)).not.toContain('UI evidence')
+  expect(brief({ ...t, acceptance: ['Edit apps/web/src/pages.tsx', 'Add a state to components.stories.tsx'] })).not.toContain('UI evidence')
+  expect(brief(t, [], '', [], [], null, design).match(/^- UI evidence: /gm)).toHaveLength(DESIGN_CHECKLIST.length)
+  expect(brief({ ...t, acceptance: ['Edit apps/web/src/pages.tsx'] }, [], '', [], [], null, design)).not.toContain('UI evidence')
+  // UI paths but no checklist: nothing to add.
+  expect(brief(t, [], '', [], [], null, { ...design, checklist: [] })).not.toContain('UI evidence')
 })
 
-test('the brief adds the UI-evidence checklist to a ticket that names a page or design file, and to no other', () => {
+test('the brief adds the checklist to a ticket that names one of the UI paths, and to no other', () => {
+  const design = { uiPaths: ['apps/web/src/pages.tsx', 'design/**'], checklist: DESIGN_CHECKLIST, pictures: [], workflow: 'docs/ux.md' }
   const t = { id: 'TCK-2', title: 'Two', epic: 'E', size: 'XS' as const, status: 'Ready' as const, acceptance: ['Header shows the menu in apps/web/src/pages.tsx'] }
-  const ui = brief(t)
-  expect(ui.match(/^- UI evidence: /gm)).toHaveLength(5)
+  const ui = brief(t, [], '', [], [], null, design)
+  expect(ui.match(/^- UI evidence: /gm)).toHaveLength(DESIGN_CHECKLIST.length)
   expect(ui).toContain('- Header shows the menu in apps/web/src/pages.tsx\n- UI evidence: ')
-  expect(ui).toContain('lines are acceptance this change must meet')
+  expect(ui).toContain("lines are acceptance this change must meet, though they are not ticked on the ticket: deliver them as this repository's design workflow (docs/ux.md) and its ux-evidence review skill describe")
   // A description alone can name the file, and an empty acceptance still gets the checklist.
-  expect(brief({ ...t, acceptance: [], description: 'Restyle design/tokens.ts' }).match(/^- UI evidence: /gm)).toHaveLength(5)
+  expect(brief({ ...t, acceptance: [], description: 'Restyle design/tokens.ts' }, [], '', [], [], null, design).match(/^- UI evidence: /gm)).toHaveLength(DESIGN_CHECKLIST.length)
   // Already listed: nothing added, no note.
-  const listed = brief({ ...t, acceptance: [...t.acceptance, ...ui.match(/^- (UI evidence: .*)$/gm)!.map(l => l.slice(2))] })
-  expect(listed.match(/^- UI evidence: /gm)).toHaveLength(5)
+  const listed = brief({ ...t, acceptance: [...t.acceptance, ...DESIGN_CHECKLIST] }, [], '', [], [], null, design)
+  expect(listed.match(/^- UI evidence: /gm)).toHaveLength(DESIGN_CHECKLIST.length)
   expect(listed).not.toContain('are acceptance this change must meet')
-  // Words alone are not enough: a tool ticket with the usual docs check, and one about Tick-it's board.
-  for (const acceptance of [['The matching page in docs/ is updated', 'get_board returns the milestone'], ['Retry board sync in apps/mcp/src/store.ts'], ['Refresh the token in apps/web/src/session.ts', 'Add a case in apps/web/test/oauth.test.ts']]) expect(brief({ ...t, acceptance })).not.toContain('UI evidence')
+  // Words alone are not enough.
+  for (const acceptance of [['The matching page in docs/ is updated', 'get_board returns the milestone'], ['Retry board sync in apps/mcp/src/store.ts']]) expect(brief({ ...t, acceptance }, [], '', [], [], null, design)).not.toContain('UI evidence')
 })
 
 test('the brief asks Claude to name the memories it relied on when it reports, with the same words as the start message', () => {

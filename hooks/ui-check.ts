@@ -1,31 +1,37 @@
 import type { EngineInterface } from 'claude-code'
 import { touchesUi } from './ui-evidence'
-import { isTestOnlyChange } from '../scripts/ui-paths.mjs'
-import { callTickit, repositoryHere, uiPathsHere } from './tickit'
-import type { UiPaths } from './ui-evidence'
-
-/** A changed canvas board (copy or map entry), which has a story to draw beside it. */
-const BOARD = /(^|\/)design\/canvas\/boards\/[^/]+\.(map\.json|dc\.html)$/
-/** A board-beside-story picture, by the name docs/design-system.md gives it. */
-const BESIDE_STORY = /(^|\/)board-beside-story-[^/]+$/
+import { globToRegExp, isTestOnlyChange } from '../scripts/ui-paths.mjs'
+import { callTickit, designHere, repositoryHere } from './tickit'
+import type { Design } from './ui-evidence'
 
 /** A confirmed picture of a ticket, as Tick-it's list_screenshots names it. */
 export type Picture = { key: string; name: string }
 
-/** What is missing for a UI change to be reviewed: one line each, with how to produce it. Empty when the pictures are there or the change touches no UI. The pictures are the ticket's confirmed ones in Tick-it; the repository and the pull request description are never read. */
-export function uiEvidenceProblems(input: { ticket: string; changed: readonly string[]; pictures: readonly Picture[]; uiPaths?: UiPaths }): string[] {
-  if (!touchesUi(input.changed.join('\n'), input.uiPaths ?? null)) return []
-  const how =
-    'Every command named here ships with the drawing-board package, in every repository that uses it: run it as the project does (npx drawing-board <command>, or the project\'s own script for it). If one cannot start a browser, run drawing-board browser, set what it names ("Which Chromium" in the drawing-board README), and report the command and its error on the ticket; do not write a screenshot script of your own. See the drawing-board:ux-picture skill and the design workflow doc that get_repository_settings names'
+/** A picture's file name: its name, else the last part of its key. */
+const fileName = (p: Picture): string => p.name || p.key.split('/').pop() || ''
+
+/**
+ * What is missing for a UI change to be reviewed: one line each. Empty when the pictures are there or the change touches
+ * none of the repository's UI paths. What is asked for is the repository's own: any one confirmed picture of a UI
+ * change, and each picture its design.pictures rules name for the paths the change touches. How to make them is the
+ * repository's design workflow doc, never the mod's. The pictures are the ticket's confirmed ones in Tick-it; the
+ * repository and the pull request description are never read.
+ */
+export function uiEvidenceProblems(input: { ticket: string; changed: readonly string[]; pictures: readonly Picture[]; design?: Design | null }): string[] {
+  const design = input.design ?? null
+  if (design === null || !touchesUi(input.changed.join('\n'), design)) return []
+  const how = `${design.workflow ? `This repository's design workflow (${design.workflow}) says how to make them` : "This repository's ux-evidence review skill says what they show"}. If a step cannot run, report the command and its error on the ticket rather than writing a screenshot script of your own`
   const problems: string[] = []
   if (input.pictures.length === 0)
-    problems.push(
-      `${input.ticket} has no confirmed picture in Tick-it (list_screenshots). Take the before from the merge base (git fetch origin && git worktree add ../base "$(git merge-base HEAD origin/main)", then build its Storybook there) and the after from the branch: drawing-board story-shot <storybook-dir> <story-id> shots/before/<name>.png for each story the change touches (the same into shots/after from the branch's build; drawing-board page-shots for pages, where the project has a pages() hook). Run drawing-board compare-pictures shots/before shots/after shots/compare, then upload each image in shots/compare with presign_screenshot_upload and confirm_screenshot. Do not commit the pictures. ${how}.`,
-    )
-  const boards = input.changed.filter(p => BOARD.test(p))
-  if (boards.length > 0 && !input.pictures.some(p => BESIDE_STORY.test(p.name) || BESIDE_STORY.test(p.key)))
-    problems.push(`This branch changes a canvas board or board-map entry (${boards.slice(0, 3).join(', ')}) but list_screenshots shows no picture named board-beside-story-*. Build Storybook, then run drawing-board annotate --board <Board>.dc.html --theme dark --out reports/design-canvas/dark and the same with --theme light --out reports/design-canvas/light, copy each reports/design-canvas/dark/shots/<Board>-side-by-side.png to shots/compare/board-beside-story-<Board>.png and each reports/design-canvas/light/shots/<Board>-side-by-side.png to shots/compare/board-beside-story-<Board>-light.png (the name the check looks for), and upload those with presign_screenshot_upload and confirm_screenshot. ${how}.`)
-
+    problems.push(`${input.ticket} has no confirmed picture in Tick-it (list_screenshots). Upload the before/after pictures of what changed with presign_screenshot_upload and confirm_screenshot: pictures are uploaded, never committed. ${how}.`)
+  for (const rule of design.pictures) {
+    const whens = rule.when.map(globToRegExp)
+    const touched = input.changed.filter(p => whens.some(g => g.test(p)))
+    if (touched.length === 0) continue
+    const named = globToRegExp(rule.name)
+    if (input.pictures.some(p => named.test(fileName(p)))) continue
+    problems.push(`This branch changes ${touched.slice(0, 3).join(', ')}${touched.length > 3 ? ` and ${touched.length - 3} more` : ''}, so this repository asks for a picture named ${rule.name}, and list_screenshots shows none.${rule.why === undefined ? '' : ` ${rule.why}`} ${how}.`)
+  }
   return problems
 }
 
@@ -50,20 +56,20 @@ export async function uiEvidenceRefusal($: EngineInterface, ticket: string, allC
   const lines = new Map(content.map(f => [f.path, f.lines]))
   const changed = allChanged.filter(p => !isTestOnlyChange(p, lines.get(p)))
   let pictures: Picture[] | null = null
-  let uiPaths: UiPaths = null
+  let design: Design | null = null
   try {
     const repository = await repositoryHere($)
     if (repository === undefined) return undefined
-    // The repository's own design.uiPaths decide what a UI change is, the same globs scripts/ui-evidence-check.mjs reads.
-    uiPaths = await uiPathsHere($, repository)
-    if (!touchesUi(changed.join('\n'), uiPaths)) return undefined
+    // The repository's own design section decides what a UI change is (design.uiPaths, the same globs scripts/ui-evidence-check.mjs reads) and what it must carry; with none, nothing is asked.
+    design = await designHere($, repository)
+    if (!touchesUi(changed.join('\n'), design)) return undefined
     const got = await callTickit($, 'list_screenshots', { repository, ticket })
     if (got.ok) pictures = picturesOf(got.value)
   } catch {
     // Tick-it did not answer: nothing is refused.
   }
   if (pictures === null) return undefined
-  const problems = uiEvidenceProblems({ ticket, changed, pictures, uiPaths })
+  const problems = uiEvidenceProblems({ ticket, changed, pictures, design })
   if (problems.length === 0) return undefined
 
   return `${ticket} changes the UI, so it is not ready for review. Fix ${problems.length === 1 ? 'this' : 'these'}, then move it to In review again:\n${problems.map(p => `- ${p}`).join('\n')}`
