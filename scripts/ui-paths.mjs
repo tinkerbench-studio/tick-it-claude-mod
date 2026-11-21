@@ -29,7 +29,7 @@ export function globToRegExp(glob) {
 export const isUiPath = (path, uiPaths) => (uiPaths.length === 0 ? DEFAULT_UI_PATH.test(path) : uiPaths.some(g => globToRegExp(g).test(path)))
 
 /** A file whose change can be test-only: a story (its play function asserts) or the Storybook configuration (its test settings). A stylesheet or a design file never is. */
-const TESTABLE_UI_FILE = /(^|\/)\.storybook\/|\.stories\.tsx?$/
+export const TESTABLE_UI_FILE = /(^|\/)\.storybook\/|\.stories\.tsx?$/
 
 /**
  * A changed line that only tests: blank, a comment, an import from Storybook's test package, or a line that waits, asserts, queries or

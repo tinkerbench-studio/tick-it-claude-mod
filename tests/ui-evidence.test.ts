@@ -2,7 +2,7 @@ import { expect, test } from 'claude-code/testing'
 
 import { UI_EVIDENCE_CHECKLIST, hasUiEvidence, touchesUi, withUiEvidence } from '../hooks/ui-evidence'
 import { uiPathsOf } from '../hooks/tickit'
-import { isUiPath } from '../scripts/ui-paths.mjs'
+import { isTestOnlyChange, isUiPath, patchLines } from '../scripts/ui-paths.mjs'
 
 test('the UI-evidence checklist is added to the criteria of a ticket that touches apps/web pages or design files, and left off one that does not', () => {
   const page = ['Header shows the account menu on every page in apps/web/src/pages.tsx']
@@ -63,8 +63,7 @@ test('the gate and the evidence script agree on each glob and path, and on the d
   expect(isUiPath('apps/web/src/pages.tsx', [])).toBe(true)
 })
 
-test('a story or .storybook/ change that only waits, asserts or comments is test-only; any other line makes it a UI change', async () => {
-  const { isTestOnlyChange, patchLines } = await import('../scripts/ui-paths.mjs')
+test('a story or .storybook/ change that only waits, asserts or comments is test-only; any other line makes it a UI change', () => {
   const testLines = ["import { configure } from 'storybook/test';", '', '// wait for the iframe (NOK-925).', 'configure({ asyncUtilTimeout: 10_000 });'].join('\n')
   expect(isTestOnlyChange('.storybook/preview.ts', testLines)).toBe(true)
   expect(isTestOnlyChange('stories/pages/AdminPage.stories.tsx', "// wait\nawait waitFor(() => expect(doc.querySelector('.rail')).toBeTruthy());")).toBe(true)
