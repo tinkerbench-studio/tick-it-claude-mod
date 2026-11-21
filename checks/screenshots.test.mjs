@@ -199,3 +199,13 @@ test('the evidence script runs with node alone: its folder holds the shared modu
   assert.equal(isUiPath('apps/web/src/pages.tsx', []), true)
   assert.equal(isUiPath, sharedIsUiPath)
 })
+
+test('a story change that only waits or asserts is not a UI change for the evidence check; one with another line is', () => {
+  const added = ['docs/change-screenshots/a.png']
+  const testOnly = new Map([['stories/A.stories.tsx', '// wait\nawait waitFor(() => expect(x).toBeTruthy());']])
+  assert.deepEqual(checkEvidence({ changed: ['stories/A.stories.tsx'], added, uiPaths: [], lines: testOnly }), [])
+  const mixed = new Map([['stories/A.stories.tsx', 'await waitFor(() => 1);\nexport const B: Story = {}']])
+  assert.equal(checkEvidence({ changed: ['stories/A.stories.tsx'], added, uiPaths: [], lines: mixed }).length, 1)
+  // Another UI file in the same change still counts.
+  assert.equal(checkEvidence({ changed: ['stories/A.stories.tsx', 'apps/web/src/pages.tsx'], added, uiPaths: [], lines: testOnly }).length, 1)
+})
