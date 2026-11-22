@@ -108,7 +108,7 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/upload-screenshots.mjs" put ./shots presigne
 node "${CLAUDE_PLUGIN_ROOT}/scripts/ui-evidence-check.mjs" ABC-12 --base origin/main --pictures-under docs/screenshots
 ```
 
-The check reads the repository's UI path globs from `design.uiPaths` in `.tick-it/config.json` (the file Tick-it's GitHub App reads; `--config <file>` names another); with none, no path is a UI path and the check passes (`scripts/ui-paths.mjs`, the same rule the gate uses):
+The check reads the repository's UI path globs from `design.uiPaths` in `.tick-it/config.json` (the file Tick-it's GitHub App reads; `--config <file>` names another); with none, no path is a UI path and the committed-pictures check passes (the identical-pair check does not read them and always runs) (`scripts/ui-paths.mjs`, the same rule the gate uses):
 
 ```json
 { "design": { "uiPaths": ["src/ui/**", "**/*.css"] } }
