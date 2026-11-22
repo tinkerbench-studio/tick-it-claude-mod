@@ -967,6 +967,8 @@ export async function budgetStop($: EngineInterface, ticket: string, rounds: num
   if (repository === undefined) return undefined
   const got = await callTickit($, 'get_ticket', { repository, key: ticket, include: [] }).catch(() => undefined)
   const spend = got?.ok === true ? (got.value.ticket as { reviewSpend?: { costUsd?: unknown; budget?: unknown; remaining?: unknown } | null } | undefined)?.reviewSpend : undefined
+  // Costs that can no longer be seen leave no after-merge line behind from an earlier read.
+  if (spend === null || (got?.ok === true && spend === undefined)) await update($, spendKept, k => ({ ...k, afterMerge: null }))
   if (spend === null || spend === undefined) return undefined
   const { costUsd, budget, remaining } = spend
   if (typeof costUsd !== 'number' || typeof budget !== 'number' || typeof remaining !== 'number') return undefined
