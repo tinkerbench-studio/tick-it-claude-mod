@@ -962,7 +962,6 @@ async function autoMergeOn($: EngineInterface, repository: string): Promise<bool
  * when Tick-it cannot be read, or when reviewSpend is null (costs cannot be seen) or names no budget.
  */
 export async function budgetStop($: EngineInterface, ticket: string, rounds: number): Promise<{ budget: number; costUsd: number; reached: boolean } | undefined> {
-  if ((await reviewBudgetOf($, ticket)) === null) return undefined
   const repository = await repositoryHere($)
   if (repository === undefined) return undefined
   const got = await callTickit($, 'get_ticket', { repository, key: ticket, include: [] }).catch(() => undefined)
@@ -971,8 +970,10 @@ export async function budgetStop($: EngineInterface, ticket: string, rounds: num
   if (spend === null || (got?.ok === true && spend === undefined)) await update($, spendKept, k => ({ ...k, afterMerge: null }))
   if (spend === null || spend === undefined) return undefined
   const { costUsd, budget, remaining } = spend
-  if (typeof costUsd !== 'number' || typeof budget !== 'number' || typeof remaining !== 'number') return undefined
+  if (typeof costUsd !== 'number') return undefined
+  // The after-merge line has no budget condition: it is kept whatever the budget, and shown from here.
   await update($, spendKept, () => ({ ticket, costUsd, afterMerge: afterMergeOf((spend as { afterMerge?: unknown }).afterMerge) }))
+  if ((await reviewBudgetOf($, ticket)) === null || typeof budget !== 'number' || typeof remaining !== 'number') return undefined
   // The spend covers every session's rounds, so it is divided by the rounds recorded for the ticket, not by this session's count alone.
   const recorded = await recordedReviews($, ticket)
   const ran = recorded === undefined ? rounds : Math.max(rounds, recorded.length)

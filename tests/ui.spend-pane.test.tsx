@@ -76,3 +76,9 @@ for (const [name, reviewSpend] of [['zero after-merge runs', { ...spend(1), afte
     expect(heading).not.toContain('After a base merge')
   })
 }
+
+test('after-merge spend with no review budget: the line shows and no $x/$y figure does', async ($, on) => {
+  const { heading } = await lines($, on, { modConfig: served(null), reviewSpend: { ...spend(1), afterMerge: afterMerge(1) } })
+  expect(heading).toContain('After a base merge: $0.40, 1/2 free rounds')
+  expect(heading).not.toContain('/$')
+})
