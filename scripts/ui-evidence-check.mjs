@@ -6,9 +6,11 @@
 // upload pictures with presign_screenshot_upload and confirm_screenshot (scripts/upload-screenshots.mjs).
 // Whether pictures are uploaded is read from Tick-it (list_screenshots) by the mod's gate at /tick-it done, not here, and
 // that gate reads the same globs and default rule from scripts/ui-paths.mjs.
-// Exit 0 when it passes, 1 when pictures are committed, 2 on a wrong call.
+// A <name>-before / <name>-after picture pair under --pictures-under whose bytes are identical fails too, naming the pair:
+// the sample does not show the change (tinkerbench-studio/tick-it#TCK-1615 refuses the same pair at upload).
+// Exit 0 when it passes, 1 when pictures are committed or a pair is identical, 2 on a wrong call.
 import { execFileSync } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { globToRegExp, isTestOnlyChange, isUiPath, patchLines } from './ui-paths.mjs'
 
@@ -34,6 +36,16 @@ export function checkEvidence({ changed, added = [], uiPaths, picturesUnder = DE
   return added
     .filter(f => IMAGE.test(f) && f.startsWith(dir))
     .map(f => `${f} is committed: upload pictures with presign_screenshot_upload and confirm_screenshot instead (scripts/upload-screenshots.mjs)`)
+}
+
+/** Each <name>-after picture in a folder whose bytes equal its <name>-before; answers a problem line per pair. */
+export function identicalPairs(dir, names, read = f => readFileSync(`${dir}/${f}`)) {
+  const stem = (f, side) => f.match(new RegExp(`^(.*)-${side}\\.(png|jpe?g|gif|webp)$`, 'i'))
+  return names.flatMap(after => {
+    const m = stem(after, 'after')
+    const before = m && names.find(n => stem(n, 'before')?.[1] === m[1])
+    return before && read(before).equals(read(after)) ? [`${before} and ${after} are identical: the sample does not show the change`] : []
+  })
 }
 
 const git = (...args) => execFileSync('git', args, { encoding: 'utf8', maxBuffer: 1 << 28, stdio: ['ignore', 'pipe', 'pipe'] }).split('\n').filter(Boolean)
@@ -64,11 +76,13 @@ function main(argv) {
     console.error(`could not read the change from git (is --base, default origin/main, fetched?): ${error.message.split('\n')[0]}`)
     return 2
   }
+  const folder = opt('--pictures-under') ?? DEFAULT_PICTURES
+  if (existsSync(folder)) problems.push(...identicalPairs(folder, readdirSync(folder).filter(f => IMAGE.test(f))))
   if (problems.length === 0) {
     console.log(changed.some(p => isUiPath(p, uiPaths) && !isTestOnlyChange(p, lines.get(p))) ? `${key}: no pictures committed` : `${key}: no UI path changed, nothing to check`)
     return 0
   }
-  console.error(`${key}: pictures are committed:`)
+  console.error(`${key}: the picture evidence fails:`)
   for (const p of problems) console.error(`- ${p}`)
   return 1
 }
