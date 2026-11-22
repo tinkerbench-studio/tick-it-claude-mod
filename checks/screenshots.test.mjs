@@ -9,7 +9,7 @@ import { test } from 'node:test'
 
 import { isUiPath as sharedIsUiPath } from '../scripts/ui-paths.mjs'
 import { plan, put } from '../scripts/upload-screenshots.mjs'
-import { checkEvidence, globToRegExp, isUiPath, parseConfig } from '../scripts/ui-evidence-check.mjs'
+import { checkEvidence, identicalPairs, globToRegExp, isUiPath, parseConfig } from '../scripts/ui-evidence-check.mjs'
 
 const UPLOAD = new URL('../scripts/upload-screenshots.mjs', import.meta.url).pathname
 const CHECK = new URL('../scripts/ui-evidence-check.mjs', import.meta.url).pathname
@@ -212,4 +212,19 @@ test('a story change that only waits or asserts is not a UI change for the evide
   assert.equal(checkEvidence({ changed: ['stories/A.stories.tsx'], added, uiPaths, lines: mixed }).length, 1)
   // Another UI file in the same change still counts.
   assert.equal(checkEvidence({ changed: ['stories/A.stories.tsx', 'apps/web/src/pages.tsx'], added, uiPaths, lines: testOnly }).length, 1)
+})
+
+test('an identical before/after pair is named with the reason that the sample does not show the change, and the script exits 1', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'pairs-'))
+  writeFileSync(join(dir, 'menu-before.png'), 'same')
+  writeFileSync(join(dir, 'menu-after.png'), 'same')
+  writeFileSync(join(dir, 'tab-before.png'), 'one')
+  writeFileSync(join(dir, 'tab-after.png'), 'two')
+  const run = spawnSync('node', [CHECK, 'TCK-1', '--base', 'HEAD', '--pictures-under', dir], { encoding: 'utf8' })
+  assert.equal(run.status, 1)
+  assert.match(run.stderr, /menu-before\.png and menu-after\.png are identical: the sample does not show the change/)
+  assert.doesNotMatch(run.stderr, /tab-/)
+  writeFileSync(join(dir, 'menu-after.png'), 'different')
+  assert.equal(spawnSync('node', [CHECK, 'TCK-1', '--base', 'HEAD', '--pictures-under', dir], { encoding: 'utf8' }).status, 0)
+  assert.deepEqual(identicalPairs(dir, ['a-after.png']), [])
 })

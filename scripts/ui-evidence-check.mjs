@@ -1,7 +1,7 @@
 // The branch side of the UI evidence check: a UI change must not commit its pictures, and must have uploaded a before and an after of each thing it touches:
 //   node scripts/ui-evidence-check.mjs <TCK-key> [--base <ref>] [--config <file>] [--pictures-under <folder>] [--repository <owner/name>]
 // The UI path globs are `design.uiPaths` of the repository's .tick-it/config.json, the file Tick-it's GitHub App reads
-// (--config names another). With none, no path is a UI path and the check passes, as at the gate (scripts/ui-paths.mjs).
+// (--config names another). With none, no path is a UI path and the committed-pictures and uploaded-pictures checks pass (scripts/ui-paths.mjs, the same rule the gate uses).
 // A change that touches no UI path passes at once, without asking Tick-it. For one that does, it fails when:
 // 1. a picture file (PNG, JPEG, GIF, WebP) is added or changed under --pictures-under (default docs/change-screenshots/): upload with
 //    presign_screenshot_upload and confirm_screenshot (scripts/upload-screenshots.mjs), never commit;
@@ -11,9 +11,11 @@
 //    and names each missing one. A picture counts when its name holds the story or page, the variant and "before" or "after"
 //    (<page>-dark-before-after.png from ui:compare counts as both);
 // 3. Tick-it cannot be reached, or there is no TICKIT_TOKEN: it fails and says so; it never passes unchecked.
-// Exit 0 when it passes, 1 when evidence is missing, committed or unreadable, 2 on a wrong call.
+// An identical <name>-before / <name>-after pair under --pictures-under fails too, naming the pair, and is checked even when no UI path changed
+// (tinkerbench-studio/tick-it#TCK-1615 refuses the same pair at upload).
+// Exit 0 when it passes, 1 when evidence is missing, committed, identical or unreadable, 2 on a wrong call.
 import { execFileSync } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 
 import { fileURLToPath } from 'node:url'
 import { globToRegExp, isTestOnlyChange, isUiPath, patchLines } from './ui-paths.mjs'
@@ -91,6 +93,16 @@ export async function readPictures({ url, token, repository, ticket, send = fetc
   return value.screenshots.map(s => String(s?.name ?? ''))
 }
 
+/** Each <name>-after picture in a folder whose bytes equal its <name>-before; answers a problem line per pair. */
+export function identicalPairs(dir, names, read = f => readFileSync(`${dir}/${f}`)) {
+  const stem = (f, side) => f.match(new RegExp(`^(.*)-${side}\\.(png|jpe?g|gif|webp)$`, 'i'))
+  return names.flatMap(after => {
+    const m = stem(after, 'after')
+    const before = m && names.find(n => stem(n, 'before')?.[1] === m[1])
+    return before && read(before).equals(read(after)) ? [`${before} and ${after} are identical: the sample does not show the change`] : []
+  })
+}
+
 const git = (...args) => execFileSync('git', args, { encoding: 'utf8', maxBuffer: 1 << 28, stdio: ['ignore', 'pipe', 'pipe'] }).split('\n').filter(Boolean)
 
 async function main(argv, env = process.env, send = fetch) {
@@ -120,9 +132,16 @@ async function main(argv, env = process.env, send = fetch) {
     return 2
   }
   const touchesUi = p => isUiPath(p, uiPaths) && !isTestOnlyChange(p, lines.get(p))
+  const folder = opt('--pictures-under') ?? DEFAULT_PICTURES
+  if (existsSync(folder)) problems.push(...identicalPairs(folder, readdirSync(folder).filter(f => IMAGE.test(f))))
   if (!changed.some(touchesUi)) {
-    console.log(`${key}: no UI path changed, nothing to check`)
-    return 0
+    if (problems.length === 0) {
+      console.log(`${key}: no UI path changed, nothing to check`)
+      return 0
+    }
+    console.error(`${key}: the UI evidence is not complete:`)
+    for (const p of problems) console.error(`- ${p}`)
+    return 1
   }
   const subjects = subjectsOf(changed.filter(touchesUi))
   const repository = opt('--repository') ?? /github\.com[:/]([A-Za-z0-9-]+\/[A-Za-z0-9._-]+?)(?:\.git)?\/?$/.exec(git('remote', 'get-url', 'origin').at(0) ?? '')?.[1]

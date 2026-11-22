@@ -104,11 +104,11 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/upload-screenshots.mjs" plan ./shots        
 node "${CLAUDE_PLUGIN_ROOT}/scripts/upload-screenshots.mjs" put ./shots presigned.json      # PUTs them, prints what to confirm
 #    Claude calls confirm_screenshot for each name printed
 
-# 2. Before review, check a UI change commits no pictures and has a before and an after uploaded for each story or page it touches (reads list_screenshots with TICKIT_TOKEN):
+# 2. Before review, check a UI change commits no pictures, has no identical `<name>-before`/`<name>-after` pair in the pictures folder, and has a before and an after uploaded for each story or page it touches (reads list_screenshots with TICKIT_TOKEN):
 TICKIT_TOKEN=... node "${CLAUDE_PLUGIN_ROOT}/scripts/ui-evidence-check.mjs" ABC-12 --base origin/main --pictures-under docs/screenshots
 ```
 
-The check reads the repository's UI path globs from `design.uiPaths` in `.tick-it/config.json` (the file Tick-it's GitHub App reads; `--config <file>` names another); with none, no path is a UI path and the check passes (`scripts/ui-paths.mjs`, the same rule the gate uses):
+The check reads the repository's UI path globs from `design.uiPaths` in `.tick-it/config.json` (the file Tick-it's GitHub App reads; `--config <file>` names another); with none, no path is a UI path and the committed-pictures check passes (the identical-pair check does not read them and always runs) (`scripts/ui-paths.mjs`, the same rule the gate uses):
 
 ```json
 { "design": { "uiPaths": ["src/ui/**", "**/*.css"] } }
