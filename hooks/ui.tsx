@@ -4,7 +4,7 @@ import type { EngineInterface, Register } from 'claude-code'
 import { PANE, TICKET_PANE, WARN_AT, groupsOf, COLOR } from './state'
 import { budgetOf, linkTickets, boardStops, heldUntil, nextToTake, pickMilestone, nextMilestone, milestoneLine, milestoneOf, findCurrent, readTicket, itemCounts, waitedFor, pullRequestLine, startSession, fixCi, rerunFailed, openPullRequest } from './board'
 import { take } from './work'
-import { hereRuns, reviewAgain, stopStewarding, summarise, reviewLine, findingRows, keptSpendPart } from './reviews'
+import { hereRuns, reviewAgain, stopStewarding, summarise, reviewLine, findingRows, keptSpendPart, keptAfterMergeLine } from './reviews'
 
 // Declared in this file: the engine reads an atom only where it is written (a module cannot use one imported from state.ts).
 const tickets = atom({ plugin: 'tick-it', key: 'tickets' } as const, [])
@@ -115,6 +115,7 @@ export const registerUi: Register = on => {
     const optionalShown = await read($, showOptional)
     const pr = await read($, pullRequest)
     const spend = s === null ? undefined : await keptSpendPart($, s.ticket)
+    const afterMerge = s === null ? undefined : await keptAfterMergeLine($, s.ticket)
     const rows = s === null ? [] : findingRows(stewarded, s.round, optionalShown)
     const planned = await read($, milestones)
     const roadmap = boardStops(planned, list)
@@ -145,6 +146,7 @@ export const registerUi: Register = on => {
                 {` · ${s.phase}`}
               </Text>
             </Text>
+            {afterMerge !== undefined && <Text key="after-merge" color={COLOR.dim}>{afterMerge}</Text>}
             {stewarded.map(r => (
               <Text key={`review-${r.agentId}`} color={r.status === 'running' ? COLOR.dim : undefined}>
                 {reviewLine(r).trim()}

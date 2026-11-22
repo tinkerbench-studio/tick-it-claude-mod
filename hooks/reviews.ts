@@ -18,8 +18,11 @@ const tickets = atom({ plugin: 'tick-it', key: 'tickets' } as const, [])
 const startedSession = atom({ plugin: 'tick-it', key: 'started' } as const, null)
 const reviews = atom({ plugin: 'tick-it', key: 'reviews' } as const, [])
 const steward = atom({ plugin: 'tick-it', key: 'steward' } as const, null)
+/** What reviewSpend.afterMerge says of the review rounds on a head that only merged the base in: tracked apart from costUsd and the round ceiling (tinkerbench-studio/tick-it#TCK-1641). */
+export type AfterMerge = { runs: number; costUsd: number; freeRounds: number; limit: number }
+
 /** The ticket's spend as budgetStop last read it from get_ticket (reviewSpend.costUsd), kept so the stewarding pane shows it without a Tick-it call of its own. */
-const spendKept = atom({ plugin: 'tick-it', key: 'spendKept' } as const, { ticket: '', costUsd: null as number | null })
+const spendKept = atom({ plugin: 'tick-it', key: 'spendKept' } as const, { ticket: '', costUsd: null as number | null, afterMerge: null as AfterMerge | null })
 const pullRequest = atom({ plugin: 'tick-it', key: 'pullRequest' } as const, null)
 const pullRequestError = atom({ plugin: 'tick-it', key: 'pullRequestError' } as const, null)
 /** What Tick-it's record_runs answer said of the round (roundVerdict, next): settleRound follows it, and reads the round itself when there is none. */
@@ -959,15 +962,18 @@ async function autoMergeOn($: EngineInterface, repository: string): Promise<bool
  * when Tick-it cannot be read, or when reviewSpend is null (costs cannot be seen) or names no budget.
  */
 export async function budgetStop($: EngineInterface, ticket: string, rounds: number): Promise<{ budget: number; costUsd: number; reached: boolean } | undefined> {
-  if ((await reviewBudgetOf($, ticket)) === null) return undefined
   const repository = await repositoryHere($)
   if (repository === undefined) return undefined
   const got = await callTickit($, 'get_ticket', { repository, key: ticket, include: [] }).catch(() => undefined)
   const spend = got?.ok === true ? (got.value.ticket as { reviewSpend?: { costUsd?: unknown; budget?: unknown; remaining?: unknown } | null } | undefined)?.reviewSpend : undefined
+  // Costs that can no longer be seen leave no after-merge line behind from an earlier read.
+  if (spend === null || (got?.ok === true && spend === undefined)) await update($, spendKept, k => ({ ...k, afterMerge: null }))
   if (spend === null || spend === undefined) return undefined
   const { costUsd, budget, remaining } = spend
-  if (typeof costUsd !== 'number' || typeof budget !== 'number' || typeof remaining !== 'number') return undefined
-  await update($, spendKept, () => ({ ticket, costUsd }))
+  if (typeof costUsd !== 'number') return undefined
+  // The after-merge line has no budget condition: it is kept whatever the budget, and shown from here.
+  await update($, spendKept, () => ({ ticket, costUsd, afterMerge: afterMergeOf((spend as { afterMerge?: unknown }).afterMerge) }))
+  if ((await reviewBudgetOf($, ticket)) === null || typeof budget !== 'number' || typeof remaining !== 'number') return undefined
   // The spend covers every session's rounds, so it is divided by the rounds recorded for the ticket, not by this session's count alone.
   const recorded = await recordedReviews($, ticket)
   const ran = recorded === undefined ? rounds : Math.max(rounds, recorded.length)
@@ -982,6 +988,20 @@ export const spendPart = (costUsd: number | null, budget: number | null): { text
   if (costUsd === null || budget === null) return undefined
   const over = costUsd >= budget
   return { text: `${usd.format(costUsd)}/$${budget}${over ? ' over' : ''}`, tone: over ? 'over' : costUsd >= budget * WARN_AT ? 'warn' : 'ok' }
+}
+
+/** reviewSpend.afterMerge when it has spend to show (runs above 0 and whole figures); null for an older Tick-it that sends none, or zero runs. */
+const afterMergeOf = (v: unknown): AfterMerge | null => {
+  const a = v as { runs?: unknown; costUsd?: unknown; freeRounds?: unknown; limit?: unknown } | null | undefined
+  if (a === null || a === undefined || typeof a.runs !== 'number' || a.runs <= 0 || typeof a.costUsd !== 'number' || typeof a.freeRounds !== 'number' || typeof a.limit !== 'number') return null
+  return { runs: a.runs, costUsd: a.costUsd, freeRounds: a.freeRounds, limit: a.limit }
+}
+
+/** The after-merge line of the stewarding pane, e.g. `After a base merge: $0.40, 1/2 free rounds`; undefined when nothing ran after a merge or the spend is unknown. Not part of the x/y budget figure. */
+export async function keptAfterMergeLine($: EngineInterface, ticket: string): Promise<string | undefined> {
+  const kept = await read($, spendKept)
+  const a = kept.ticket === ticket ? kept.afterMerge : null
+  return a === null ? undefined : `After a base merge: ${usd.format(a.costUsd)}, ${a.freeRounds}/${a.limit} free rounds`
 }
 
 /** The spend kept for the ticket (see spendKept) against its kept reviewBudget; no Tick-it call. */
