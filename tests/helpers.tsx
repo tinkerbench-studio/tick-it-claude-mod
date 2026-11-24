@@ -259,10 +259,14 @@ export const engine = (
   // A base review skill is read from the plugin's own folder, wherever that is: the map names it from skills/review-agents/bases on.
   // A secure-coding skill is read from the plugin's own folder too: the map names it from skills/secure- on.
   const rel = (path: string) => (path.includes('.tick') ? path.slice(path.indexOf('.tick')) : path.includes(BASES) ? path.slice(path.indexOf(BASES)) : path.includes('skills/secure-') ? path.slice(path.indexOf('skills/secure-')) : /\/(package\.json|node_modules)$/.test(path) ? path.slice(path.lastIndexOf('/') + 1) : path)
+  // A repository file the test gives (diff.files), found by its path under the working directory.
+  const repoFile = (path: string) => Object.keys(diff.files ?? {}).find(name => path === name || path.endsWith(`/${name}`))
   on('fs.exists', (_$, e) => ({
-    value: Object.keys(skills).some(path => path === rel(e.path) || path.startsWith(`${rel(e.path)}/`)),
+    value: Object.keys(skills).some(path => path === rel(e.path) || path.startsWith(`${rel(e.path)}/`)) || repoFile(e.path) !== undefined,
   }))
   on('fs.list', (_$, e) => {
+    const inFolder = Object.keys(diff.files ?? {}).filter(name => name.startsWith(`${e.path.slice(e.path.indexOf('apps/'))}/`))
+    if (inFolder.length > 0) return { value: inFolder.map(name => ({ name: name.split('/').pop() ?? '', kind: 'file' as const, size: 0, mtimeMs: 0, isLink: false })) }
     if (e.path === '/' && diff.siblings !== undefined) {
       if (diff.siblings === 'unlistable') throw new Error('EACCES')
       return { value: Object.keys(diff.siblings).map(name => ({ name, kind: 'dir' as const, size: 0, mtimeMs: 0, isLink: false })) }
@@ -287,7 +291,7 @@ export const engine = (
   const untracked = (path: string) => Object.entries(diff.untracked ?? {}).find(([name]) => path === name || path.endsWith(`/${name}`))?.[1]
   const binary = (path: string) => Object.entries(diff.binary ?? {}).find(([name]) => path === name || path.endsWith(`/${name}`))?.[1]
   on('fs.read', (_$, e) => {
-    if (e.as !== 'bytes') return { value: skills[rel(e.path)] ?? diff.files?.[e.path] ?? untracked(e.path) ?? '' }
+    if (e.as !== 'bytes') return { value: skills[rel(e.path)] ?? (repoFile(e.path) === undefined ? undefined : diff.files?.[repoFile(e.path) ?? '']) ?? diff.files?.[e.path] ?? untracked(e.path) ?? '' }
     const text = untracked(e.path)
     const base64 = binary(e.path) ?? (text === undefined ? undefined : btoa(String.fromCharCode(...new TextEncoder().encode(text))))
     return { value: { base64: base64 ?? '' } }

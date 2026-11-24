@@ -154,3 +154,32 @@ test('a design section with no picture rules asks for one picture of a UI change
   expect(moved.deny).not.toContain('design workflow (')
   expect(inReview(seen)).toBe(false)
 })
+
+/** A shared component restyled: the files the repository holds, as the gate reads them for the stories and pages it touches. */
+const SHARED_FILES = {
+  'apps/web/src/render.tsx': "import './components/Button'\n",
+  'apps/web/src/components/Button.tsx': 'export const Button = 1\n',
+  'apps/web/src/design/buttons.stories.tsx': "import { Button } from '../components/Button'\nexport default { title: 'Pages/Buttons' }\nexport const Plain = {}\n",
+  'scripts/page-shots.mjs': "export const PAGES = {\n  board: { view: 'board' },\n}\n",
+}
+const SHARED = `1\t0\tapps/web/src/components/Button.tsx\0`
+
+test('a shared component change is refused naming each touched story and page with no confirmed picture, and passes with them all', async ($, on) => {
+  const seen = engine(on, { lines: 5, numstatZ: SHARED, pictures: [PIC], files: SHARED_FILES }, true, {}, DESIGNED)
+  await start($)
+  await $.prompt.submit(typed(STARTED))
+  const moved = await finishReview($ as never)
+  expect(moved.deny).toContain('page board has no confirmed picture (needs board-dark, board-light, board-phone)')
+  expect(moved.deny).toContain('story pages-buttons--plain (apps/web/src/design/buttons.stories.tsx) has no confirmed picture')
+  expect(moved.deny).not.toContain('has no confirmed picture in Tick-it')
+  expect(inReview(seen)).toBe(false)
+})
+
+test('every touched story and page with its pictures lets the change through', async ($, on) => {
+  const names = ['board', 'story-pages-buttons--plain'].flatMap(base => ['dark', 'light', 'phone'].map(v => `${base}-${v}.png`))
+  const seen = engine(on, { lines: 5, numstatZ: SHARED, pictures: names.map(name => ({ key: `acme/web-app/TCK-151/${name}`, name })), files: SHARED_FILES }, true, {}, DESIGNED)
+  await start($)
+  await $.prompt.submit(typed(STARTED))
+  expect((await finishReview($ as never)).deny).toBeUndefined()
+  expect(inReview(seen)).toBe(true)
+})

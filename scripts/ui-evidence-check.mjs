@@ -8,11 +8,17 @@
 // that gate reads the same globs and default rule from scripts/ui-paths.mjs.
 // A <name>-before / <name>-after picture pair under --pictures-under whose bytes are identical fails too, naming the pair:
 // the sample does not show the change (tinkerbench-studio/tick-it#TCK-1615 refuses the same pair at upload).
-// Exit 0 when it passes, 1 when pictures are committed or a pair is identical, 2 on a wrong call.
+// With a UI change it also prints the stories and PAGES entries the change touches (scripts/ui-touched.mjs: a changed file in their import
+// closure, so a shared component touches many) and, when --pictures a.png,b.png or --pictures-dir <folder> names the pictures made, the touched
+// ones with none (each needs -dark, -light and -phone). The `/tick-it done` gate refuses the same ones against Tick-it's confirmed pictures.
+// Exit 0 when it passes, 1 when pictures are committed, a pair is identical or a touched story or page has none, 2 on a wrong call.
 import { execFileSync } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { readdir, readFile, stat } from 'node:fs/promises'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { globToRegExp, isTestOnlyChange, isUiPath, patchLines } from './ui-paths.mjs'
+import { touched, uncovered, uncoveredLines } from './ui-touched.mjs'
 
 const DEFAULT_PICTURES = 'docs/change-screenshots/'
 const IMAGE = /\.(png|jpe?g|gif|webp)$/i
@@ -48,14 +54,21 @@ export function identicalPairs(dir, names, read = f => readFileSync(`${dir}/${f}
   })
 }
 
+/** The files of a repository as node reads them, for scripts/ui-touched.mjs. */
+export const nodeFs = root => ({
+  exists: async p => (await stat(join(root, p)).catch(() => null))?.isFile() === true,
+  read: p => readFile(join(root, p), 'utf8'),
+  list: p => readdir(join(root, p)).catch(() => []),
+})
+
 const git = (...args) => execFileSync('git', args, { encoding: 'utf8', maxBuffer: 1 << 28, stdio: ['ignore', 'pipe', 'pipe'] }).split('\n').filter(Boolean)
 
-function main(argv) {
+async function main(argv) {
   const [key, ...rest] = argv
   const opt = name => (rest.includes(name) ? rest[rest.indexOf(name) + 1] : undefined)
-  const badOption = ['--base', '--config', '--pictures-under'].some(n => rest.includes(n) && (!opt(n) || opt(n).startsWith('--')))
+  const badOption = ['--base', '--config', '--pictures-under', '--pictures', '--pictures-dir'].some(n => rest.includes(n) && (!opt(n) || opt(n).startsWith('--')))
   if (!/^[A-Za-z]+-[1-9]\d*$/.test(key ?? '') || badOption) {
-    console.error('usage: node scripts/ui-evidence-check.mjs <TCK-key> [--base <ref>] [--config <file>] [--pictures-under <folder>]')
+    console.error('usage: node scripts/ui-evidence-check.mjs <TCK-key> [--base <ref>] [--config <file>] [--pictures-under <folder>] [--pictures a.png,b.png | --pictures-dir <folder>]')
     return 2
   }
   const file = opt('--config') ?? '.tick-it/config.json'
@@ -78,8 +91,16 @@ function main(argv) {
   }
   const folder = opt('--pictures-under') ?? DEFAULT_PICTURES
   if (existsSync(folder)) problems.push(...identicalPairs(folder, readdirSync(folder).filter(f => IMAGE.test(f))))
+  const ui = changed.some(p => isUiPath(p, uiPaths) && !isTestOnlyChange(p, lines.get(p)))
+  if (ui) {
+    const found = await touched({ fs: nodeFs(process.cwd()), changed })
+    console.log(`${key}: touches ${found.stories.length} stories and ${found.pages.length} pages\n${[...found.pages.map(p => `  page ${p}`), ...found.stories.map(s => `  story ${s.id}`)].join('\n')}`)
+    const dir = opt('--pictures-dir')
+    const given = opt('--pictures')?.split(',') ?? (dir !== undefined && existsSync(dir) ? readdirSync(dir) : undefined)
+    if (given !== undefined) problems.push(...uncoveredLines(uncovered(found, given)))
+  }
   if (problems.length === 0) {
-    console.log(changed.some(p => isUiPath(p, uiPaths) && !isTestOnlyChange(p, lines.get(p))) ? `${key}: no pictures committed` : `${key}: no UI path changed, nothing to check`)
+    console.log(ui ? `${key}: no pictures committed` : `${key}: no UI path changed, nothing to check`)
     return 0
   }
   console.error(`${key}: the picture evidence fails:`)
@@ -87,4 +108,4 @@ function main(argv) {
   return 1
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) process.exitCode = main(process.argv.slice(2))
+if (process.argv[1] === fileURLToPath(import.meta.url)) process.exitCode = await main(process.argv.slice(2))

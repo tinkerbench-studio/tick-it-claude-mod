@@ -195,7 +195,7 @@ test('the evidence script runs with node alone: its folder holds the shared modu
   const ran = spawnSync('node', [join(dir, 'scripts/ui-evidence-check.mjs'), 'not a key'], { cwd: dir, encoding: 'utf8' })
   assert.equal(ran.status, 2)
   assert.match(ran.stderr, /^usage: node scripts\/ui-evidence-check\.mjs/)
-  assert.deepEqual([...readFileSync(CHECK, 'utf8').matchAll(/^import .* from '(.*)'/gm)].map(m => m[1]).filter(s => !s.startsWith('node:')), ['./ui-paths.mjs'])
+  assert.deepEqual([...readFileSync(CHECK, 'utf8').matchAll(/^import .* from '(.*)'/gm)].map(m => m[1]).filter(s => !s.startsWith('node:')), ['./ui-paths.mjs', './ui-touched.mjs'])
   // With no design.uiPaths nothing is a UI path: the plugin has no built-in paths.
   assert.equal(isUiPath('apps/web/src/pages.tsx', []), false)
   assert.deepEqual(checkEvidence({ changed: ['apps/web/src/pages.tsx', 'stories/A.stories.tsx'], added: ['docs/change-screenshots/a.png'], uiPaths: [] }), [])
