@@ -59,3 +59,26 @@ test('spend unknown (reviewSpend null): both lines read as with the round limit 
   expect(heading).not.toContain('/$')
   expect(bandText).not.toContain('/$')
 })
+
+// After-merge spend (TCK-89): kept out of the x/y figure and shown on a line of its own.
+const afterMerge = (runs: number) => ({ runs, rounds: runs, costUsd: 0.4, unpriced: 0, freeRounds: 1, limit: 2 })
+
+test('after-merge spend: the x/y figure is costUsd unchanged and a separate line shows the after-merge cost and free rounds against the limit', async ($, on) => {
+  const { heading } = await lines($, on, { modConfig: served(3), reviewSpend: { ...spend(1), afterMerge: afterMerge(1) } })
+  expect(heading).toContain('round 1/4 · $1.00/$3 · ')
+  expect(heading).not.toContain('$1.40')
+  expect(heading).toContain('After a base merge: $0.40, 1/2 free rounds')
+})
+
+for (const [name, reviewSpend] of [['zero after-merge runs', { ...spend(1), afterMerge: afterMerge(0) }], ['no afterMerge', spend(1)], ['reviewSpend null', null]] as const) {
+  test(`${name}: nothing extra shows`, async ($, on) => {
+    const { heading } = await lines($, on, { modConfig: served(3), reviewSpend })
+    expect(heading).not.toContain('After a base merge')
+  })
+}
+
+test('after-merge spend with no review budget: the line shows and no $x/$y figure does', async ($, on) => {
+  const { heading } = await lines($, on, { modConfig: served(null), reviewSpend: { ...spend(1), afterMerge: afterMerge(1) } })
+  expect(heading).toContain('After a base merge: $0.40, 1/2 free rounds')
+  expect(heading).not.toContain('/$')
+})
