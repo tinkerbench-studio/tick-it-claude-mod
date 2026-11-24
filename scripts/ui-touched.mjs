@@ -32,7 +32,8 @@ export async function closure(fs, entry) {
     for (const [, spec] of (await fs.read(file)).matchAll(IMPORT)) {
       const base = join(dirname(file), spec)
       for (const ext of EXTENSIONS) {
-        if (!(await fs.exists(base + ext))) continue
+        // A folder of the same name (pages/ beside pages.tsx) is no file: `exists` may be true for one, as the gate's $.fs.exists is.
+        if (!(await fs.exists(base + ext)) || (await fs.list(base + ext)).length > 0) continue
         await walk(base + ext)
         break
       }

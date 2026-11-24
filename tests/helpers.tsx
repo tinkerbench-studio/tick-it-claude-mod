@@ -262,7 +262,7 @@ export const engine = (
   // A repository file the test gives (diff.files), found by its path under the working directory.
   const repoFile = (path: string) => Object.keys(diff.files ?? {}).find(name => path === name || path.endsWith(`/${name}`))
   on('fs.exists', (_$, e) => ({
-    value: Object.keys(skills).some(path => path === rel(e.path) || path.startsWith(`${rel(e.path)}/`)) || repoFile(e.path) !== undefined,
+    value: Object.keys(skills).some(path => path === rel(e.path) || path.startsWith(`${rel(e.path)}/`)) || repoFile(e.path) !== undefined || Object.keys(diff.files ?? {}).some(name => e.path.includes('/') && `/${name}`.includes(`${e.path.slice(e.path.indexOf('apps/'))}/`) && e.path.includes('apps/')),
   }))
   on('fs.list', (_$, e) => {
     const inFolder = Object.keys(diff.files ?? {}).filter(name => name.startsWith(`${e.path.slice(e.path.indexOf('apps/'))}/`))

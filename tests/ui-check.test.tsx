@@ -157,7 +157,9 @@ test('a design section with no picture rules asks for one picture of a UI change
 
 /** A shared component restyled: the files the repository holds, as the gate reads them for the stories and pages it touches. */
 const SHARED_FILES = {
-  'apps/web/src/render.tsx': "import './components/Button'\n",
+  'apps/web/src/render.tsx': "import './pages'\n",
+  'apps/web/src/pages.tsx': "import './components/Button'\n",
+  'apps/web/src/pages/Other.tsx': 'export const Other = 1\n',
   'apps/web/src/components/Button.tsx': 'export const Button = 1\n',
   'apps/web/src/design/buttons.stories.tsx': "import { Button } from '../components/Button'\nexport default { title: 'Pages/Buttons' }\nexport const Plain = {}\n",
   'scripts/page-shots.mjs': "export const PAGES = {\n  board: { view: 'board' },\n}\n",

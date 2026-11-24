@@ -94,7 +94,8 @@ async function main(argv) {
   const ui = changed.some(p => isUiPath(p, uiPaths) && !isTestOnlyChange(p, lines.get(p)))
   if (ui) {
     const found = await touched({ fs: nodeFs(process.cwd()), changed })
-    console.log(`${key}: touches ${found.stories.length} stories and ${found.pages.length} pages\n${[...found.pages.map(p => `  page ${p}`), ...found.stories.map(s => `  story ${s.id}`)].join('\n')}`)
+    const names = [...found.pages.map(p => `  page ${p}`), ...found.stories.map(s => `  story ${s.id}`)]
+    console.log(`${key}: touches ${found.stories.length} stories and ${found.pages.length} pages${names.map(n => `\n${n}`).join('')}`)
     const dir = opt('--pictures-dir')
     const given = opt('--pictures')?.split(',') ?? (dir !== undefined && existsSync(dir) ? readdirSync(dir) : undefined)
     if (given !== undefined) problems.push(...uncoveredLines(uncovered(found, given)))
