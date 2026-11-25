@@ -7,6 +7,7 @@ import { refreshDiff, report, recordPullRequest, firstLine, finish } from './wor
 import { gaveVerdict, withoutStopMarks, costOf, openVerdictLines, readFindings, readVerdicts, parseFinding, saveReviews, setSteward, startRound, settleRound, checkIn } from './reviews'
 import type { CheckIn } from './reviews'
 import { queue, flush } from './outbox'
+import { log } from './log'
 import { saveResume } from './resume'
 
 // Declared in this file: the engine reads an atom only where it is written (a module cannot use one imported from state.ts).
@@ -182,17 +183,23 @@ export const registerTurn: Register = on => {
     const status = gaveVerdict(e.answer, e.reason, found.blocking.length + held.length) ? 'done' : 'failed'
     // A failed run is started again once in the same round. The retry is started before the failed run is saved, and both are saved together, so no moment shows the round without a running reviewer for another reviewer's end to settle on.
     let retry: ReviewRun | undefined
-    if (status === 'failed' && run.retry !== true && run.prompt !== undefined) {
+    // Why a run with no verdict was not run again: the log names it, as the run's end otherwise leaves no trace of the skipped retry.
+    let notRetried: Record<string, unknown> | undefined
+    if (status === 'failed') {
       const before = await read($, steward)
-      if (before !== null && before.ticket === run.ticket && before.round === run.round && before.phase === 'reviewing') {
+      if (run.retry === true) notRetried = { why: 'already-run-again' }
+      else if (run.prompt === undefined) notRetried = { why: 'no-saved-prompt' }
+      else if (before === null || before.ticket !== run.ticket || before.round !== run.round || before.phase !== 'reviewing') notRetried = { why: 'steward-not-reviewing', steward: before === null ? 'none' : `${before.ticket}:round-${before.round}:${before.phase}` }
+      else {
         const started = await $.clock.now()
         const description = run.description ?? `tick-it review: ${run.skill} on ${run.ticket}, round ${run.round}`
         const spawned = await $.agent.spawn({ prompt: run.prompt, description, subagentType: 'general-purpose', model: run.model }).catch(error => ({ deny: error instanceof Error ? error.message : String(error) }) as { deny?: string; agentId?: string; model?: string })
         const agentId = spawned.deny === undefined ? (spawned.agentId ?? (await $.agent.list()).find(a => a.description === description && a.id !== run.agentId)?.id) : undefined
         if (agentId !== undefined) {
           retry = { ...run, description, agentId, model: spawned.model ?? run.model, startedAt: started, status: 'running', retry: true, blocking: undefined, optional: undefined, findings: undefined, items: undefined, verdicts: undefined, usage: undefined, costUsd: undefined, durationMs: undefined }
-        }
+        } else notRetried = { why: 'spawn-refused', error: (spawned.deny ?? 'no agent id').replace(/[^A-Za-z0-9_.:#/,-]+/g, '_').slice(0, 100) }
       }
+      if (notRetried !== undefined) await log($, 'debug', 'run-not-run-again', { ticket: run.ticket, round: run.round, skill: run.skill, ...notRetried })
     }
     await saveReviews($, list => [
       ...list.map(r =>
