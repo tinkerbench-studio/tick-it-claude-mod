@@ -2,7 +2,7 @@ import { expect, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
 import { DEFAULT_LEVEL, LEVELS, cleanField, levelOf, lineOf } from '../hooks/log'
-import { RUN, SKILLS, engine, finishTurn, start, STARTED, typed } from './helpers'
+import { PANE, RUN, SKILLS, engine, finishTurn, start, STARTED, typed } from './helpers'
 import type { Net } from './helpers'
 
 /** The mod's log as the engine was asked to write it: the environment it reads and each line it writes, with the file named. */
@@ -234,4 +234,44 @@ test('at debug: a build turn has no commit of its own, so its outbox-send line s
   await $.turn.complete(finishTurn(undefined, 'Built it.'))
   const build = log.lines().find(l => l.includes(' debug outbox-send ') && l.includes('skill=build')) ?? ''
   expect(build).toMatch(/outbox-send claudeSession=session-1 tickitSession=\S+ agentId=\S+ skill=build round=none headSha=none result=accepted/)
+})
+
+const ONLY_PRINCIPAL = { '.tick-it/skills/principal/SKILL.md': SKILLS['.tick-it/skills/principal/SKILL.md'] ?? '' }
+const noVerdict = (agentId: string) => finishTurn(agentId, 'Every criterion is met.')
+
+test('at debug: a run with no VERDICT that cannot be run again logs why, with the spawn error text', async ($, on) => {
+  let refuse: string | undefined
+  engine(on, { lines: 10, refuse: () => refuse }, true, ONLY_PRINCIPAL)
+  const log = logging(on, { TICK_IT_LOG: 'debug' })
+  await start($)
+  await $.prompt.submit(typed(STARTED))
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'done' })
+  refuse = 'background tasks are off'
+  await $.turn.complete(noVerdict('agent-1'))
+  expect(log.lines().join('\n')).toMatch(/run-not-run-again ticket=TCK-151 round=1 skill=principal why=spawn-refused error=background_tasks_are_off/)
+})
+
+test('at debug: a second run with no VERDICT logs that it was already run again', async ($, on) => {
+  engine(on, { lines: 10 }, true, ONLY_PRINCIPAL)
+  const log = logging(on, { TICK_IT_LOG: 'debug' })
+  await start($)
+  await $.prompt.submit(typed(STARTED))
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'done' })
+  await $.turn.complete(noVerdict('agent-1'))
+  expect(log.lines().join('\n')).not.toContain('run-not-run-again')
+  await $.turn.complete(noVerdict('agent-2'))
+  expect(log.lines().join('\n')).toMatch(/run-not-run-again ticket=TCK-151 round=1 skill=principal why=already-run-again/)
+})
+
+test('at debug: a run with no VERDICT whose steward is no longer reviewing logs the steward phase', async ($, on) => {
+  engine(on, { lines: 10 }, true, ONLY_PRINCIPAL)
+  const log = logging(on, { TICK_IT_LOG: 'debug' })
+  await start($)
+  await $.prompt.submit(typed(STARTED))
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'done' })
+  const ui = await $.ui.mount({ plugin: 'tick-it', surface: 'terminal', ...PANE })
+  await ui.press({ key: 'stop-stewarding' })
+  await $.turn.complete(noVerdict('agent-1'))
+  expect(log.lines().join('\n')).toMatch(/run-not-run-again ticket=TCK-151 round=1 skill=principal why=steward-not-reviewing steward=TCK-151:round-1:stopped/)
+  await ui.unmount()
 })
