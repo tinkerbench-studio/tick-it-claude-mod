@@ -275,3 +275,13 @@ test('at debug: a run with no VERDICT whose steward is no longer reviewing logs 
   expect(log.lines().join('\n')).toMatch(/run-not-run-again ticket=TCK-151 round=1 skill=principal why=steward-not-reviewing steward=TCK-151:round-1:stopped/)
   await ui.unmount()
 })
+
+test('at debug: a run with no VERDICT and no saved prompt logs no-saved-prompt', async ($, on) => {
+  // A run restored from older state, saved before prompts were kept.
+  const run = { agentId: 'agent-1', ticket: 'TCK-143', epic: 'One-page checkout', round: 1, skill: 'principal', model: 'm', startedAt: 1, status: 'running', claudeSession: 'session-1' }
+  engine(on, { lines: 10, stored: { reviews: [run] } }, true, ONLY_PRINCIPAL)
+  const log = logging(on, { TICK_IT_LOG: 'debug' })
+  await start($)
+  await $.turn.complete(noVerdict('agent-1'))
+  expect(log.lines().join('\n')).toMatch(/run-not-run-again ticket=TCK-143 round=1 skill=principal why=no-saved-prompt/)
+})
