@@ -110,6 +110,21 @@ test('the upload sequence stores each picture through the two tools: presign, PU
   assert.deepEqual(tools.calls[0], ['presign', { repository: 'o/r', ticket: 'TCK-1', name: 'after.png', type: 'image/png' }])
 })
 
+test('put PUTs to an http://127.0.0.1 upload URL as it does to an https one', async () => {
+  const fake = await store()
+  const sent = []
+  const send = async (url, init) => (sent.push({ url, method: init.method, headers: init.headers }), { ok: true, status: 200 })
+  const headers = { 'content-type': 'image/png' }
+  const loopback = await put(folder(), [{ name: 'after.png', url: `${fake.url}/after.png`, headers }])
+  const secure = await put(folder(), [{ name: 'after.png', url: 'https://uploads.example.com/after.png', headers }], send)
+  fake.close()
+  assert.ok(fake.url.startsWith('http://127.0.0.1:'))
+  assert.deepEqual(loopback, { confirm: [{ name: 'after.png' }], failed: [] })
+  assert.deepEqual(secure, loopback)
+  assert.deepEqual(fake.puts, [{ name: 'after.png', method: 'PUT', type: 'image/png', fake: undefined, body: 'a' }])
+  assert.deepEqual(sent, [{ url: 'https://uploads.example.com/after.png', method: 'PUT', headers }])
+})
+
 test('a picture whose PUT was refused exits 1, is named, and is never confirmed', async () => {
   const fake = await store(['after.png'])
   const tools = fakeTools(fake.url)

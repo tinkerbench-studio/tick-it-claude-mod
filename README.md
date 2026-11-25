@@ -4,7 +4,23 @@ Tick-it in your Claude session. The board comes from Tick-it's MCP server for th
 
 Every move happens on Tick-it first: take, done, drop, Done after a clean review round with every acceptance check ticked (a check flagged after-deploy is left out), and `/tick-it add`. `/tick-it attach <id> <note> <file>` moves nothing: it attaches a file, such as a log or screenshot, to a note on a ticket's acceptance check (the mod reads it as bytes, so any type up to 3 MB). The board is cached with the repository it was read for, so when Tick-it can't be reached `/tick-it board` shows the last board read for this repository and says why, and nothing moves (a board cached for another repository is not shown).
 
-The manifest points at Tick-it on `https://mcp.tick-it.dev/mcp`. To use a local `tickit-mcp` instead (see the repository README), start Claude Code with `TICKIT_MCP_URL=http://localhost:8787/mcp`. Sign in once with `/mcp`.
+The manifest points at Tick-it on `https://mcp.tick-it.dev/mcp`. To use a Tick-it running on your own machine instead, see [Using a Tick-it on your own machine](#using-a-tick-it-on-your-own-machine).
+
+## Using a Tick-it on your own machine
+
+Tick-it can run on your own computer, with its own database and nothing synced to the hosted one.
+
+1. In a clone of `tinkerbench-studio/tick-it`, start it with `npm run local`.
+2. Start Claude Code with `TICKIT_MCP_URL=http://localhost:8787/mcp`.
+3. Sign in once with `/mcp`.
+
+The whole path, from a fresh clone, is in [`docs/local.md`](https://github.com/tinkerbench-studio/tick-it/blob/main/docs/local.md) in `tinkerbench-studio/tick-it`.
+
+What differs locally:
+
+- Nothing on your machine receives GitHub's webhooks, so pull requests and CI arrive by polling, about a minute behind.
+- Screenshots upload to the local Tick-it, over `http://127.0.0.1` (`scripts/upload-screenshots.mjs` PUTs to it as it does to an https URL).
+- A localhost link means nothing to a reader, so ticket links in pull requests are written as keys, not localhost URLs.
 
 ## Install
 
