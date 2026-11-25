@@ -84,10 +84,10 @@ export async function touched({ fs, changed }) {
   return { stories, pages: names.filter(n => (pages[n].home ? homeDraws : render)) }
 }
 
-/** The touched stories and pages with no picture: each needs `-dark`, `-light` and `-phone` (a page as `<page>-<variant>`, a story as `story-<id>-<variant>`), each with or without `-before-after`. `pictures` are file names or keys. */
+/** The touched stories and pages with no picture: each needs `-dark`, `-light` and `-phone` (a page as `<page>-<variant>`, a story as `story-<id>-<variant>`), each as is, with `-before-after`, or as a `-before` and `-after` pair. `pictures` are file names or keys. */
 export function uncovered(found, pictures) {
   const names = new Set(pictures.map(p => p.replace(/^.*\//, '').replace(/\.(png|jpe?g|gif|webp)$/i, '')))
-  const has = (base, v) => names.has(`${base}-${v}`) || names.has(`${base}-${v}-before-after`)
+  const has = (base, v) => names.has(`${base}-${v}`) || names.has(`${base}-${v}-before-after`) || (names.has(`${base}-${v}-before`) && names.has(`${base}-${v}-after`))
   const all = base => VARIANTS.every(v => has(base, v))
   return { pages: found.pages.filter(p => !all(p)), stories: found.stories.filter(s => !all(`story-${s.id}`)) }
 }

@@ -45,6 +45,13 @@ test('the stylesheet the preview imports touches every story, and the home page 
   assert.deepEqual(await touched({ fs: nodeFs(repo({ 'a.txt': 'x' })), changed: ['a.txt'] }), { stories: [], pages: [] })
 })
 
+test('a -before and -after pair covers a variant, and one half alone does not', () => {
+  const found = { pages: ['board'], stories: [] }
+  const pair = v => [`board-${v}-before.png`, `board-${v}-after.png`]
+  assert.deepEqual(uncovered(found, ['dark', 'light', 'phone'].flatMap(pair)), { pages: [], stories: [] })
+  assert.deepEqual(uncovered(found, [...pair('dark'), ...pair('light'), 'board-phone-after.png']), found)
+})
+
 test('a touched story or page needs a dark, light and phone picture; six pictures of one page leave the rest named', async () => {
   const found = await touched({ fs: nodeFs(repo()), changed: ['apps/web/src/components/Button.tsx'] })
   const six = ['ticket-screenshots-dark.png', 'ticket-screenshots-light.png', 'ticket-screenshots-phone-before-after.png', 'board-dark.png', 'board-light.png', 'story-pages-buttons--plain-dark.png']
