@@ -26,7 +26,7 @@ export function parseRequired(output) {
   }
   const list = (v, keys) => Array.isArray(v) && v.length <= MAX_ENTRIES && v.every(e => e !== null && typeof e === 'object' && keys.every(k => text(e[k])))
   if (raw === null || typeof raw !== 'object' || !list(raw.touched, ['kind', 'id', 'file']) || !list(raw.required, ['for', 'name']) || !raw.touched.every(t => t.kind === 'story' || t.kind === 'page'))
-    throw new Error('its output is not { touched: [{ kind, id, file }], required: [{ for, name }] }')
+    throw new Error('its output is not the contract: a touched list of kind, id and file, and a required list of for and name')
   return { touched: raw.touched, required: raw.required }
 }
 

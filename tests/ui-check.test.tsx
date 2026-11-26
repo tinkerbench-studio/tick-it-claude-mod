@@ -276,7 +276,7 @@ test('a command that does not finish in time refuses the move naming the command
 })
 
 test('a command that prints output that is not the contract refuses the move naming the command and why', async ($, on) => {
-  await refused($ as never, on as never, answer('{"touched": 1}'), 'its output is not { touched: [{ kind, id, file }], required: [{ for, name }] }')
+  await refused($ as never, on as never, answer('{"touched": 1}'), 'its output is not the contract: a touched list of kind, id and file, and a required list of for and name')
 })
 
 const timeoutAsked = async ($: never, on: never, value: string) => {
