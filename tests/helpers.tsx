@@ -76,7 +76,7 @@ export type Net = {
   ticketNoResult?: boolean
   /** Only this server connects (a cloud session: the claude.ai connector, not the plugin's own). */
   only?: string
-  answer?: (args: Seen['recorded'][number]['args'], call: number) => 'unreachable' | { isError?: boolean; text?: string; rejected?: { agentId: string; reason: string }[] }
+  answer?: (args: Seen['recorded'][number]['args'], call: number) => 'unreachable' | { isError?: boolean; text?: string; rejected?: { agentId: string; reason: string }[]; /** Only these runs are taken; the others are left unanswered. */ only?: string[] }
   /** Tick-it keeps no session for a ticket taken (a person's own local session): the take answers none. */
   noSession?: boolean
   /** Answer with lists that name no run. */
@@ -240,7 +240,7 @@ export const engine = (
     const answered = net.answer?.(args, seen.recorded.length) ?? {}
     if (answered === 'unreachable') throw new Error('connection refused')
     const rejected = answered.rejected ?? []
-    const accepted = net.silent ? [] : args.runs.map(r => String(r.agentId)).filter(id => !rejected.some(x => x.agentId === id))
+    const accepted = net.silent ? [] : args.runs.map(r => String(r.agentId)).filter(id => !rejected.some(x => x.agentId === id) && (answered.only === undefined || answered.only.includes(id)))
     return {
       value: answered.isError ? { isError: true, content: [{ type: 'text', text: answered.text ?? '' }] } : { isError: false, content: [{ type: 'text', text: JSON.stringify({ accepted, rejected, ...net.recordExtra }) }] },
     }

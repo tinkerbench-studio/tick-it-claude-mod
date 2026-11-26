@@ -160,6 +160,23 @@ test('roundVerdict running: the round waits: nothing is asked, no reviewer start
   expect(status(seen)).toBe('In review')
 })
 
+test('roundVerdict clean is not followed while a run of the round has not reached Tick-it: the mod reads the round itself', async ($, on) => {
+  // Two reviewers end at once: Tick-it answers clean to the clean reviewer's run while the other's blocking run is still on its way, and that run cannot be sent.
+  const net: Net = { recordExtra: { roundVerdict: 'clean' } }
+  const seen = engine(on, { lines: 10 }, true, { ...PRINCIPAL, '.tick-it/skills/security/SKILL.md': SKILLS['.tick-it/skills/security/SKILL.md'] ?? '' }, net)
+  await start($)
+  await $.prompt.submit(typed(STARTED.replace('TCK-151', 'TCK-143')))
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'done' })
+  expect(seen.spawned).toHaveLength(2)
+  const [first, second] = seen.spawned.map(a => a.agentId)
+  // Tick-it never takes the first reviewer's run: it stays in the outbox.
+  net.answer = () => ({ only: [String(second)] })
+  await $.turn.complete(finishTurn(first, 'BLOCKING: the docs still say the old rule'))
+  await $.turn.complete(finishTurn(second, 'VERDICT: clean'))
+  expect(status(seen)).toBe('In review')
+  expect(sent(seen).at(-1)).toContain('the docs still say the old rule')
+})
+
 // ---- The check-in before going idle -------------------------------------------------
 
 for (const waitingOn of ['session', 'person', 'queue', 'reviewers', 'nothing']) {

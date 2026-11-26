@@ -1,6 +1,6 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
-import type { PullRequestView, ReviewRun, ReviewUsage, Steward, Ticket, TicketSize, TickitRound } from '../types'
+import type { OutboxRun, PullRequestView, ReviewRun, ReviewUsage, Steward, Ticket, TicketSize, TickitRound } from '../types'
 import { SIZES, REVIEWS_KEY, SKILLS_DIR, OLD_SKILLS_DIR, BASES_DIR, KEEP_REVIEWS, MAX_FINDING_TEXT, PRICES, WARN_AT } from './state'
 import { callTickit, fetchInstructions, fetchModConfig, hasModLimits, madeHere, repositoryHere, reviewBudgetOf, roundLimit } from './tickit'
 import { setStatus, showStatus, refreshPullRequest, servedConfig, RECHECK_LINES } from './board'
@@ -27,6 +27,8 @@ const pullRequest = atom({ plugin: 'tick-it', key: 'pullRequest' } as const, nul
 const pullRequestError = atom({ plugin: 'tick-it', key: 'pullRequestError' } as const, null)
 /** What Tick-it's record_runs answer said of the round (roundVerdict, next): settleRound follows it, and reads the round itself when there is none. */
 const tickitRound = atom({ plugin: 'tick-it', key: 'tickitRound' } as const, null as TickitRound | null)
+/** The runs Tick-it has not taken yet: settleRound follows Tick-it's verdict only when none of the round's is still here. */
+const outbox = atom({ plugin: 'tick-it', key: 'outbox' } as const, [] as OutboxRun[])
 const resumeAsked = atom({ plugin: 'tick-it', key: 'resumeAsked' } as const, false)
 const lastNext = atom({ plugin: 'tick-it', key: 'lastNext' } as const, null as string | null)
 
@@ -1069,9 +1071,11 @@ export async function settleRound($: EngineInterface, s: Steward, withoutReviewe
   if (runs.some(r => r.status === 'running')) return
   const t = (await read($, tickets)).find(one => one.id === s.ticket)
   if (t === undefined) return
-  // What Tick-it said of this round when it took its runs (roundVerdict of record_runs): followed when it said, and the mod's own reading below stays the fallback.
+  // Reviewers end at once: a verdict Tick-it answered to one of them while another's run was still on its way (or could not be sent) did not see that run, so it is not followed until every run of the round is taken (a docs finding settled as clean, tinkerbench-studio/tick-it#TCK-973).
+  const unsent = (await read($, outbox)).some(r => 'skill' in r && r.ticket === s.ticket && r.round === s.round)
+  // What Tick-it said of this round when it took its runs (roundVerdict of record_runs): followed when it said and had every run of the round, and the mod's own reading below stays the fallback.
   const held = withoutReviewers ? null : await read($, tickitRound)
-  const given = held !== null && held.ticket === s.ticket && held.round === s.round ? held : undefined
+  const given = !unsent && held !== null && held.ticket === s.ticket && held.round === s.round ? held : undefined
   // A verdict is used once: a later settle of the same round (a failed send, a carried-over round) reads the runs itself instead of a stale answer.
   if (held !== null) await update($, tickitRound, () => null)
   // running: Tick-it still waits for a reviewer. incomplete: the reviewers it names run again, and nothing stops.
