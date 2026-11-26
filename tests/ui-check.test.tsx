@@ -278,3 +278,18 @@ test('a command that does not finish in time refuses the move naming the command
 test('a command that prints output that is not the contract refuses the move naming the command and why', async ($, on) => {
   await refused($ as never, on as never, answer('{"touched": 1}'), 'its output is not { touched: [{ kind, id, file }], required: [{ for, name }] }')
 })
+
+const timeoutAsked = async ($: never, on: never, value: string) => {
+  on('env.get' as never, ((_$: unknown, e: { name: string }) => ({ value: e.name === 'TICK_IT_REQUIRED_TIMEOUT_MS' ? value : undefined })) as never)
+  const ran: { argv: string[]; stdin: unknown; timeoutMs?: unknown }[] = []
+  await gate($, on, answer(REQUIRED), [], ran)
+  return ran[0]?.timeoutMs
+}
+
+test('a timeout override above the cap is cut to 5 minutes', async ($, on) => {
+  expect(await timeoutAsked($ as never, on as never, '999999999')).toBe(300_000)
+})
+
+test('a timeout override that is not a positive number leaves the 60 seconds', async ($, on) => {
+  expect(await timeoutAsked($ as never, on as never, '-5')).toBe(60_000)
+})
