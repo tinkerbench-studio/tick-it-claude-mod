@@ -82,20 +82,65 @@ test('a change that touches no UI path is never refused for pictures and Tick-it
   expect(inReview(seen)).toBe(true)
 })
 
-test('when list_screenshots is down the move goes through', async ($, on) => {
-  const seen = engine(on, { lines: 5, numstatZ: UI_FILES, pictures: 'unreachable' }, true, {}, DESIGNED)
+/** A UI change whose gate cannot run: refused with the reason, and the ticket not moved. */
+const refusedFor = async ($: Parameters<typeof start>[0], seen: ReturnType<typeof engine>, ...reasons: string[]) => {
   await start($)
   await $.prompt.submit(typed(STARTED))
-  expect((await finishReview($ as never)).deny).toBeUndefined()
-  expect(inReview(seen)).toBe(true)
+  const moved = await finishReview($ as never)
+  expect(moved.deny).toContain('TCK-151 cannot go to review: the UI evidence check could not run, because')
+  for (const reason of reasons) expect(moved.deny).toContain(reason)
+  expect(moved.deny).not.toContain('has no confirmed picture')
+  expect(inReview(seen)).toBe(false)
+}
+
+test('when list_screenshots answers with an error the move is refused, naming the reason', async ($, on) => {
+  const seen = engine(on, { lines: 5, numstatZ: UI_FILES, pictures: 'unreachable' }, true, {}, DESIGNED)
+  await refusedFor($, seen, "the ticket's pictures could not be listed (list_screenshots)", 'Tick-it is down')
 })
 
-test('when list_screenshots answers with no list the move goes through', async ($, on) => {
+test('when Tick-it cannot be reached for list_screenshots the move is refused, naming the reason', async ($, on) => {
+  const seen = engine(on, { lines: 5, numstatZ: UI_FILES, pictures: 'throws' }, true, {}, DESIGNED)
+  await refusedFor($, seen, "the ticket's pictures could not be listed (list_screenshots)", 'could not reach Tick-it')
+})
+
+test('when there is no token for list_screenshots the move is refused, naming the reason', async ($, on) => {
+  const net: { connected?: boolean; config: unknown[] } = { config: DESIGN_CONFIG }
+  const seen = engine(on, { lines: 5, numstatZ: UI_FILES, pictures: [] }, true, {}, net)
+  await start($)
+  await $.prompt.submit(typed(STARTED))
+  // The first answer holds the design; then the person is signed out.
+  await finishReview($ as never)
+  net.connected = false
+  const moved = await finishReview($ as never)
+  expect(moved.deny).toContain("the ticket's pictures could not be listed (list_screenshots)")
+  expect(moved.deny).toContain('not connected to Tick-it')
+  expect(moved.deny).not.toContain('has no confirmed picture')
+  expect(inReview(seen)).toBe(false)
+})
+
+test('when list_screenshots answers with no list the move is refused, saying the answer could not be read', async ($, on) => {
   const seen = engine(on, { lines: 5, numstatZ: UI_FILES, pictures: 'odd' }, true, {}, DESIGNED)
+  await refusedFor($, seen, 'the answer from list_screenshots could not be read', 'it had no list of pictures')
+})
+
+test('when the design settings cannot be read and none was held the move is refused, naming why', async ($, on) => {
+  const seen = engine(on, { lines: 5, numstatZ: UI_FILES, pictures: [PIC] }, true, {}, { instructions: 'unreachable' })
+  await refusedFor($, seen, "the repository's design settings could not be read", 'Tick-it is down')
+  expect(looked(seen)).toEqual([])
+})
+
+test('when git cannot list the changed files the move is refused, naming the reason', async ($, on) => {
+  const seen = engine(on, { lines: 5, numstatZ: UI_FILES, pictures: [PIC], failDiff: true }, true, {}, DESIGNED)
+  await refusedFor($, seen, 'git could not list the changed files', "git diff against the ticket's base failed")
+  expect(looked(seen)).toEqual([])
+})
+
+test('a directory that is not a GitHub repository is not checked, even when git cannot list the changes', async ($, on) => {
+  const seen = engine(on, { lines: 5, numstatZ: UI_FILES, pictures: [], failDiff: true, origin: 'ssh://example.com/x' }, true, {}, { instructions: 'unreachable' })
   await start($)
   await $.prompt.submit(typed(STARTED))
   expect((await finishReview($ as never)).deny).toBeUndefined()
-  expect(inReview(seen)).toBe(true)
+  expect(looked(seen)).toEqual([])
 })
 
 test('/tick-it steward refuses a UI change with no pictures for the ticket being built', async ($, on) => {
