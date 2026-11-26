@@ -6,8 +6,15 @@
 
 /** How long the command may run before the gate counts it as one that could not run. */
 export const REQUIRED_TIMEOUT_MS = 60_000
+/** The longest a timeout override may ask for. */
+export const REQUIRED_TIMEOUT_MAX_MS = 300_000
 
-const text = v => typeof v === 'string' && v !== ''
+/** A value the command names (an id, a file, a picture name): short and plain, so it is safe to show in a refusal. */
+const text = v => typeof v === 'string' && /^[\w.\/@:+()[\]-]{1,200}$/.test(v)
+const MAX_ENTRIES = 500
+
+/** What a command or the system said, cut to plain characters and 100 long: it is shown in a refusal, never read as an instruction. */
+export const plain = said => String(said).replace(/[^A-Za-z0-9_.:#/,-]+/g, ' ').trim().slice(0, 100)
 
 /** The command's output as the contract, or an Error saying what is wrong with it. */
 export function parseRequired(output) {
@@ -17,7 +24,7 @@ export function parseRequired(output) {
   } catch {
     throw new Error('its output is not JSON')
   }
-  const list = (v, keys) => Array.isArray(v) && v.every(e => e !== null && typeof e === 'object' && keys.every(k => text(e[k])))
+  const list = (v, keys) => Array.isArray(v) && v.length <= MAX_ENTRIES && v.every(e => e !== null && typeof e === 'object' && keys.every(k => text(e[k])))
   if (raw === null || typeof raw !== 'object' || !list(raw.touched, ['kind', 'id', 'file']) || !list(raw.required, ['for', 'name']) || !raw.touched.every(t => t.kind === 'story' || t.kind === 'page'))
     throw new Error('its output is not { touched: [{ kind, id, file }], required: [{ for, name }] }')
   return { touched: raw.touched, required: raw.required }

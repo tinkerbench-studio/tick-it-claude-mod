@@ -1,7 +1,7 @@
 import type { EngineInterface } from 'claude-code'
 import { touchesUi } from './ui-evidence'
 import { globToRegExp, isTestOnlyChange } from '../scripts/ui-paths.mjs'
-import { REQUIRED_TIMEOUT_MS, commandText, parseRequired, uncovered, uncoveredLines } from '../scripts/required-pictures.mjs'
+import { REQUIRED_TIMEOUT_MAX_MS, REQUIRED_TIMEOUT_MS, commandText, parseRequired, plain, uncovered, uncoveredLines } from '../scripts/required-pictures.mjs'
 import { callTickit, designHere, repositoryHere } from './tickit'
 import type { Design } from './ui-evidence'
 
@@ -57,7 +57,6 @@ export function picturesOf(value: Record<string, unknown>): Picture[] | null {
 export async function requiredLines($: EngineInterface, command: readonly string[], changed: readonly string[], pictures: readonly Picture[]): Promise<string[]> {
   const named = commandText(command)
   const unable = (why: string) => [`The repository's design.requiredPictures command (${named}) could not say which pictures are required: ${why}. Fix the command, or ask its owner, then move the ticket to In review again.`]
-  let timer: ReturnType<typeof setTimeout> | undefined
   try {
     let set = NaN
     try {
@@ -65,19 +64,28 @@ export async function requiredLines($: EngineInterface, command: readonly string
     } catch {
       // Unreadable: the default stands.
     }
-    const ms = Number.isFinite(set) && set > 0 ? set : REQUIRED_TIMEOUT_MS
-    const late = new Promise<'late'>(resolve => {
-      timer = setTimeout(() => resolve('late'), ms)
-    })
-    const ran = await Promise.race([$.process.run([...command], { stdin: `${changed.join('\n')}\n` } as never), late])
-    if (ran === 'late') return unable(`it did not finish in ${ms >= 1000 ? `${Math.round(ms / 1000)} seconds` : `${ms} ms`}`)
-    if (ran.exitCode !== 0) return unable(`it exited with ${ran.exitCode}${ran.stderr.trim() === '' ? '' : `: ${ran.stderr.trim().slice(0, 300)}`}`)
-    const found = parseRequired(ran.stdout)
+    const ms = Number.isFinite(set) && set > 0 ? Math.min(set, REQUIRED_TIMEOUT_MAX_MS) : REQUIRED_TIMEOUT_MS
+    const started = Date.now()
+    let ran
+    try {
+      // The engine kills the child and rejects when timeoutMs passes (its default is 30 seconds, so the 60 is asked for).
+      ran = await $.process.run([...command], { stdin: `${changed.join('\n')}\n`, timeoutMs: ms })
+    } catch (error) {
+      if (Date.now() - started >= ms * 0.9) return unable(`it did not finish in ${ms >= 1000 ? `${Math.round(ms / 1000)} seconds` : `${ms} ms`}`)
+      throw error
+    }
+    if (ran.isStdoutTruncated) return unable('its output was longer than the engine keeps')
+    if (ran.exitCode !== 0) return unable(`it exited with ${ran.exitCode}${plain(ran.stderr) === '' ? '' : `: ${plain(ran.stderr)}`}`)
+    let found: ReturnType<typeof parseRequired>
+    try {
+      found = parseRequired(ran.stdout)
+    } catch (error) {
+      // Its own fixed wording: it names no value the command printed.
+      return unable((error as Error).message)
+    }
     return uncoveredLines(uncovered(found.required, pictures.map(fileName)), found.touched)
   } catch (error) {
-    return unable(error instanceof Error ? error.message : String(error))
-  } finally {
-    clearTimeout(timer)
+    return unable(plain(error instanceof Error ? error.message : String(error)))
   }
 }
 

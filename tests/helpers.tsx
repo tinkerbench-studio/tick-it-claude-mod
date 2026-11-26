@@ -131,7 +131,7 @@ export type Net = {
 /** The engine beneath the mod: a store, a repo whose diff is `diff.lines` lines, and quiet UI calls. */
 export const engine = (
   on: On,
-  diff: { lines: number; merged?: boolean; byCommit?: Record<string, { lines?: number; numstatZ?: string; patch?: string }>; failDiff?: boolean; branch?: string; defaultBranch?: string; branchThrows?: boolean; siblings?: Record<string, string> | 'unlistable'; pr?: number; origin?: string | null; noCommit?: boolean; numstatZ?: string; failFiles?: boolean; changed?: string[] | null; since?: string[] | null; failUntracked?: boolean; truncateNames?: boolean; bases?: string[]; failNames?: 'exit' | 'throw'; subdir?: string; stored?: Record<string, unknown>; kept?: Map<string, unknown>; refuse?: (model: string | undefined, description: string) => string | undefined; patch?: string; dirty?: boolean; untracked?: Record<string, string>; binary?: Record<string, string>; gh?: (argv: string[]) => { exitCode: number; stdout: string; stderr: string } | undefined; pictures?: { key: string; name: string }[] | 'unreachable' | 'throws' | 'odd'; copies?: { exitCode: number; stdout: string; stderr: string } | 'hang' | 'throw'; required?: { exitCode: number; stdout: string; stderr: string } | 'hang'; ran?: { argv: string[]; stdin: unknown }[]; files?: Record<string, string>; base?: Record<string, string>; ignored?: string[]; throwShow?: boolean; remoteHead?: string; failFetch?: boolean; unpushed?: boolean; localAhead?: boolean },
+  diff: { lines: number; merged?: boolean; byCommit?: Record<string, { lines?: number; numstatZ?: string; patch?: string }>; failDiff?: boolean; branch?: string; defaultBranch?: string; branchThrows?: boolean; siblings?: Record<string, string> | 'unlistable'; pr?: number; origin?: string | null; noCommit?: boolean; numstatZ?: string; failFiles?: boolean; changed?: string[] | null; since?: string[] | null; failUntracked?: boolean; truncateNames?: boolean; bases?: string[]; failNames?: 'exit' | 'throw'; subdir?: string; stored?: Record<string, unknown>; kept?: Map<string, unknown>; refuse?: (model: string | undefined, description: string) => string | undefined; patch?: string; dirty?: boolean; untracked?: Record<string, string>; binary?: Record<string, string>; gh?: (argv: string[]) => { exitCode: number; stdout: string; stderr: string } | undefined; pictures?: { key: string; name: string }[] | 'unreachable' | 'throws' | 'odd'; copies?: { exitCode: number; stdout: string; stderr: string } | 'hang' | 'throw'; required?: { exitCode: number; stdout: string; stderr: string } | 'hang'; ran?: { argv: string[]; stdin: unknown; timeoutMs?: unknown }[]; files?: Record<string, string>; base?: Record<string, string>; ignored?: string[]; throwShow?: boolean; remoteHead?: string; failFetch?: boolean; unpushed?: boolean; localAhead?: boolean },
   isPlaced = true,
   skills: Record<string, string> = {},
   net: Net = {},
@@ -340,8 +340,10 @@ export const engine = (
     }
     // The repository's design.requiredPictures command (a fake): what it was given is kept, what it answers is the test's.
     if (cmd === 'design-tool' && diff.required !== undefined) {
-      diff.ran?.push({ argv: e.argv, stdin: (e as { init?: { stdin?: unknown } }).init?.stdin })
-      if (diff.required === 'hang') return new Promise(resolve => setTimeout(() => resolve({ value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }), 300)) as never
+      const init = (e as { init?: { stdin?: unknown; timeoutMs?: number } }).init
+      diff.ran?.push({ argv: e.argv, stdin: init?.stdin, timeoutMs: init?.timeoutMs })
+      // As the engine does: the child is killed and the call rejects once timeoutMs passes.
+      if (diff.required === 'hang') return new Promise((_, reject) => setTimeout(() => reject(new Error('process killed after timeout')), init?.timeoutMs ?? 30_000)) as never
       return { value: { ...diff.required, isStdoutTruncated: false, isStderrTruncated: false } }
     }
     if (cmd === 'npm' && diff.copies !== undefined) {

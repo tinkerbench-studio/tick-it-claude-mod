@@ -14,7 +14,7 @@
 import { execFileSync, spawnSync } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { REQUIRED_TIMEOUT_MS, commandText, parseRequired, uncovered, uncoveredLines } from './required-pictures.mjs'
+import { REQUIRED_TIMEOUT_MS, commandText, parseRequired, plain, uncovered, uncoveredLines } from './required-pictures.mjs'
 import { globToRegExp, isTestOnlyChange, isUiPath, patchLines } from './ui-paths.mjs'
 
 const DEFAULT_PICTURES = 'docs/change-screenshots/'
@@ -59,10 +59,10 @@ export function requiredCommand(text) {
 
 /** Runs the command (no shell) with the changed paths on stdin; answers the problems: required pictures none given covers, or why it could not say. */
 export function requiredProblems(command, changed, given, timeout = REQUIRED_TIMEOUT_MS) {
-  const ran = spawnSync(command[0], command.slice(1), { input: `${changed.join('\n')}\n`, encoding: 'utf8', timeout, shell: false })
+  const ran = spawnSync(command[0], command.slice(1), { input: `${changed.join('\n')}\n`, encoding: 'utf8', timeout, killSignal: 'SIGKILL', maxBuffer: 1 << 22, shell: false })
   const unable = why => [`the design.requiredPictures command (${commandText(command)}) could not say which pictures are required: ${why}`]
-  if (ran.error) return unable(ran.error.code === 'ETIMEDOUT' ? 'it did not finish in time' : ran.error.message)
-  if (ran.status !== 0) return unable(`it exited with ${ran.status}${ran.stderr.trim() === '' ? '' : `: ${ran.stderr.trim().slice(0, 300)}`}`)
+  if (ran.error) return unable(ran.error.code === 'ETIMEDOUT' ? 'it did not finish in time' : plain(ran.error.message))
+  if (ran.status !== 0) return unable(`it exited with ${ran.status}${plain(ran.stderr) === '' ? '' : `: ${plain(ran.stderr)}`}`)
   try {
     const found = parseRequired(ran.stdout)
     console.log(`touches ${found.touched.filter(t => t.kind === 'story').length} stories and ${found.touched.filter(t => t.kind === 'page').length} pages${found.touched.map(t => `\n  ${t.kind} ${t.id}`).join('')}`)

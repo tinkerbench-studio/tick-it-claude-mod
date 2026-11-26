@@ -206,7 +206,7 @@ const REQUIRED = {
 }
 const answer = (stdout: unknown, exitCode = 0, stderr = '') => ({ exitCode, stdout: typeof stdout === 'string' ? stdout : JSON.stringify(stdout), stderr })
 const pic = (name: string) => ({ key: `acme/web-app/TCK-151/${name}.png`, name: `${name}.png` })
-const gate = async ($: never, on: never, required: ReturnType<typeof answer> | 'hang', pictures: string[] = [], ran: { argv: string[]; stdin: unknown }[] = []) => {
+const gate = async ($: never, on: never, required: ReturnType<typeof answer> | 'hang', pictures: string[] = [], ran: { argv: string[]; stdin: unknown; timeoutMs?: unknown }[] = []) => {
   const seen = engine(on, { lines: 5, numstatZ: UI_FILES, pictures: pictures.map(pic), required, ran }, true, {}, { config: REQUIRED_CONFIG })
   await start($)
   await ($ as never as { prompt: { submit: (m: unknown) => Promise<unknown> } }).prompt.submit(typed(STARTED))
@@ -214,11 +214,12 @@ const gate = async ($: never, on: never, required: ReturnType<typeof answer> | '
 }
 
 test('the gate runs the requiredPictures command as an argument list, a shell metacharacter in it passed literally, the changed paths one per line on stdin', async ($, on) => {
-  const ran: { argv: string[]; stdin: unknown }[] = []
+  const ran: { argv: string[]; stdin: unknown; timeoutMs?: unknown }[] = []
   await gate($ as never, on as never, answer(REQUIRED), ['board-dark'], ran)
   expect(ran).toHaveLength(1)
   expect(ran[0]?.argv).toEqual(REQUIRED_COMMAND)
   expect(ran[0]?.stdin).toBe('apps/web/src/pages.tsx\n')
+  expect(ran[0]?.timeoutMs).toBe(60_000)
 })
 
 test('the gate refuses naming each required picture with no confirmed one, and a partly covered story names only what it lacks', async ($, on) => {
@@ -247,7 +248,7 @@ test('one half of a -before and -after pair does not cover a required name', asy
 })
 
 test('with no requiredPictures command the design.pictures rules apply unchanged and no command runs', async ($, on) => {
-  const ran: { argv: string[]; stdin: unknown }[] = []
+  const ran: { argv: string[]; stdin: unknown; timeoutMs?: unknown }[] = []
   const seen = engine(on, { lines: 5, numstatZ: UI_FILES, pictures: [], required: answer(REQUIRED), ran }, true, {}, DESIGNED)
   await start($)
   await $.prompt.submit(typed(STARTED))

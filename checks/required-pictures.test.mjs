@@ -59,3 +59,8 @@ test('--required-pictures fails naming the command when it cannot run, and passe
   assert.equal(gone.status, 1)
   assert.match(gone.stderr, /the design\.requiredPictures command \(no-such-design-tool a; echo \$HOME\) could not say which pictures are required: /)
 })
+
+test('the command may run for 60 seconds by default', async () => {
+  const { REQUIRED_TIMEOUT_MS } = await import('../scripts/required-pictures.mjs')
+  assert.equal(REQUIRED_TIMEOUT_MS, 60_000)
+})
