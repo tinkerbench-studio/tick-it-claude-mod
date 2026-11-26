@@ -1,7 +1,7 @@
 {
   "extraKnownMarketplaces": {
     "tinkerbench-studio": { "source": { "source": "github", "repo": "tinkerbench-studio/marketplace" } },
-    "tinkerbench-ways-of-working": { "source": { "source": "github", "repo": "tinkerbench-studio/ways-of-working", "ref": "v0.4.0" } }
+    "tinkerbench-ways-of-working": { "source": { "source": "github", "repo": "tinkerbench-studio/ways-of-working", "ref": "v0.4.1" } }
   },
   "enabledPlugins": {
     "vibesec@tinkerbench-studio": true,
