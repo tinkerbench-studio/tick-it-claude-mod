@@ -4,7 +4,7 @@ import type { AttachmentRef, MemoryRef, Ticket, TicketSize } from '../types'
 
 import { brief, servedConfig, storeServed } from './board'
 import type { BriefLines } from './board'
-import type { Design, PictureRule } from './ui-evidence'
+import type { Design, PictureRule, RequiredPictures } from './ui-evidence'
 import { MOD_VERSION, REPORT_TOOL, TICKIT_SERVER, TICKIT_CONNECTORS, DEFAULT_ROUNDS, MAX_ROUND_LIMIT, SIZES } from './state'
 
 // Declared in this file: the engine reads an atom only where it is written (a module cannot use one imported from state.ts).
@@ -142,6 +142,13 @@ const pictureRules = (value: unknown): PictureRule[] =>
       })
     : []
 
+/** design.requiredPictures when well formed (a non-empty list of argument strings), else null: an odd one is skipped, never guessed at. */
+const requiredOf = (value: unknown): RequiredPictures | null => {
+  const { command, why } = (value ?? {}) as Record<string, unknown>
+  const argv = strings(command)
+  return argv !== null && argv.length > 0 ? { command: argv, ...(typeof why === 'string' && why !== '' ? { why } : {}) } : null
+}
+
 /**
  * The design section of get_repository_settings' config (one entry per base branch: the first that sets uiPaths), or
  * null when none does: then no change is a UI change. Its checklist, pictures and workflow come from the same entry.
@@ -153,7 +160,7 @@ export function designOf(value: Record<string, unknown>): Design | null {
     if (design === null || design === undefined || typeof design !== 'object') continue
     const uiPaths = strings(design.uiPaths)
     if (uiPaths === null || uiPaths.length === 0) continue
-    return { uiPaths, checklist: strings(design.checklist) ?? [], pictures: pictureRules(design.pictures), workflow: typeof design.workflow === 'string' && design.workflow !== '' ? design.workflow : null }
+    return { uiPaths, checklist: strings(design.checklist) ?? [], pictures: pictureRules(design.pictures), workflow: typeof design.workflow === 'string' && design.workflow !== '' ? design.workflow : null, requiredPictures: requiredOf(design.requiredPictures) }
   }
   return null
 }

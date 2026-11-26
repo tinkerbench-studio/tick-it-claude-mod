@@ -3,13 +3,16 @@ import { globToRegExp } from '../scripts/ui-paths.mjs'
 /** A picture a UI change must carry when it touches one of `when`'s globs: a confirmed screenshot whose name matches the glob `name`; `why` says how to make it. */
 export type PictureRule = { when: readonly string[]; name: string; why?: string }
 
+/** The command its design tool gives that lists the pictures a change needs (design.requiredPictures), run as an argument list with no shell; `why` says what it is for. */
+export type RequiredPictures = { command: readonly string[]; why?: string }
+
 /**
  * What a repository says about its UI changes, from the design section of its .tick-it/config.json (as
  * get_repository_settings gives it in config): the globs of what a person sees, the acceptance lines its UI tickets
  * carry, the pictures some changes must carry, and its design workflow doc. The mod assumes no design tool or process of
  * its own: null (no design.uiPaths) means no change is a UI change.
  */
-export type Design = { uiPaths: readonly string[]; checklist: readonly string[]; pictures: readonly PictureRule[]; workflow: string | null }
+export type Design = { uiPaths: readonly string[]; checklist: readonly string[]; pictures: readonly PictureRule[]; workflow: string | null; requiredPictures?: RequiredPictures | null }
 
 /** The path-like words of a text: split at spaces, quotes, brackets and commas, with a leading "./" and trailing punctuation dropped. */
 const wordsOf = (text: string): string[] => text.split(/[\s"'`()[\],;<>]+/).map(w => w.replace(/^\.\//, '').replace(/[.:]+$/, '')).filter(w => w !== '')
