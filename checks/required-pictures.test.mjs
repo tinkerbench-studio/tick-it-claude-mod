@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { test } from 'node:test'
 
-import { uncovered, uncoveredLines } from '../scripts/required-pictures.mjs'
+import { parseRequired, uncovered, uncoveredLines } from '../scripts/required-pictures.mjs'
 
 const CHECK = new URL('../scripts/ui-evidence-check.mjs', import.meta.url).pathname
 const REQUIRED = ['dark', 'light'].flatMap(v => [{ for: 'board', name: `board-${v}` }, { for: 'buttons', name: `buttons-${v}` }])
@@ -18,6 +18,16 @@ test('a picture covers a name as it is, with -before-after, or as a -before and 
   assert.deepEqual(missing(['board-dark-before.png', 'board-dark-after.png', 'board-light.png', 'buttons-dark.png', 'buttons-light.png']), [])
   assert.deepEqual(missing(['board-dark-before.png', 'board-light.png', 'buttons-dark.png', 'buttons-light.png']), ['board-dark'])
   assert.deepEqual(uncoveredLines(uncovered(REQUIRED, ['board-dark.png', 'board-light.png', 'buttons-dark.png']), OUTPUT.touched), ['story buttons (b.stories.tsx) has no confirmed picture (needs buttons-light)'])
+})
+
+test('a value with spaces is the contract, and is shown as plain text; control characters or too many entries are not the contract', () => {
+  const spaced = { touched: [{ kind: 'story', id: 'a b', file: 'src/My Component.tsx' }], required: [{ for: 'a b', name: 'a b-dark' }] }
+  assert.deepEqual(parseRequired(JSON.stringify(spaced)), spaced)
+  assert.deepEqual(uncoveredLines(spaced.required, spaced.touched), ['story a b (src/My Component.tsx) has no confirmed picture (needs a b-dark)'])
+  assert.deepEqual(uncoveredLines([{ for: 'x', name: 'n<b>`$' }]), ['x has no confirmed picture (needs n b)'])
+  const bad = o => () => parseRequired(JSON.stringify(o))
+  assert.throws(bad({ touched: [], required: [{ for: 'a\nb', name: 'n' }] }), /not the contract|not \{/)
+  assert.throws(bad({ touched: [], required: Array.from({ length: 501 }, () => ({ for: 'a', name: 'n' })) }), /not \{/)
 })
 
 /** A repository whose shared component changed, with a fake required-pictures command (a node file) that prints what it is given. */

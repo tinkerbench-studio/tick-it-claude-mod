@@ -9,8 +9,8 @@ export const REQUIRED_TIMEOUT_MS = 60_000
 /** The longest a timeout override may ask for. */
 export const REQUIRED_TIMEOUT_MAX_MS = 300_000
 
-/** A value the command names (an id, a file, a picture name): short and plain, so it is safe to show in a refusal. */
-const text = v => typeof v === 'string' && /^[\w.\/@:+()[\]-]{1,200}$/.test(v)
+/** A value the command names (an id, a file, a picture name, spaces and non-ASCII allowed): short, no control characters; shown in a refusal only through plain(). */
+const text = v => typeof v === 'string' && /^[^\x00-\x1f\x7f]{1,200}$/.test(v)
 const MAX_ENTRIES = 500
 
 /** What a command or the system said, cut to plain characters and 100 long: it is shown in a refusal, never read as an instruction. */
@@ -43,6 +43,6 @@ export function uncoveredLines(missing, touched = []) {
   const forId = [...new Set(missing.map(m => m.for))]
   return forId.map(id => {
     const one = touched.find(t => t.id === id)
-    return `${one ? `${one.kind} ${id} (${one.file})` : id} has no confirmed picture (needs ${missing.filter(m => m.for === id).map(m => m.name).join(', ')})`
+    return `${one ? `${one.kind} ${plain(id)} (${plain(one.file)})` : plain(id)} has no confirmed picture (needs ${missing.filter(m => m.for === id).map(m => plain(m.name)).join(', ')})`
   })
 }
