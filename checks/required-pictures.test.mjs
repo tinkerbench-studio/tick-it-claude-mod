@@ -26,8 +26,8 @@ test('a value with spaces is the contract, and is shown as plain text; control c
   assert.deepEqual(uncoveredLines(spaced.required, spaced.touched), ['story a b (src/My Component.tsx) has no confirmed picture (needs a b-dark)'])
   assert.deepEqual(uncoveredLines([{ for: 'x', name: 'n<b>`$' }]), ['x has no confirmed picture (needs n b)'])
   const bad = o => () => parseRequired(JSON.stringify(o))
-  assert.throws(bad({ touched: [], required: [{ for: 'a\nb', name: 'n' }] }), /not the contract|not \{/)
-  assert.throws(bad({ touched: [], required: Array.from({ length: 501 }, () => ({ for: 'a', name: 'n' })) }), /not \{/)
+  assert.throws(bad({ touched: [], required: [{ for: 'a\nb', name: 'n' }] }), /not the contract/)
+  assert.throws(bad({ touched: [], required: Array.from({ length: 501 }, () => ({ for: 'a', name: 'n' })) }), /not the contract/)
 })
 
 /** A repository whose shared component changed, with a fake required-pictures command (a node file) that prints what it is given. */
