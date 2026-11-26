@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { RUN, engine, start, STARTED, typed, finishReview, UI_FILES, BOARD_FILES, PIC, DESIGN_CONFIG } from './helpers'
+import { RUN, engine, start, STARTED, typed, finishReview, UI_FILES, BOARD_FILES, PIC, DESIGN_CONFIG, REQUIRED_COMMAND, REQUIRED_CONFIG } from './helpers'
 
 /** The repository's design section, which the gate reads: without it nothing is a UI change. */
 const DESIGNED = { config: DESIGN_CONFIG }
@@ -155,33 +155,80 @@ test('a design section with no picture rules asks for one picture of a UI change
   expect(inReview(seen)).toBe(false)
 })
 
-/** A shared component restyled: the files the repository holds, as the gate reads them for the stories and pages it touches. */
-const SHARED_FILES = {
-  'apps/web/src/render.tsx': "import './pages'\n",
-  'apps/web/src/pages.tsx': "import './components/Button'\n",
-  'apps/web/src/pages/Other.tsx': 'export const Other = 1\n',
-  'apps/web/src/components/Button.tsx': 'export const Button = 1\n',
-  'apps/web/src/design/buttons.stories.tsx': "import { Button } from '../components/Button'\nexport default { title: 'Pages/Buttons' }\nexport const Plain = {}\n",
-  'scripts/page-shots.mjs': "export const PAGES = {\n  board: { view: 'board' },\n}\n",
+const REQUIRED = {
+  touched: [{ kind: 'story', id: 'pages-buttons--plain', file: 'apps/web/src/design/buttons.stories.tsx' }, { kind: 'page', id: 'board', file: 'scripts/page-shots.mjs' }],
+  required: ['dark', 'light', 'phone'].flatMap(v => [{ for: 'board', name: `board-${v}` }, { for: 'pages-buttons--plain', name: `story-pages-buttons--plain-${v}` }]),
 }
-const SHARED = `1\t0\tapps/web/src/components/Button.tsx\0`
-
-test('a shared component change is refused naming each touched story and page with no confirmed picture, and passes with them all', async ($, on) => {
-  const seen = engine(on, { lines: 5, numstatZ: SHARED, pictures: [PIC], files: SHARED_FILES }, true, {}, DESIGNED)
+const answer = (stdout: unknown, exitCode = 0, stderr = '') => ({ exitCode, stdout: typeof stdout === 'string' ? stdout : JSON.stringify(stdout), stderr })
+const pic = (name: string) => ({ key: `acme/web-app/TCK-151/${name}.png`, name: `${name}.png` })
+const gate = async ($: never, on: never, required: ReturnType<typeof answer> | 'hang', pictures: string[] = [], ran: { argv: string[]; stdin: unknown }[] = []) => {
+  const seen = engine(on, { lines: 5, numstatZ: UI_FILES, pictures: pictures.map(pic), required, ran }, true, {}, { config: REQUIRED_CONFIG })
   await start($)
-  await $.prompt.submit(typed(STARTED))
-  const moved = await finishReview($ as never)
-  expect(moved.deny).toContain('page board has no confirmed picture (needs board-dark, board-light, board-phone)')
-  expect(moved.deny).toContain('story pages-buttons--plain (apps/web/src/design/buttons.stories.tsx) has no confirmed picture')
-  expect(moved.deny).not.toContain('has no confirmed picture in Tick-it')
+  await ($ as never as { prompt: { submit: (m: unknown) => Promise<unknown> } }).prompt.submit(typed(STARTED))
+  return { moved: await finishReview($ as never), seen }
+}
+
+test('the gate runs the requiredPictures command as an argument list, a shell metacharacter in it passed literally, the changed paths one per line on stdin', async ($, on) => {
+  const ran: { argv: string[]; stdin: unknown }[] = []
+  await gate($ as never, on as never, answer(REQUIRED), ['board-dark'], ran)
+  expect(ran).toHaveLength(1)
+  expect(ran[0]?.argv).toEqual(REQUIRED_COMMAND)
+  expect(ran[0]?.stdin).toBe('apps/web/src/pages.tsx\n')
+})
+
+test('the gate refuses naming each required picture with no confirmed one, and a partly covered story names only what it lacks', async ($, on) => {
+  const { moved, seen } = await gate($ as never, on as never, answer(REQUIRED), ['board-dark', 'board-light', 'story-pages-buttons--plain-dark'])
+  expect(moved.deny).toContain('page board (scripts/page-shots.mjs) has no confirmed picture (needs board-phone)')
+  expect(moved.deny).toContain('story pages-buttons--plain (apps/web/src/design/buttons.stories.tsx) has no confirmed picture (needs story-pages-buttons--plain-light, story-pages-buttons--plain-phone)')
+  expect(moved.deny).not.toContain('needs board-dark')
   expect(inReview(seen)).toBe(false)
 })
 
-test('every touched story and page with its pictures lets the change through', async ($, on) => {
-  const names = ['board', 'story-pages-buttons--plain'].flatMap(base => ['dark', 'light', 'phone'].map(v => `${base}-${v}.png`))
-  const seen = engine(on, { lines: 5, numstatZ: SHARED, pictures: names.map(name => ({ key: `acme/web-app/TCK-151/${name}`, name })), files: SHARED_FILES }, true, {}, DESIGNED)
+test('a picture covers a required name as it is, with -before-after, or as a -before and -after pair', async ($, on) => {
+  const names = ['dark', 'light', 'phone']
+  const covered = [...names.map(v => `board-${v}`), ...names.map(v => `story-pages-buttons--plain-${v}-before-after`)]
+  expect((await gate($ as never, on as never, answer(REQUIRED), covered)).moved.deny).toBeUndefined()
+})
+
+const BASE = ['board-dark', 'board-light', 'board-phone']
+const PAIR = ['story-pages-buttons--plain-dark', 'story-pages-buttons--plain-light', 'story-pages-buttons--plain-phone'].flatMap(n => [`${n}-before`, `${n}-after`])
+test('a -before and -after pair covers a required name', async ($, on) => {
+  expect((await gate($ as never, on as never, answer(REQUIRED), [...BASE, ...PAIR])).moved.deny).toBeUndefined()
+})
+
+test('one half of a -before and -after pair does not cover a required name', async ($, on) => {
+  const half = (await gate($ as never, on as never, answer(REQUIRED), [...BASE, ...PAIR.slice(1)])).moved
+  expect(half.deny).toContain('needs story-pages-buttons--plain-dark)')
+})
+
+test('with no requiredPictures command the design.pictures rules apply unchanged and no command runs', async ($, on) => {
+  const ran: { argv: string[]; stdin: unknown }[] = []
+  const seen = engine(on, { lines: 5, numstatZ: UI_FILES, pictures: [], required: answer(REQUIRED), ran }, true, {}, DESIGNED)
   await start($)
   await $.prompt.submit(typed(STARTED))
-  expect((await finishReview($ as never)).deny).toBeUndefined()
-  expect(inReview(seen)).toBe(true)
+  const moved = await finishReview($ as never)
+  expect(moved.deny).toContain('TCK-151 has no confirmed picture in Tick-it')
+  expect(moved.deny).not.toContain('requiredPictures')
+  expect(ran).toEqual([])
+  expect(inReview(seen)).toBe(false)
+})
+
+const cannot = (why: string) => `(design-tool required-pictures --for a; echo $HOME) could not say which pictures are required: ${why}`
+const refused = async ($: never, on: never, required: ReturnType<typeof answer> | 'hang', why: string) => {
+  const { moved, seen } = await gate($, on, required, ['board-dark'])
+  expect(moved.deny).toContain(cannot(why))
+  expect(inReview(seen)).toBe(false)
+}
+
+test('a command that exits non-zero refuses the move naming the command and why', async ($, on) => {
+  await refused($ as never, on as never, answer('', 3, 'no config'), 'it exited with 3: no config')
+})
+
+test('a command that does not finish in time refuses the move naming the command and why', async ($, on) => {
+  on('env.get', (_$, e) => ({ value: e.name === 'TICK_IT_REQUIRED_TIMEOUT_MS' ? '50' : undefined }))
+  await refused($ as never, on as never, 'hang', 'it did not finish in 50 ms')
+})
+
+test('a command that prints output that is not the contract refuses the move naming the command and why', async ($, on) => {
+  await refused($ as never, on as never, answer('{"touched": 1}'), 'its output is not { touched: [{ kind, id, file }], required: [{ for, name }] }')
 })

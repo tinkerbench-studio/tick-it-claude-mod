@@ -131,7 +131,7 @@ export type Net = {
 /** The engine beneath the mod: a store, a repo whose diff is `diff.lines` lines, and quiet UI calls. */
 export const engine = (
   on: On,
-  diff: { lines: number; merged?: boolean; byCommit?: Record<string, { lines?: number; numstatZ?: string; patch?: string }>; failDiff?: boolean; branch?: string; defaultBranch?: string; branchThrows?: boolean; siblings?: Record<string, string> | 'unlistable'; pr?: number; origin?: string | null; noCommit?: boolean; numstatZ?: string; failFiles?: boolean; changed?: string[] | null; since?: string[] | null; failUntracked?: boolean; truncateNames?: boolean; bases?: string[]; failNames?: 'exit' | 'throw'; subdir?: string; stored?: Record<string, unknown>; kept?: Map<string, unknown>; refuse?: (model: string | undefined, description: string) => string | undefined; patch?: string; dirty?: boolean; untracked?: Record<string, string>; binary?: Record<string, string>; gh?: (argv: string[]) => { exitCode: number; stdout: string; stderr: string } | undefined; pictures?: { key: string; name: string }[] | 'unreachable' | 'odd'; copies?: { exitCode: number; stdout: string; stderr: string } | 'hang' | 'throw'; files?: Record<string, string>; base?: Record<string, string>; ignored?: string[]; throwShow?: boolean; remoteHead?: string; failFetch?: boolean; unpushed?: boolean; localAhead?: boolean },
+  diff: { lines: number; merged?: boolean; byCommit?: Record<string, { lines?: number; numstatZ?: string; patch?: string }>; failDiff?: boolean; branch?: string; defaultBranch?: string; branchThrows?: boolean; siblings?: Record<string, string> | 'unlistable'; pr?: number; origin?: string | null; noCommit?: boolean; numstatZ?: string; failFiles?: boolean; changed?: string[] | null; since?: string[] | null; failUntracked?: boolean; truncateNames?: boolean; bases?: string[]; failNames?: 'exit' | 'throw'; subdir?: string; stored?: Record<string, unknown>; kept?: Map<string, unknown>; refuse?: (model: string | undefined, description: string) => string | undefined; patch?: string; dirty?: boolean; untracked?: Record<string, string>; binary?: Record<string, string>; gh?: (argv: string[]) => { exitCode: number; stdout: string; stderr: string } | undefined; pictures?: { key: string; name: string }[] | 'unreachable' | 'odd'; copies?: { exitCode: number; stdout: string; stderr: string } | 'hang' | 'throw'; required?: { exitCode: number; stdout: string; stderr: string } | 'hang'; ran?: { argv: string[]; stdin: unknown }[]; files?: Record<string, string>; base?: Record<string, string>; ignored?: string[]; throwShow?: boolean; remoteHead?: string; failFetch?: boolean; unpushed?: boolean; localAhead?: boolean },
   isPlaced = true,
   skills: Record<string, string> = {},
   net: Net = {},
@@ -259,14 +259,10 @@ export const engine = (
   // A base review skill is read from the plugin's own folder, wherever that is: the map names it from skills/review-agents/bases on.
   // A secure-coding skill is read from the plugin's own folder too: the map names it from skills/secure- on.
   const rel = (path: string) => (path.includes('.tick') ? path.slice(path.indexOf('.tick')) : path.includes(BASES) ? path.slice(path.indexOf(BASES)) : path.includes('skills/secure-') ? path.slice(path.indexOf('skills/secure-')) : /\/(package\.json|node_modules)$/.test(path) ? path.slice(path.lastIndexOf('/') + 1) : path)
-  // A repository file the test gives (diff.files), found by its path under the working directory.
-  const repoFile = (path: string) => Object.keys(diff.files ?? {}).find(name => path === name || path.endsWith(`/${name}`))
   on('fs.exists', (_$, e) => ({
-    value: Object.keys(skills).some(path => path === rel(e.path) || path.startsWith(`${rel(e.path)}/`)) || repoFile(e.path) !== undefined || Object.keys(diff.files ?? {}).some(name => e.path.includes('/') && `/${name}`.includes(`${e.path.slice(e.path.indexOf('apps/'))}/`) && e.path.includes('apps/')),
+    value: Object.keys(skills).some(path => path === rel(e.path) || path.startsWith(`${rel(e.path)}/`)),
   }))
   on('fs.list', (_$, e) => {
-    const inFolder = Object.keys(diff.files ?? {}).filter(name => name.startsWith(`${e.path.slice(e.path.indexOf('apps/'))}/`))
-    if (inFolder.length > 0) return { value: inFolder.map(name => ({ name: name.split('/').pop() ?? '', kind: 'file' as const, size: 0, mtimeMs: 0, isLink: false })) }
     if (e.path === '/' && diff.siblings !== undefined) {
       if (diff.siblings === 'unlistable') throw new Error('EACCES')
       return { value: Object.keys(diff.siblings).map(name => ({ name, kind: 'dir' as const, size: 0, mtimeMs: 0, isLink: false })) }
@@ -291,7 +287,7 @@ export const engine = (
   const untracked = (path: string) => Object.entries(diff.untracked ?? {}).find(([name]) => path === name || path.endsWith(`/${name}`))?.[1]
   const binary = (path: string) => Object.entries(diff.binary ?? {}).find(([name]) => path === name || path.endsWith(`/${name}`))?.[1]
   on('fs.read', (_$, e) => {
-    if (e.as !== 'bytes') return { value: skills[rel(e.path)] ?? (repoFile(e.path) === undefined ? undefined : diff.files?.[repoFile(e.path) ?? '']) ?? diff.files?.[e.path] ?? untracked(e.path) ?? '' }
+    if (e.as !== 'bytes') return { value: skills[rel(e.path)] ?? diff.files?.[e.path] ?? untracked(e.path) ?? '' }
     const text = untracked(e.path)
     const base64 = binary(e.path) ?? (text === undefined ? undefined : btoa(String.fromCharCode(...new TextEncoder().encode(text))))
     return { value: { base64: base64 ?? '' } }
@@ -340,6 +336,12 @@ export const engine = (
     if (cmd === 'git' && sub === 'checkout') {
       head = diff.remoteHead ?? head
       return ok()
+    }
+    // The repository's design.requiredPictures command (a fake): what it was given is kept, what it answers is the test's.
+    if (cmd === 'design-tool' && diff.required !== undefined) {
+      diff.ran?.push({ argv: e.argv, stdin: (e as { init?: { stdin?: unknown } }).init?.stdin })
+      if (diff.required === 'hang') return new Promise(resolve => setTimeout(() => resolve({ value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }), 300)) as never
+      return { value: { ...diff.required, isStdoutTruncated: false, isStderrTruncated: false } }
     }
     if (cmd === 'npm' && diff.copies !== undefined) {
       if (diff.copies === 'throw') throw new Error('$.process.run(npm) failed to start: ENOENT')
@@ -481,6 +483,9 @@ export const DESIGN_CONFIG = [
     },
   },
 ]
+// The fake `design-tool`: an argument carries a shell metacharacter, which must reach it literally.
+export const REQUIRED_COMMAND = ['design-tool', 'required-pictures', '--for', 'a; echo $HOME']
+export const REQUIRED_CONFIG = [{ branch: 'main', design: { ...DESIGN_CONFIG[0].design, requiredPictures: { command: REQUIRED_COMMAND } } }]
 export const PIC = { key: 'acme/web-app/TCK-151/board-before-after.png', name: 'board-before-after.png' }
 
 export const PAGED = [161, 162, 163, 164, 165]

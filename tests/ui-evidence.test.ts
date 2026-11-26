@@ -50,8 +50,13 @@ test('designOf reads the design section of the first config entry that sets uiPa
     checklist: CHECKLIST,
     pictures,
     workflow: 'docs/ux.md',
+    requiredPictures: null,
   })
-  expect(designOf({ config: [{ design: { uiPaths: ['a/**'] } }] })).toEqual({ uiPaths: ['a/**'], checklist: [], pictures: [], workflow: null })
+  expect(designOf({ config: [{ design: { uiPaths: ['a/**'] } }] })).toEqual({ uiPaths: ['a/**'], checklist: [], pictures: [], workflow: null, requiredPictures: null })
+  // design.requiredPictures: its command as given, with `why`; one that is not a list of argument strings is none.
+  const required = (requiredPictures: unknown) => designOf({ config: [{ design: { uiPaths: ['a/**'], requiredPictures } }] })?.requiredPictures
+  expect(required({ command: ['tool', 'x'], why: 'boards' })).toEqual({ command: ['tool', 'x'], why: 'boards' })
+  for (const odd of [{ command: [] }, { command: 'tool x' }, { command: ['tool', 1] }, 'tool', null]) expect(required(odd)).toBeNull()
   // A malformed picture rule is skipped, never guessed at.
   expect(designOf({ config: [{ design: { uiPaths: ['a/**'], pictures: [{ when: [], name: 'x' }, { when: ['a'], name: '' }, { when: ['a'], name: 'ok-*' }] } }] })?.pictures).toEqual([{ when: ['a'], name: 'ok-*' }])
   for (const value of [{}, { config: [] }, { config: [{ branch: 'main', design: {} }] }, { config: [{ design: { uiPaths: [] } }] }, { config: [{ design: { uiPaths: [1] } }] }, { config: [{ design: { checklist: CHECKLIST } }] }]) expect(designOf(value)).toBeNull()

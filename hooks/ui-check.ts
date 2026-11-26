@@ -1,7 +1,7 @@
 import type { EngineInterface } from 'claude-code'
 import { touchesUi } from './ui-evidence'
 import { globToRegExp, isTestOnlyChange } from '../scripts/ui-paths.mjs'
-import { touched, uncovered, uncoveredLines } from '../scripts/ui-touched.mjs'
+import { REQUIRED_TIMEOUT_MS, commandText, parseRequired, uncovered, uncoveredLines } from '../scripts/required-pictures.mjs'
 import { callTickit, designHere, repositoryHere } from './tickit'
 import type { Design } from './ui-evidence'
 
@@ -18,7 +18,7 @@ const fileName = (p: Picture): string => p.name || p.key.split('/').pop() || ''
  * repository's design workflow doc, never the mod's. The pictures are the ticket's confirmed ones in Tick-it; the
  * repository and the pull request description are never read.
  */
-export function uiEvidenceProblems(input: { ticket: string; changed: readonly string[]; pictures: readonly Picture[]; design?: Design | null; touchedLines?: readonly string[] }): string[] {
+export function uiEvidenceProblems(input: { ticket: string; changed: readonly string[]; pictures: readonly Picture[]; design?: Design | null; requiredLines?: readonly string[] }): string[] {
   const design = input.design ?? null
   if (design === null || !touchesUi(input.changed.join('\n'), design)) return []
   const how = `${design.workflow ? `This repository's design workflow (${design.workflow}) says how to make them` : "This repository's ux-evidence review skill says what they show"}. If a step cannot run, report the command and its error on the ticket rather than writing a screenshot script of your own`
@@ -33,8 +33,8 @@ export function uiEvidenceProblems(input: { ticket: string; changed: readonly st
     if (input.pictures.some(p => named.test(fileName(p)))) continue
     problems.push(`This branch changes ${touched.slice(0, 3).join(', ')}${touched.length > 3 ? ` and ${touched.length - 3} more` : ''}, so this repository asks for a picture named ${rule.name}, and list_screenshots shows none.${rule.why === undefined ? '' : ` ${rule.why}`} ${how}.`)
   }
-  // Each story or page the change touches (a shared component touches many) with no confirmed picture, named.
-  problems.push(...(input.touchedLines ?? []))
+  // Each required picture the repository's design command lists with no confirmed picture, or why the command could not say.
+  problems.push(...(input.requiredLines ?? []))
   return problems
 }
 
@@ -47,6 +47,38 @@ export function picturesOf(value: Record<string, unknown>): Picture[] | null {
     const { key, name } = one as { key?: unknown; name?: unknown }
     return [{ key: typeof key === 'string' ? key : '', name: typeof name === 'string' ? name : '' }]
   })
+}
+
+/**
+ * The lines for the pictures the repository's design.requiredPictures command lists with no confirmed picture. The command runs
+ * as an argument list with no shell, the changed paths one per line on stdin. A command that cannot run (non-zero exit, no
+ * answer in 60 seconds, output that is not the contract) is a line saying so: it never lets the move through silently.
+ */
+export async function requiredLines($: EngineInterface, command: readonly string[], changed: readonly string[], pictures: readonly Picture[]): Promise<string[]> {
+  const named = commandText(command)
+  const unable = (why: string) => [`The repository's design.requiredPictures command (${named}) could not say which pictures are required: ${why}. Fix the command, or ask its owner, then move the ticket to In review again.`]
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    let set = NaN
+    try {
+      set = Number(await $.env.get('TICK_IT_REQUIRED_TIMEOUT_MS'))
+    } catch {
+      // Unreadable: the default stands.
+    }
+    const ms = Number.isFinite(set) && set > 0 ? set : REQUIRED_TIMEOUT_MS
+    const late = new Promise<'late'>(resolve => {
+      timer = setTimeout(() => resolve('late'), ms)
+    })
+    const ran = await Promise.race([$.process.run([...command], { stdin: `${changed.join('\n')}\n` } as never), late])
+    if (ran === 'late') return unable(`it did not finish in ${ms >= 1000 ? `${Math.round(ms / 1000)} seconds` : `${ms} ms`}`)
+    if (ran.exitCode !== 0) return unable(`it exited with ${ran.exitCode}${ran.stderr.trim() === '' ? '' : `: ${ran.stderr.trim().slice(0, 300)}`}`)
+    const found = parseRequired(ran.stdout)
+    return uncoveredLines(uncovered(found.required, pictures.map(fileName)), found.touched)
+  } catch (error) {
+    return unable(error instanceof Error ? error.message : String(error))
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 /**
@@ -72,15 +104,8 @@ export async function uiEvidenceRefusal($: EngineInterface, ticket: string, allC
     // Tick-it did not answer: nothing is refused.
   }
   if (pictures === null) return undefined
-  // The stories and pages the change touches, read from the repository's files ($.fs); a read that fails names none.
-  let touchedLines: string[] = []
-  try {
-    const fs = { exists: async (p: string) => $.fs.exists(p), read: async (p: string) => String(await $.fs.read(p)), list: async (p: string) => (await $.fs.list(p).catch(() => [])).map(e => e.name) }
-    touchedLines = uncoveredLines(uncovered(await touched({ fs, changed }), pictures.map(fileName)))
-  } catch {
-    // The files could not be read: the pictures rules above still apply.
-  }
-  const problems = uiEvidenceProblems({ ticket, changed, pictures, design, touchedLines })
+  const required = design?.requiredPictures?.command
+  const problems = uiEvidenceProblems({ ticket, changed, pictures, design, requiredLines: required === undefined ? [] : await requiredLines($, required, changed, pictures) })
   if (problems.length === 0) return undefined
 
   return `${ticket} changes the UI, so it is not ready for review. Fix ${problems.length === 1 ? 'this' : 'these'}, then move it to In review again:\n${problems.map(p => `- ${p}`).join('\n')}`
