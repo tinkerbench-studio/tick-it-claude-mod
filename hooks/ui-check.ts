@@ -49,26 +49,35 @@ export function picturesOf(value: Record<string, unknown>): Picture[] | null {
 /**
  * The refusal text for a ticket going to review with a UI change and missing pictures, or undefined.
  * Pictures live in Tick-it, so it asks Tick-it (list_screenshots) and runs no git or gh command to look for them.
- * Never throws and lets a change through when Tick-it cannot answer: a check that cannot run must not stop a ticket.
+ * Never throws. A check that cannot run refuses, with the reason, and never passes silently: Tick-it not answering
+ * get_repository_settings (with no design held for this repository) or list_screenshots, an answer with no list of
+ * pictures, and git not listing the changed files (allChanged is then the reason, a string). Not checked at all:
+ * a directory that is not a GitHub repository, and a repository whose settings answer with no design section.
  */
-export async function uiEvidenceRefusal($: EngineInterface, ticket: string, allChanged: readonly string[], content: readonly { path: string; lines: string }[] = []): Promise<string | undefined> {
+export async function uiEvidenceRefusal($: EngineInterface, ticket: string, allChanged: readonly string[] | string, content: readonly { path: string; lines: string }[] = []): Promise<string | undefined> {
+  const stop = (what: string, why: string) => `${ticket} cannot go to review: the UI evidence check could not run, because ${what} (${why}). Move it to In review again once that works.`
   // A story or .storybook/ change that only waits, asserts or comments is a test change: it shows nothing a person sees, so it needs no pictures.
   const lines = new Map(content.map(f => [f.path, f.lines]))
-  const changed = allChanged.filter(p => !isTestOnlyChange(p, lines.get(p)))
-  let pictures: Picture[] | null = null
-  let design: Design | null = null
+  const changed = typeof allChanged === 'string' ? [] : allChanged.filter(p => !isTestOnlyChange(p, lines.get(p)))
+  let pictures: Picture[] | null
+  let design: Design | null
   try {
     const repository = await repositoryHere($)
     if (repository === undefined) return undefined
     // The repository's own design section decides what a UI change is (design.uiPaths, the same globs scripts/ui-evidence-check.mjs reads) and what it must carry; with none, nothing is asked.
-    design = await designHere($, repository)
+    const got = await designHere($, repository)
+    if (typeof got === 'string') return stop("the repository's design settings could not be read", got)
+    design = got
+    if (design === null) return undefined
+    if (typeof allChanged === 'string') return stop('git could not list the changed files', allChanged)
     if (!touchesUi(changed.join('\n'), design)) return undefined
-    const got = await callTickit($, 'list_screenshots', { repository, ticket })
-    if (got.ok) pictures = picturesOf(got.value)
-  } catch {
-    // Tick-it did not answer: nothing is refused.
+    const listed = await callTickit($, 'list_screenshots', { repository, ticket })
+    if (!listed.ok) return stop("the ticket's pictures could not be listed (list_screenshots)", listed.why)
+    pictures = picturesOf(listed.value)
+    if (pictures === null) return stop("the answer from list_screenshots could not be read", 'it had no list of pictures')
+  } catch (error) {
+    return stop('the check itself failed', error instanceof Error ? error.message : String(error))
   }
-  if (pictures === null) return undefined
   const problems = uiEvidenceProblems({ ticket, changed, pictures, design })
   if (problems.length === 0) return undefined
 

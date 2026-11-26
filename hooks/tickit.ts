@@ -158,8 +158,8 @@ export function designOf(value: Record<string, unknown>): Design | null {
   return null
 }
 
-/** The repository's design for the gate: asked of Tick-it now; as last fetched when it cannot answer; null when it sets none. */
-export async function designHere($: EngineInterface, repository: string): Promise<Design | null> {
+/** The repository's design for the gate: asked of Tick-it now; as last fetched when it cannot answer; null when it sets none; why not (a string) when Tick-it cannot answer and none was held for this repository. */
+export async function designHere($: EngineInterface, repository: string): Promise<Design | null | string> {
   const got = await callTickit($, 'get_repository_settings', { repository }).catch(() => ({ ok: false as const, why: 'unreachable' }))
   if (got.ok) {
     const design = designOf(got.value)
@@ -167,7 +167,7 @@ export async function designHere($: EngineInterface, repository: string): Promis
     return design
   }
   const held = await read($, designHeld)
-  return sameRepository(held.repository, repository) ? held.design : null
+  return sameRepository(held.repository, repository) ? held.design : got.why
 }
 
 /** The design last fetched, for this repository only: another repository's is not this one's. */

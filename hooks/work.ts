@@ -503,8 +503,18 @@ export async function changedFiles($: EngineInterface, status: TicketStatus) {
 
 /** The refusal for the current ticket's UI change that lacks its pictures, or undefined. */
 export async function uiRefusal($: EngineInterface, ticket: string): Promise<string | undefined> {
-  const paths = (await measureFiles($)).map(f => f.path)
-  return uiEvidenceRefusal($, ticket, paths, await storyContent($, paths))
+  const paths = await changedPaths($)
+  return uiEvidenceRefusal($, ticket, paths, typeof paths === 'string' ? [] : await storyContent($, paths))
+}
+
+/** The changed paths, or why git cannot list them: the UI gate refuses on a change it cannot see (measureFiles alone gives none then). */
+async function changedPaths($: EngineInterface): Promise<string[] | string> {
+  try {
+    if ((await numstat($, true)) === null) return "git diff against the ticket's base failed"
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error)
+  }
+  return (await measureFiles($)).map(f => f.path)
 }
 
 /** The changed lines of the ticket, read only when a story or .storybook/ file changed (the only files that can be test-only): any other change reads no patch. */
@@ -525,8 +535,8 @@ export async function finish($: EngineInterface, status: TicketStatus): Promise<
   let copiesUnrun: string | undefined
   // A UI change goes to review with its before/after pictures, or not at all: the reviewer would only send it back.
   if (status === 'In review') {
-    const paths = (await measureFiles($)).map(f => f.path)
-    const missing = await uiEvidenceRefusal($, t.id, paths, await storyContent($, paths))
+    const paths = await changedPaths($)
+    const missing = await uiEvidenceRefusal($, t.id, paths, typeof paths === 'string' ? [] : await storyContent($, paths))
     if (missing !== undefined) return missing
     // The repository's own stale-copy check (its package.json copies:check script) must pass: a failure refuses the move and changes nothing. A check that cannot run is only said, with the move.
     const copies = await runCopiesCheck($)
