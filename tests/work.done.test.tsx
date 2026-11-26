@@ -75,10 +75,13 @@ test('a clean round flags the open pull request with autoMerge off', async ($, o
 })
 
 test('a clean round flags the open pull request when the settings cannot be read', async ($, on) => {
-  const seen = engine(on, { lines: 10, pr: 42 }, true, { '.tick-it/skills/principal/SKILL.md': SKILLS['.tick-it/skills/principal/SKILL.md'] ?? '' }, { instructions: 'unreachable' })
+  const net: { instructions?: string } = {}
+  const seen = engine(on, { lines: 10, pr: 42 }, true, { '.tick-it/skills/principal/SKILL.md': SKILLS['.tick-it/skills/principal/SKILL.md'] ?? '' }, net)
   await start($)
   await $.command.run({ ...RUN, command: 'tick-it', args: 'take TCK-143' })
   await $.command.run({ ...RUN, command: 'tick-it', args: 'done' })
+  // The UI gate needs the settings to move to review, so they fail only after the move.
+  net.instructions = 'unreachable'
   await $.turn.complete(finishTurn('agent-1', 'VERDICT: clean'))
   expect(seen.ticketCalls.find(c => c.tool === 'set_needs_human')?.args).toMatchObject({ key: 'TCK-143', kind: 'review-pull-request', note: expect.stringContaining('#42') })
 })
