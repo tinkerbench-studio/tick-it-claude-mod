@@ -6,7 +6,8 @@ on:
 
 jobs:
   # A pull request never changes the plugin version: the release job below raises it after the merge
-  # (.claude/skills/version-raise). This check fails a pull request that does, so a raise cannot clash with main.
+  # (.claude/skills/version-raise). This check fails a pull request that changes any of its three copies, so a raise cannot clash with main.
+  # The check and the raise are tinkerbench-studio/github-actions' shared version-check and version-raise.
   plugin-version:
     name: Plugin version
     if: github.event_name == 'pull_request'
@@ -15,12 +16,15 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - run: node scripts/plugin-version.mjs
-        env:
-          GITHUB_BASE_REF: ${{ github.base_ref }}
+      - uses: tinkerbench-studio/github-actions/version-check@3b62017c96ef699ebedcd21924707f313a96e8f0 # v1.3.0
+        with:
+          copies: |
+            .claude-plugin/plugin.json
+            hooks/state.ts MOD_VERSION = '([^']+)'
+            tests/contract-fixtures.json "modVersion": "([^"]+)"
 
-  # Merged to main: when the merge changed hooks/, skills/, types/ or plugin.json, raise the version in plugin.json,
-  # MOD_VERSION and modVersion (scripts/raise-version.mjs), commit that to main, tag that commit v<version> and cut a release.
+  # Merged to main: when the merge changed hooks/, skills/, types/ or plugin.json, raise the patch version in the three copies (version-raise),
+  # commit that to main, tag that commit v<version> and cut a release.
   # The raise commit is skipped by this job itself, and a push made with GITHUB_TOKEN starts no workflow.
   release:
     if: github.event_name == 'push'
@@ -36,22 +40,37 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
-      - name: Raise the version, tag v<version> and release it
-        env:
-          GH_TOKEN: ${{ github.token }}
-          BEFORE: ${{ github.event.before }}
+      - name: Is this the raise commit?
+        id: own
         run: |
           if git log -1 --format=%s "$GITHUB_SHA" | grep -q '^Raise the plugin version to '; then
             echo "This is the raise commit."
-            exit 0
+            echo "skip=true" >> "$GITHUB_OUTPUT"
           fi
-          version=$(node scripts/raise-version.mjs "$BEFORE" "$GITHUB_SHA")
-          if [ -z "$version" ]; then
-            echo "No plugin path changed: no new version."
-            exit 0
-          fi
+      - name: Raise the version when a plugin path changed
+        id: raise
+        if: steps.own.outputs.skip != 'true'
+        uses: tinkerbench-studio/github-actions/version-raise@3b62017c96ef699ebedcd21924707f313a96e8f0 # v1.3.0
+        with:
+          copies: |
+            .claude-plugin/plugin.json
+            hooks/state.ts MOD_VERSION = '([^']+)'
+            tests/contract-fixtures.json "modVersion": "([^"]+)"
+          paths: |
+            /hooks/**
+            /skills/**
+            /types/**
+            /.claude-plugin/plugin.json
+          before: ${{ github.event.before }}
+          after: ${{ github.sha }}
+      - name: Commit, tag v<version> and release it
+        if: steps.raise.outputs.raised == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.raise.outputs.version }}
+        run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -am "Raise the plugin version to $version"
+          git commit -am "Raise the plugin version to $VERSION"
           git push origin HEAD:main
-          gh release create "v$version" --target "$(git rev-parse HEAD)" --title "v$version" --generate-notes
+          gh release create "v$VERSION" --target "$(git rev-parse HEAD)" --title "v$VERSION" --generate-notes

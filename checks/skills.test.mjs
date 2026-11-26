@@ -270,7 +270,7 @@ test('the README says a reviewer reviews the ticket’s whole change against the
 
 test('the version-raise skill says a pull request leaves the version and the release job raises it after the merge', () => {
   const skill = read('.claude/skills/version-raise/SKILL.md')
-  for (const words of ['A pull request never changes the plugin version', '`.claude-plugin/plugin.json`', '`hooks/state.ts`', '`tests/contract-fixtures.json`', 'scripts/raise-version.mjs', 'tags that commit `v<version>`']) expect(skill).toContain(words, `the version-raise skill no longer says "${words}"`)
+  for (const words of ['A pull request never changes the plugin version', '`.claude-plugin/plugin.json`', '`hooks/state.ts`', '`tests/contract-fixtures.json`', '`version-raise`', '`version-check`', 'tags that commit `v<version>`']) expect(skill).toContain(words, `the version-raise skill no longer says "${words}"`)
   assert.ok(!skill.includes('Act only when Tick-it reports'), 'the version-raise skill still waits for a failing check')
 })
 
