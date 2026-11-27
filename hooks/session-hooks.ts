@@ -4,7 +4,7 @@ import type { DroppedRun, OutboxRun, PendingLink, PendingStop, ReviewRun, Starte
 import { APPROVAL_MESSAGE, answeredIds, STORE_KEY, STORE_REPOSITORY_KEY, STARTED_KEY, START_LINE, CONTINUE_LINE, BREAKDOWN_LINE, BREAKDOWN_KEY, REPORT_TOOL, REVIEWS_KEY, OUTBOX_KEY, DROPPED_KEY, UNLINKED_KEY, STOPS_KEY, RECORD_TOOL, AGENTS_TOOL } from './state'
 import { callTickit, originHere, checkoutBeside, freshBriefOf, repositoryHere, sameRepository } from './tickit'
 import { refreshBoard, showStatus } from './board'
-import { reportsForItself, instructionsOf, take, resume, report, stopWatching } from './work'
+import { reportsForItself, instructionsOf, take, resume, report, stopWatching, watchApproval } from './work'
 import { reportAgents, flush } from './outbox'
 import { failRuns } from './reviews'
 import { log } from './log'
@@ -67,6 +67,8 @@ export const registerSession: Register = on => {
       // Only into the Claude Code session it belongs to (a resume), never a new one.
       if (typeof saved === 'object' && saved !== null && saved.claudeSession === (await $.session.id())) await update($, startedSession, () => saved)
     }
+    // A restart or reload drops the module's approval timer: a session restored while waiting asks for its answer again (TCK-95's timer is armed otherwise only by a waiting report, which an idle session never sends).
+    if ((await read($, startedSession))?.status === 'waiting') watchApproval($)
     await restoreResume($)
     if ((await read($, breakdownSession)) === null) {
       const saved = (await $.store.get(BREAKDOWN_KEY)) as { id: string; claudeSession: string } | null | undefined

@@ -171,3 +171,26 @@ test('the timer stops when the session ends: no report after that', async ($, on
   await clock.pass()
   expect(reports(seen)).toHaveLength(sent)
 })
+
+test('a session restored while waiting (a restart or reload) asks for its answer once a minute again, and hands it over', async ($, on) => {
+  const instructions: string[] = []
+  const waiting = { id: 's_abc12345', repository: 'acme/web-app', ticket: 'TCK-151', status: 'waiting', reportedAt: 0, waitingLines: 0, claudeSession: 'session-1' }
+  const seen = engine(on, { lines: 0, stored: { 'started-session': waiting } }, true, SKILLS, { reportInstructions: instructions })
+  const clock = minutes(on)
+  await start($)
+  expect(clock.waits.map(w => w.ms)).toEqual([60_000])
+  await clock.pass()
+  expect(reports(seen).map(r => r.status)).toEqual(['waiting'])
+  instructions.push(ANSWER)
+  await clock.pass()
+  expect(seen.submitted.filter(text => text.includes('Approval request ar_1'))).toHaveLength(1)
+  expect(reports(seen).at(-1)).toMatchObject({ status: 'working' })
+})
+
+test('a session restored while working arms no approval timer', async ($, on) => {
+  const working = { id: 's_abc12345', repository: 'acme/web-app', ticket: 'TCK-151', status: 'working', reportedAt: 0, claudeSession: 'session-1' }
+  engine(on, { lines: 0, stored: { 'started-session': working } }, true, SKILLS)
+  const clock = minutes(on)
+  await start($)
+  expect(clock.waits).toEqual([])
+})
