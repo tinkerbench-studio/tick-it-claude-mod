@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { RUN, COMPOSE, engine, finishTurn, start, typed } from './helpers'
+import { RUN, COMPOSE, SKILLS, engine, finishTurn, start, typed } from './helpers'
 import type { Net } from './helpers'
 
 const UPDATE = 'mcp__plugin_tick-it_tickit__update_ticket'
@@ -115,7 +115,8 @@ test('more than 100 waiting runs go in calls of at most 100, and a failed call l
 })
 
 test('Claude may report a merge-only session itself, and a build session is still refused (TCK-97)', async ($, on) => {
-  const seen = engine(on, { lines: 0 })
+  const seen = engine(on, { lines: 0 }, true, SKILLS)
+  on('tool.check', () => ({ decision: 'allow' as const }))
   const ticket = seen.server.find(t => t.key === 'TCK-151')
   if (ticket !== undefined) ticket.status = 'In review'
   await start($)
