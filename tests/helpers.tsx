@@ -57,6 +57,10 @@ export type Seen = {
   /** Agents the agent list does not show (gone), and agents it shows running that this session did not spawn. */
   unlisted?: string[]
   listedExtra?: string[]
+  /** Each $.clock.every the mod armed, by its period: `tick` lets one period pass (the timer's function runs and the next period is held). */
+  timers: { ms: number; tick: () => Promise<void> }[]
+  /** The context each submitted prompt carried down to the engine, in order with submitted. */
+  contexts: string[][]
 }
 
 /**
@@ -139,7 +143,7 @@ export const engine = (
   net: Net = {},
 ): Seen => {
   let lastKey = 'TCK-143'
-  const seen: Seen = { spawned: [], submitted: [], toasts: [], opened: [], recorded: [], server: SAMPLE(), ticketCalls: [], processes: [] }
+  const seen: Seen = { spawned: [], submitted: [], toasts: [], opened: [], recorded: [], server: SAMPLE(), ticketCalls: [], processes: [], timers: [], contexts: [] }
   const answer = (value: Record<string, unknown>) => ({
     // As $.mcp.call hands a plugin a reply: the content blocks only, never structuredContent.
     value: { isError: false, content: [{ type: 'text', text: JSON.stringify(value) }] },
@@ -259,6 +263,19 @@ export const engine = (
     on('store.set', (_$, e) => (kept.set((e as { key: string }).key, (e as { value: unknown }).value), { value: undefined }))
   }
   on('clock.now', () => ({ value: (clock += 1000 + (net.skip ?? 0)) }))
+  // A timer's period is held until the test ticks it: nothing fires on its own, so a test says exactly how many periods passed.
+  on('clock.every', (_$, e) => {
+    const ms = (e as { ms: number }).ms
+    let timer = seen.timers.find(t => t.ms === ms)
+    if (timer === undefined) seen.timers.push((timer = { ms, tick: async () => undefined }))
+    return new Promise(resolve => {
+      timer.tick = async () => {
+        resolve({ value: undefined })
+        // Lets the timer's function and what it called settle before the test looks.
+        for (let i = 0; i < 20; i++) await new Promise(r => setTimeout(r, 5))
+      }
+    })
+  })
   // The engine hands the paths over resolved against the working directory.
   // A base review skill is read from the plugin's own folder, wherever that is: the map names it from skills/review-agents/bases on.
   // A secure-coding skill is read from the plugin's own folder too: the map names it from skills/secure- on.
@@ -308,6 +325,7 @@ export const engine = (
   }))
   on('prompt.submit', (_$, e) => {
     seen.submitted.push(e.text)
+    seen.contexts.push([...(e.context ?? [])])
     // As core does: the prompt enters with the context hooks attached on the way down.
     return { text: e.text, ...(e.context === undefined ? {} : { context: e.context }) }
   })

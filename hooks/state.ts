@@ -23,6 +23,8 @@ export const BREAKDOWN_LINE = /^[ \t]*Tick-it session (s_[a-z0-9]{8,40}): (?:bre
 export const BREAKDOWN_KEY = 'breakdown-session'
 /** Progress goes to Tick-it on every change of status, and otherwise at most this often. */
 export const REPORT_EVERY_MS = 60_000
+/** How often a session waiting on an approval asks Tick-it for the answer while no turn runs (TCK-95). */
+export const ANSWER_POLL_MS = 60_000
 export const REPORT_TOOL = 'report_session'
 /** The tool Claude asks for an approval with; the mod reports the session waiting once it succeeds. */
 export const REQUEST_REVIEW_TOOL = 'request_review'

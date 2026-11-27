@@ -3,7 +3,7 @@ import type { EngineInterface, ToolCallInput, ToolCallResult } from 'claude-code
 import type { PendingLink, PendingStop, StartedSession, Ticket, TicketStatus } from '../types'
 import { patchFiles } from './security-areas'
 import type { ChangedFile } from './security-areas'
-import { STARTED_KEY, REPORT_EVERY_MS, REPORT_TOOL, APPROVAL_MESSAGE, SKILLS_DIR, EMPTY_TREE, UNLINKED_KEY, STOPS_KEY, FILE_TYPES, MAX_ATTACH_BYTES, MAX_FILES, MAX_PATH, MAX_FILE_LINES } from './state'
+import { STARTED_KEY, REPORT_EVERY_MS, ANSWER_POLL_MS, REPORT_TOOL, APPROVAL_MESSAGE, answeredIds, SKILLS_DIR, EMPTY_TREE, UNLINKED_KEY, STOPS_KEY, FILE_TYPES, MAX_ATTACH_BYTES, MAX_FILES, MAX_PATH, MAX_FILE_LINES } from './state'
 import { sendTickit, callTickit, repositoryHere, sameRepository } from './tickit'
 import type { Called } from './tickit'
 import { findCurrent, changeTicket, showStatus, save, fromRemote, readTicket, heldUntil } from './board'
@@ -36,8 +36,10 @@ const resumeAsked = atom({ plugin: 'tick-it', key: 'resumeAsked' } as const, fal
 const reviewNext = atom({ plugin: 'tick-it', key: 'reviewNext' } as const, null)
 /** Whether a turn is running: set when a prompt is submitted, cleared when the main loop's turn ends. */
 const turnRunning = atom({ plugin: 'tick-it', key: 'turnRunning' } as const, false)
-/** Approval answers that reached the session while no turn was running: handed to Claude with the next prompt, once. */
+/** Approval answers that reached the session while no turn was running: handed to Claude with the prompt the mod submits for them (or the person's, if theirs comes first), once. */
 const approvalAnswers = atom({ plugin: 'tick-it', key: 'approvalAnswers' } as const, [] as string[])
+/** The approval requests whose answers the session has taken, so the pane stops showing them. */
+const approvalsTaken = atom({ plugin: 'tick-it', key: 'approvalsTaken' } as const, [] as string[])
 /** Tick-it answered a report with the unseen-head instruction: the mod starts the review round itself at the turn's end (TCK-94), and the instruction is not handed to Claude. */
 const unseenHead = atom({ plugin: 'tick-it', key: 'unseenHead' } as const, false)
 /** The instructions already handed over (or acted on) for a head while nothing changed: what is kept is the kind, the head and the text, so a repeat is told apart from a new commit or answer. */
@@ -298,7 +300,7 @@ async function takeAnswer($: EngineInterface, sent: Called, status?: StartedSess
   const unseen = instructions.filter(i => UNSEEN_HEAD.test(i))
   instructions = instructions.filter(i => !unseen.includes(i))
   if (status !== 'stopped' && unseen.length > 0 && (await onceForHead($, 'unseen-head', unseen.join('\n')))) await update($, unseenHead, () => true)
-  // An approval answer that arrives with no turn running is shown and kept for the person's next prompt, not submitted as a turn of its own.
+  // An approval answer that arrives with no turn running is shown and kept; submitHeldAnswers hands it to Claude from an event that may start a turn (TCK-95), or the person's next prompt takes it first.
   const answers = (await read($, turnRunning)) ? [] : instructions.filter(i => APPROVAL_MESSAGE.test(i))
   if (answers.length > 0) {
     $.ui.toast(`tick-it: ${answers.map(a => a.split('\n').find(line => APPROVAL_MESSAGE.test(line)) ?? a).join(' ')}`.slice(0, 300))
@@ -402,6 +404,8 @@ export async function report($: EngineInterface, status: StartedSession['status'
   const waiting = (await read($, unsentStops)).filter(w => w.session !== s.id)
   if (stop !== undefined && !sent.ok) await saveStops($, [...waiting, { repository: s.repository, session: s.id, args }])
   else if ((stop !== undefined || status !== 'stopped') && sent.ok) await saveStops($, waiting)
+  // Waiting: the check for the answer runs while the session is idle (armed at session.start too, but a /clear ends a session with no new start).
+  if (status === 'waiting') watchForAnswers($)
   await takeAnswer($, sent, status)
   // A done report Tick-it refused (behind, conflicting) was only logged: its refusal text is handed to Claude, once for the head (TCK-94).
   if (!sent.ok && status === 'done' && sent.refused === true) {
@@ -413,6 +417,49 @@ export async function report($: EngineInterface, status: StartedSession['status'
   }
 
   return sent
+}
+
+/** The timer that asks Tick-it for an approval answer while the session waits (TCK-95): the module's own, so a reload drops it and session.start arms it again. */
+let answerTimer: { cancel: () => void } | undefined
+
+/**
+ * Arms the once-a-minute check for an approval answer. Each tick does nothing unless the session Tick-it started is waiting and no turn runs: then it sends
+ * the waiting report, whose answer carries the approval answer (handed over by takeAnswer). A session that is idle has no other event to send it on.
+ */
+export function watchForAnswers($: EngineInterface) {
+  if (answerTimer !== undefined) return
+  answerTimer = $.clock.every(ANSWER_POLL_MS, () => {
+    void pollForAnswer($).catch(() => undefined)
+  })
+}
+
+/** Stops the check, as the session ends. */
+export function stopWatchingForAnswers() {
+  answerTimer?.cancel()
+  answerTimer = undefined
+}
+
+/** One tick of the check, while no turn runs: a waiting report only while the session waits (any other status sends nothing), then any answer kept is submitted. */
+export async function pollForAnswer($: EngineInterface) {
+  if (await read($, turnRunning)) return
+  const s = await read($, startedSession)
+  // Forced: the tick is the throttle. With no summary, Tick-it keeps the one the session gave when it began waiting.
+  if (s !== null && s.status === 'waiting' && (await read($, approvalAnswers)).length === 0) await report($, 'waiting', undefined, true)
+  await submitHeldAnswers($)
+}
+
+/**
+ * Starts a turn for the approval answers kept while none ran (TCK-95): a cloud session has no person to type the next prompt. The answers are the prompt's text,
+ * as any instruction handed over at a turn's end is, and the session is reported working first. Done here, not by the prompt.submit hook: a prompt the mod
+ * submits from its timer does not pass through its own hooks. Called only from events that may submit (the timer, a turn's end), never from a tool call.
+ */
+export async function submitHeldAnswers($: EngineInterface) {
+  const answers = await read($, approvalAnswers)
+  if (answers.length === 0 || (await read($, turnRunning))) return
+  await update($, approvalAnswers, () => [])
+  await update($, approvalsTaken, taken => [...taken, ...answeredIds(answers)])
+  await report($, 'working', 'The approval was answered; continuing.', true)
+  await $.prompt.submit({ text: answers.join('\n\n') })
 }
 
 /** The repository's default branch: origin/HEAD's, else main or master. */

@@ -3,7 +3,7 @@ import type { Register } from 'claude-code'
 import type { ReviewRun, ReviewUsage, WorkRun } from '../types'
 import { APPROVAL_MESSAGE, answeredIds, BREAKDOWN_SUGGESTION, MAX_FINDINGS } from './state'
 import { findCurrent, refreshPullRequest, statusOnTickit, showStatus } from './board'
-import { refreshDiff, takeUnseenHead, report, recordPullRequest, firstLine, finish } from './work'
+import { refreshDiff, takeUnseenHead, report, recordPullRequest, firstLine, finish, submitHeldAnswers } from './work'
 import { gaveVerdict, withoutStopMarks, costOf, openVerdictLines, readFindings, readVerdicts, parseFinding, saveReviews, setSteward, startRound, settleRound, checkIn } from './reviews'
 import type { CheckIn } from './reviews'
 import { queue, flush } from './outbox'
@@ -113,9 +113,10 @@ export const registerTurn: Register = on => {
         const onlyRead = session.status === 'waiting' && session.waitingLines === (await read($, diffLines))
         if (!onlyRead) await report($, done ? 'done' : 'working', firstLine(e.answer), done)
         else {
-          // Still waiting, but the turn is over: a throttled report asks Tick-it whether the request has been answered, and an answer that comes back with no turn running is a toast kept for the next prompt.
+          // Still waiting, but the turn is over: a throttled report asks Tick-it whether the request has been answered, and an answer that comes back with no turn running is a toast and a prompt the mod submits (TCK-95).
           await update($, turnRunning, () => false)
           await report($, 'waiting', firstLine(e.answer))
+          await submitHeldAnswers($)
         }
       }
       if (toReview !== null) {
