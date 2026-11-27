@@ -103,6 +103,8 @@ export type Net = {
   reportInstructions?: string[]
   /** The next this many report_session calls are refused (Tick-it is down). */
   reportFails?: number
+  /** A done report_session is refused with this text while it is set (Tick-it's refusal of a pull request that is behind its base). */
+  doneRefusal?: string
   /** Fields merged into each report_session answer in turn (waitingOn, next, resume): one entry per call, the last one kept for every call after. */
   reportAnswers?: Record<string, unknown>[]
   /** Fields merged into every record_runs answer (roundVerdict, next, sessionStopped). */
@@ -200,6 +202,7 @@ export const engine = (
       }
       if (e.tool === 'get_repository_settings') return net.instructions === undefined ? answer({ instructions: '', canEdit: true, autoMerge: net.autoMerge, reviewRounds: net.reviewRounds, config: net.config }) : refuseOr(net.instructions)
       if (e.tool === 'report_review_agents') return answer({ agents: a.agents })
+      if (e.tool === 'report_session' && net.doneRefusal !== undefined && a.status === 'done') return refuse(net.doneRefusal)
       if (refusing) {
         net.reportFails = (net.reportFails ?? 1) - 1
         return refuse('Tick-it is down')

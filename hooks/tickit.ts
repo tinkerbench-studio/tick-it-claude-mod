@@ -53,7 +53,8 @@ export async function sendTickit($: EngineInterface, tool: string, args: Record<
 /** owner/name from a GitHub remote URL, https or ssh; undefined for anything else. */
 export const repositoryOf = (remote: string): string | undefined => /github\.com[:/]([A-Za-z0-9-]+\/[A-Za-z0-9._-]+?)(?:\.git)?\/?$/.exec(remote.trim())?.[1]
 
-export type Called = { ok: true; value: Record<string, unknown> } | { ok: false; why: string }
+/** `refused`: Tick-it answered with an error (a refusal), as against a call that did not get an answer. */
+export type Called = { ok: true; value: Record<string, unknown> } | { ok: false; why: string; refused?: true }
 
 export const textOf = (result: { content: readonly { type: string; text?: string }[] }) =>
   result.content
@@ -67,7 +68,7 @@ export async function callTickit($: EngineInterface, tool: string, args: Record<
   const sent = await sendTickit($, tool, args)
   if (!sent.ok) return { ok: false, why: sent.why }
   const result = sent.result
-  if (result.isError) return { ok: false, why: textOf(result) || `Tick-it refused ${tool}` }
+  if (result.isError) return { ok: false, why: textOf(result) || `Tick-it refused ${tool}`, refused: true }
   if (typeof result.structuredContent === 'object' && result.structuredContent !== null) {
     return { ok: true, value: result.structuredContent as Record<string, unknown> }
   }
