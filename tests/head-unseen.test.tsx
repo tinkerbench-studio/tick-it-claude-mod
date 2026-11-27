@@ -73,11 +73,20 @@ check('the same unseen-head answer for the same head and runs is acted on once; 
   net.reportAnswers = [{ instructions: [UNSEEN] }]
   await $.turn.complete(finishTurn(undefined, 'Merged main and pushed.'))
   expect(seen.spawned).toHaveLength(2)
-  // The round's reviewer ends without a record Tick-it takes into account: the same answer comes again for the same head.
+  // The round's reviewer ends without a record Tick-it takes into account: the same answer comes again for the same head, and is not acted on again.
   await $.turn.complete(finishTurn('agent-2', 'VERDICT: clean'))
   await $.turn.complete(finishTurn(undefined, 'Nothing changed.'))
-  await $.turn.complete(finishTurn(undefined, 'Still nothing.'))
-  expect(seen.spawned.length).toBeLessThanOrEqual(3)
+  expect(seen.spawned).toHaveLength(2)
   expect(stops(seen).at(-1)).toMatchObject({ stop: { code: 'unseen-head-repeated' } })
   expect(sent(seen).join('\n')).not.toContain('no review has seen')
+})
+
+check('an unreachable Tick-it is not a refusal: nothing is handed to the session and nothing stops', async ($, on) => {
+  const net: Net = {}
+  const { seen } = await reviewed($, on, net)
+  net.connected = false
+  await $.turn.complete(finishTurn(undefined, 'Pushed.'))
+  await $.turn.complete(finishTurn(undefined, 'Pushed again.'))
+  expect(sent(seen).join('\n')).not.toContain('refused')
+  expect(stops(seen)).toEqual([])
 })

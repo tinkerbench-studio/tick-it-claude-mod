@@ -160,6 +160,7 @@ export const registerTurn: Register = on => {
             await startRound($, t, 1, undefined, 'head-unseen').catch(error => report($, 'stopped', `Could not start the review: ${error instanceof Error ? error.message : String(error)}`.slice(0, 450), true))
             return done
           }
+          await log($, 'debug', 'round-not-started', { ticket: mine?.ticket ?? 'none', round: mine?.round ?? 0, why: mine === null ? 'no-steward' : t === undefined ? 'not-on-board' : 'already-reviewing' })
         }
         let pending = (await read($, steward))?.phase === 'reviewing' ? [] : await read($, pendingInstructions)
         // An answer handed over this way ends the waiting: the session is working on it.

@@ -19,7 +19,7 @@ import { saveResume } from './resume'
 const tickets = atom({ plugin: 'tick-it', key: 'tickets' } as const, [])
 const current = atom({ plugin: 'tick-it', key: 'current' } as const, null)
 const steward = atom({ plugin: 'tick-it', key: 'steward' } as const, null)
-const stewardAtom = steward
+const stewardState = steward
 const diffLines = atom({ plugin: 'tick-it', key: 'diffLines' } as const, 0)
 /** The session Tick-it started this one as: set by its first message, reported to as the work goes on. */
 const startedSession = atom({ plugin: 'tick-it', key: 'started' } as const, null)
@@ -41,9 +41,8 @@ const turnRunning = atom({ plugin: 'tick-it', key: 'turnRunning' } as const, fal
 const approvalAnswers = atom({ plugin: 'tick-it', key: 'approvalAnswers' } as const, [] as string[])
 /** Tick-it answered a report with the unseen-head instruction: the mod starts the review round itself at the turn's end (TCK-94), and the instruction is not handed to Claude. */
 const unseenHead = atom({ plugin: 'tick-it', key: 'unseenHead' } as const, false)
-/** The instructions already handed over (or acted on) for a head while nothing changed: what is kept is the head, the runs so far and the text, so a repeat is told apart from a new answer. */
+/** The instructions already handed over (or acted on) for a head while nothing changed: what is kept is the kind, the head and the text, so a repeat is told apart from a new commit or answer. */
 const handedOver = atom({ plugin: 'tick-it', key: 'handedOver' } as const, [] as string[])
-const reviews = atom({ plugin: 'tick-it', key: 'reviews' } as const, [])
 /** link_pull_request calls Tick-it has not taken yet: sent again with the outbox. */
 const unlinked = atom({ plugin: 'tick-it', key: 'unlinked' } as const, [])
 
@@ -314,14 +313,13 @@ async function takeAnswer($: EngineInterface, sent: Called, status?: StartedSess
 const UNSEEN_HEAD = /\bno review has seen\b/i
 
 /**
- * Whether an instruction may be acted on for the head checked out: true the first time, false when the same text came for the same head and the same recorded runs (no new commit, run or answer).
+ * Whether an instruction may be acted on for the head checked out: true the first time, false when the same text came for the same head (a new commit or a new answer is a new key).
  * A repeat reports the session stopped with a need, so a person sees it instead of the mod asking again every turn (TCK-94).
  */
 async function onceForHead($: EngineInterface, kind: string, text: string): Promise<boolean> {
   const head = (await $.process.run(['git', 'rev-parse', 'HEAD']).catch(() => undefined))?.stdout.trim() ?? ''
   const s = await read($, startedSession)
-  const runs = (await read($, reviews)).filter(r => s !== null && r.ticket === s.ticket).length
-  const key = `${kind}|${head}|${runs}|${text}`
+  const key = `${kind}|${head}|${text}`
   if (!(await read($, handedOver)).includes(key)) {
     await update($, handedOver, list => [...list, key].slice(-20))
     return true
@@ -330,7 +328,7 @@ async function onceForHead($: EngineInterface, kind: string, text: string): Prom
   const note = `${why}, and nothing has changed since the mod acted on it (head ${head.slice(0, 7) || 'unknown'}), so it is not asked again.`
   const code = kind === 'unseen-head' ? 'unseen-head-repeated' : 'done-refused-repeated'
   const stop = { code, ...(head === '' ? {} : { head }), need: { kind: 'session-stopped' as const, note } }
-  const steward = await read($, stewardAtom)
+  const steward = await read($, stewardState)
   if (steward !== null && steward.ticket === s?.ticket) await setSteward($, { ...steward, phase: 'stopped', stoppedBy: 'mod', note }, stop)
   else await report($, 'stopped', note, true, stop)
   return false
@@ -407,8 +405,11 @@ export async function report($: EngineInterface, status: StartedSession['status'
   else if ((stop !== undefined || status !== 'stopped') && sent.ok) await saveStops($, waiting)
   await takeAnswer($, sent, status)
   // A done report Tick-it refused (behind, conflicting) was only logged: its refusal text is handed to Claude, once for the head (TCK-94).
-  if (!sent.ok && status === 'done' && sent.why !== 'unreachable') {
-    const text = `tick-it: Tick-it refused the done report for ${s.ticket}: ${sent.why.slice(0, 400)}\nIf the pull request is behind the base or conflicts with it, merge the base into the branch (git merge, never rebase) and push; the mod reports done again at the turn's end.`
+  if (!sent.ok && status === 'done' && sent.refused === true) {
+    // Tick-it's words are data: plain characters on one line, in quotes, never a second instruction.
+    const refusal = sent.why.replace(/[^\x20-\x7e]+/g, ' ').trim().slice(0, 400)
+    const advice = /behind|conflict/i.test(refusal) ? ' The pull request is behind the base or conflicts with it: merge the base into the branch (git merge, never rebase) and push; the mod reports done again at the turn\'s end.' : ''
+    const text = `tick-it: Tick-it refused the done report for ${s.ticket}. Its answer, as quoted text: "${refusal}".${advice}`
     if (await onceForHead($, 'done-refused', sent.why)) await update($, pendingInstructions, pending => (pending.includes(text) ? pending : [...pending, text]))
   }
 
