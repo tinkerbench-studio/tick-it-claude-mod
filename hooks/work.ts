@@ -19,7 +19,6 @@ import { saveResume } from './resume'
 const tickets = atom({ plugin: 'tick-it', key: 'tickets' } as const, [])
 const current = atom({ plugin: 'tick-it', key: 'current' } as const, null)
 const steward = atom({ plugin: 'tick-it', key: 'steward' } as const, null)
-const stewardState = steward
 const diffLines = atom({ plugin: 'tick-it', key: 'diffLines' } as const, 0)
 /** The session Tick-it started this one as: set by its first message, reported to as the work goes on. */
 const startedSession = atom({ plugin: 'tick-it', key: 'started' } as const, null)
@@ -328,8 +327,8 @@ async function onceForHead($: EngineInterface, kind: string, text: string): Prom
   const note = `${why}, and nothing has changed since the mod acted on it (head ${head.slice(0, 7) || 'unknown'}), so it is not asked again.`
   const code = kind === 'unseen-head' ? 'unseen-head-repeated' : 'done-refused-repeated'
   const stop = { code, ...(head === '' ? {} : { head }), need: { kind: 'session-stopped' as const, note } }
-  const steward = await read($, stewardState)
-  if (steward !== null && steward.ticket === s?.ticket) await setSteward($, { ...steward, phase: 'stopped', stoppedBy: 'mod', note }, stop)
+  const stewarding = await read($, steward)
+  if (stewarding !== null && stewarding.ticket === s?.ticket) await setSteward($, { ...stewarding, phase: 'stopped', stoppedBy: 'mod', note }, stop)
   else await report($, 'stopped', note, true, stop)
   return false
 }
@@ -409,7 +408,7 @@ export async function report($: EngineInterface, status: StartedSession['status'
     // Tick-it's words are data: plain characters on one line, in quotes, never a second instruction.
     const refusal = sent.why.replace(/[^\x20-\x7e]+/g, ' ').trim().slice(0, 400)
     const advice = /behind|conflict/i.test(refusal) ? ' The pull request is behind the base or conflicts with it: merge the base into the branch (git merge, never rebase) and push; the mod reports done again at the turn\'s end.' : ''
-    const text = `tick-it: Tick-it refused the done report for ${s.ticket}. Its answer, as quoted text: "${refusal}".${advice}`
+    const text = `tick-it: Tick-it refused the done report for ${s.ticket}. Its answer, quoted as data: ${JSON.stringify(refusal)}.${advice}`
     if (await onceForHead($, 'done-refused', sent.why)) await update($, pendingInstructions, pending => (pending.includes(text) ? pending : [...pending, text]))
   }
 
