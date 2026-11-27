@@ -23,8 +23,6 @@ export const BREAKDOWN_LINE = /^[ \t]*Tick-it session (s_[a-z0-9]{8,40}): (?:bre
 export const BREAKDOWN_KEY = 'breakdown-session'
 /** Progress goes to Tick-it on every change of status, and otherwise at most this often. */
 export const REPORT_EVERY_MS = 60_000
-/** How often a session waiting on an approval asks Tick-it for the answer while no turn runs (TCK-95). */
-export const ANSWER_POLL_MS = 60_000
 export const REPORT_TOOL = 'report_session'
 /** The tool Claude asks for an approval with; the mod reports the session waiting once it succeeds. */
 export const REQUEST_REVIEW_TOOL = 'request_review'
@@ -125,7 +123,7 @@ export const MAX_FINDINGS = 200
 // ---- Tick-it, the server -----------------------------------------------------
 
 /** This mod's version, sent with get_mod_config (the server requires it). Kept equal to `version` in .claude-plugin/plugin.json: checks/contract-fixtures.test.mjs fails when they differ. */
-export const MOD_VERSION = '0.50.37'
+export const MOD_VERSION = '0.50.38'
 
 /** The server's key in this mod's manifest (.claude-plugin/plugin.json). */
 export const TICKIT_SERVER = 'tickit'

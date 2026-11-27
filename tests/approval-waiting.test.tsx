@@ -8,13 +8,6 @@ const ask = ($: Parameters<Parameters<typeof test>[1]>[0], key = 'TCK-151') => $
 /** What Tick-it hands a waiting session when the request is answered (apps/mcp/src/approval-delivery.ts). */
 const ANSWER = 'Tick-it session s_abc12345: continue TCK-151 in acme/web-app.\nApproval request ar_1 (Saved card picker) was answered: confirmed. Items: page v2. Outcome: carry on.'
 
-/** The once-a-minute check the mod arms while a session waits on an approval (TCK-95). */
-const poll = (seen: ReturnType<typeof engine>) => {
-  const timer = seen.timers.find(t => t.ms === 60_000)
-  if (timer === undefined) throw new Error('no once-a-minute timer was armed')
-  return timer.tick()
-}
-
 test('request_review succeeding on the taken ticket reports the session waiting', async ($, on) => {
   const seen = engine(on, { lines: 0 }, true, SKILLS)
   await start($)
@@ -44,7 +37,7 @@ test('a turn that only reads leaves a waiting session waiting', async ($, on) =>
   expect(reports(seen).map(r => r.status)).toEqual(['working', 'waiting'])
 })
 
-test('an answer that arrives with no turn running is a toast, and goes to Claude with a prompt the mod submits, once', async ($, on) => {
+test('an answer that arrives with no turn running is a toast, and goes to Claude with the next prompt once', async ($, on) => {
   const instructions: string[] = []
   const seen = engine(on, { lines: 0 }, true, SKILLS, { reportInstructions: instructions })
   await start($)
@@ -54,15 +47,11 @@ test('an answer that arrives with no turn running is a toast, and goes to Claude
   instructions.push(ANSWER)
   await ask($)
   expect(seen.toasts.join(' ')).toContain('Approval request ar_1 (Saved card picker) was answered: confirmed')
-  // A tool call cannot start a turn: the answer is kept, and the next minute's check submits it.
   expect(seen.submitted.filter(text => text.includes('Approval request'))).toEqual([])
-  await poll(seen)
-  expect(seen.submitted.filter(text => text.includes('Approval request ar_1 (Saved card picker) was answered: confirmed'))).toEqual([ANSWER])
-  expect(reports(seen).at(-1)).toMatchObject({ status: 'working' })
-  await $.prompt.submit(typed('and then'))
-  expect(seen.contexts.at(-1)?.join('\n')).not.toContain('Approval request')
-  await poll(seen)
-  expect(seen.submitted.filter(text => text.includes('Approval request ar_1'))).toEqual([ANSWER])
+  const next = await $.prompt.submit(typed('go on'))
+  expect('context' in next ? next.context?.join('\n') : '').toContain('Approval request ar_1 (Saved card picker) was answered: confirmed')
+  const later = await $.prompt.submit(typed('and then'))
+  expect('context' in later ? (later.context ?? []).join('\n') : '').not.toContain('Approval request')
 })
 
 test("Claude's own record_approval is not blocked by the mod, and Tick-it's refusal reaches it unchanged", async ($, on) => {
@@ -78,7 +67,7 @@ test("Claude's own record_approval is not blocked by the mod, and Tick-it's refu
   expect('context' in ran ? ran.context : undefined).toBeUndefined()
 })
 
-test('a read-only turn still asks Tick-it for the answer with a waiting report, and an answer that comes back starts a turn of its own', async ($, on) => {
+test('a read-only turn still asks Tick-it for the answer with a waiting report, and an answer that comes back is a toast for the next prompt', async ($, on) => {
   const instructions: string[] = []
   const seen = engine(on, { lines: 0 }, true, SKILLS, { reportInstructions: instructions, skip: 120_000 })
   await start($)
@@ -86,9 +75,11 @@ test('a read-only turn still asks Tick-it for the answer with a waiting report, 
   await ask($)
   instructions.push(ANSWER)
   await $.turn.complete(finishTurn(undefined, 'Read the page again.'))
-  expect(reports(seen).map(r => r.status)).toEqual(['working', 'waiting', 'waiting', 'working'])
+  expect(reports(seen).map(r => r.status)).toEqual(['working', 'waiting', 'waiting'])
   expect(seen.toasts.join(' ')).toContain('was answered: confirmed')
-  expect(seen.submitted.filter(text => text.includes('Approval request ar_1'))).toEqual([ANSWER])
+  const next = await $.prompt.submit(typed('go on'))
+  expect('context' in next ? next.context?.join('\n') : '').toContain('Approval request ar_1')
+  expect(reports(seen).at(-1)).toMatchObject({ status: 'working' })
 })
 
 test('an answer that arrives during a turn is handed over when it ends, and the session reports working', async ($, on) => {
@@ -103,67 +94,80 @@ test('an answer that arrives during a turn is handed over when it ends, and the 
   expect(reports(seen).map(r => r.status)).toEqual(['working', 'waiting', 'working'])
 })
 
-/** A session that asked for an approval and ended its turn: idle, waiting, with nothing yet answered. */
-const waitingIdle = async ($: Parameters<Parameters<typeof test>[1]>[0], on: Parameters<Parameters<typeof test>[1]>[1]) => {
-  const instructions: string[] = []
-  const seen = engine(on, { lines: 0 }, true, SKILLS, { reportInstructions: instructions })
+/** The mocked clock: each `clock.every` wait the mod makes stays pending until the test lets a minute pass. */
+const minutes = (on: Parameters<typeof engine>[0]) => {
+  const waits: { ms: number; pass: () => void }[] = []
+  on('clock.every', (_$, e) => new Promise<{ value: undefined }>(resolve => waits.push({ ms: (e as { ms: number }).ms, pass: () => resolve({ value: undefined }) })) as never)
+  return {
+    waits,
+    /** One minute passes: the pending wait ends and the mod's callback runs to its end. */
+    pass: async () => {
+      const wait = waits.shift()
+      wait?.pass()
+      await new Promise(resolve => setTimeout(resolve, 20))
+    },
+  }
+}
+const idleWaiting = async ($: Parameters<Parameters<typeof test>[1]>[0], on: Parameters<typeof engine>[0], instructions: string[] = []) => {
+  const diff = { lines: 0 }
+  const seen = engine(on, diff, true, SKILLS, { reportInstructions: instructions })
+  const clock = minutes(on)
+  on('session.end', () => ({ sessionId: 's' }) as never)
   await start($)
   await $.prompt.submit(typed(STARTED))
   await ask($)
   await $.turn.complete(finishTurn(undefined, 'Asked for approval.'))
-  return { seen, instructions }
+  return { seen, clock, diff }
 }
 
-test('an idle waiting session sends a waiting report once a minute', async ($, on) => {
-  const { seen } = await waitingIdle($, on)
+test('while waiting with no turn running, a waiting report goes once a minute', async ($, on) => {
+  const { seen, clock } = await idleWaiting($, on)
+  expect(clock.waits.map(w => w.ms)).toEqual([60_000])
   const before = reports(seen).length
-  await poll(seen)
-  await poll(seen)
+  await clock.pass()
+  await clock.pass()
   expect(reports(seen).slice(before).map(r => r.status)).toEqual(['waiting', 'waiting'])
-  expect(seen.submitted.filter(text => text.includes('Approval request'))).toEqual([])
 })
 
-test('an answer the once-a-minute report brings is submitted as a prompt once, the session reports working, and later minutes send nothing', async ($, on) => {
-  const { seen, instructions } = await waitingIdle($, on)
-  await poll(seen)
+test('an answer that arrives with no turn running is submitted as a prompt once, the session reports working, and no later prompt carries it', async ($, on) => {
+  const instructions: string[] = []
+  const { seen, clock } = await idleWaiting($, on, instructions)
   instructions.push(ANSWER)
-  await poll(seen)
-  expect(seen.toasts.join(' ')).toContain('Approval request ar_1 (Saved card picker) was answered: confirmed')
-  expect(seen.submitted.filter(text => text.includes('Approval request ar_1'))).toEqual([ANSWER])
+  await clock.pass()
+  expect(seen.submitted.filter(text => text.includes('Approval request ar_1'))).toHaveLength(1)
   expect(reports(seen).at(-1)).toMatchObject({ status: 'working' })
-  instructions.length = 0
-  const after = reports(seen).length
-  await $.turn.complete(finishTurn(undefined, 'Carried on.'))
-  const atEnd = reports(seen).length
-  await poll(seen)
-  await poll(seen)
-  expect(reports(seen).length).toBe(atEnd)
-  expect(atEnd).toBeGreaterThanOrEqual(after)
+  const later = await $.prompt.submit(typed('and then'))
+  expect('context' in later ? (later.context ?? []).join('\n') : '').not.toContain('Approval request')
+  expect(seen.submitted.filter(text => text.includes('Approval request ar_1'))).toHaveLength(1)
 })
 
-test('the minute check sends nothing while a turn runs', async ($, on) => {
-  const { seen } = await waitingIdle($, on)
-  await $.prompt.submit(typed('look at the page'))
-  const before = reports(seen).length
-  await poll(seen)
-  expect(reports(seen).length).toBe(before)
+test('the timer stops once the answer is handed over: no report after that', async ($, on) => {
+  const instructions: string[] = []
+  const { seen, clock } = await idleWaiting($, on, instructions)
+  instructions.push(ANSWER)
+  await clock.pass()
+  const sent = reports(seen).length
+  await clock.pass()
+  await clock.pass()
+  expect(reports(seen)).toHaveLength(sent)
 })
 
-test('the minute check sends nothing for a session that is not waiting', async ($, on) => {
-  const seen = engine(on, { lines: 0 }, true, SKILLS)
-  await start($)
-  await $.prompt.submit(typed(STARTED))
-  await $.turn.complete(finishTurn(undefined, 'Built it.'))
-  const before = reports(seen).length
-  await poll(seen)
-  expect(reports(seen).length).toBe(before)
+test('the timer stops when the session reports a status other than waiting', async ($, on) => {
+  const { seen, clock, diff } = await idleWaiting($, on)
+  await $.prompt.submit(typed('go on'))
+  diff.lines = 12
+  await $.turn.complete(finishTurn(undefined, 'Edited the page.'))
+  const sent = reports(seen).length
+  await clock.pass()
+  await clock.pass()
+  expect(reports(seen)).toHaveLength(sent)
 })
 
-test('the minute check stops when the session ends', async ($, on) => {
-  on('session.end', () => ({ sessionId: 'session-1' }))
-  const { seen } = await waitingIdle($, on)
-  await $.session.end({ reason: 'other' } as never)
-  const before = reports(seen).length
-  await poll(seen)
-  expect(reports(seen).length).toBe(before)
+test('the timer stops when the session ends: no report after that', async ($, on) => {
+  const { seen, clock } = await idleWaiting($, on)
+  await $.session.end({ reason: 'exit' } as never)
+  const sent = reports(seen).length
+  await clock.pass()
+  await clock.pass()
+  expect(reports(seen)).toHaveLength(sent)
 })
