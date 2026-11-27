@@ -4,7 +4,7 @@ import type { DroppedRun, OutboxRun, PendingLink, PendingStop, ReviewRun, Starte
 import { APPROVAL_MESSAGE, answeredIds, STORE_KEY, STORE_REPOSITORY_KEY, STARTED_KEY, START_LINE, CONTINUE_LINE, BREAKDOWN_LINE, BREAKDOWN_KEY, REPORT_TOOL, REVIEWS_KEY, OUTBOX_KEY, DROPPED_KEY, UNLINKED_KEY, STOPS_KEY, RECORD_TOOL, AGENTS_TOOL } from './state'
 import { callTickit, originHere, checkoutBeside, freshBriefOf, repositoryHere, sameRepository } from './tickit'
 import { refreshBoard, showStatus } from './board'
-import { reportsForItself, instructionsOf, take, resume, report } from './work'
+import { reportsForItself, instructionsOf, take, resume, report, stopWatching } from './work'
 import { reportAgents, flush } from './outbox'
 import { failRuns } from './reviews'
 import { log } from './log'
@@ -24,7 +24,7 @@ const dropped = atom({ plugin: 'tick-it', key: 'dropped' } as const, [])
 const unlinked = atom({ plugin: 'tick-it', key: 'unlinked' } as const, [])
 /** Whether a turn is running: set when a prompt is submitted, cleared when the main loop's turn ends. */
 const turnRunning = atom({ plugin: 'tick-it', key: 'turnRunning' } as const, false)
-/** Approval answers that reached the session while no turn was running: handed to Claude with the next prompt, once. */
+/** Approval answers that reached the session while no turn was running: submitted as a prompt by the approval timer, or handed to Claude with a prompt typed first, once. */
 const approvalAnswers = atom({ plugin: 'tick-it', key: 'approvalAnswers' } as const, [] as string[])
 const approvalsTaken = atom({ plugin: 'tick-it', key: 'approvalsTaken' } as const, [] as string[])
 const unsentStops = atom({ plugin: 'tick-it', key: 'unsentStops' } as const, [] as PendingStop[])
@@ -208,6 +208,7 @@ export const registerSession: Register = on => {
   })
 
   on('session.end', async ($, e, next) => {
+    stopWatching()
     await flush($).catch(() => undefined)
     return next(e)
   })
