@@ -113,7 +113,7 @@ export const registerTurn: Register = on => {
         const onlyRead = session.status === 'waiting' && session.waitingLines === (await read($, diffLines))
         if (!onlyRead) await report($, done ? 'done' : 'working', firstLine(e.answer), done)
         else {
-          // Still waiting, but the turn is over: a throttled report asks Tick-it whether the request has been answered, and an answer that comes back with no turn running is a toast kept for the next prompt.
+          // Still waiting, but the turn is over: a throttled report asks Tick-it whether the request has been answered, and an answer that comes back with no turn running is a toast, submitted as a prompt by the approval timer.
           await update($, turnRunning, () => false)
           await report($, 'waiting', firstLine(e.answer))
         }
