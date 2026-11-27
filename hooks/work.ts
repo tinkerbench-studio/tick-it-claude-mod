@@ -439,7 +439,7 @@ async function handOverAnswer($: EngineInterface): Promise<void> {
 }
 
 /** While the session is waiting on an approval, once a minute (it also runs with no turn): reports waiting to hear the answer and submits one that comes back. A turn running leaves it to the turn's end. */
-function watchApproval($: EngineInterface): void {
+export function watchApproval($: EngineInterface): void {
   if (approvalTimer !== undefined) return
   approvalTimer = $.clock.every(REPORT_EVERY_MS, async () => {
     const s = await read($, startedSession)
