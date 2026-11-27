@@ -18,6 +18,8 @@ export const RESUME_KEY = 'resume-state'
 export const START_LINE = /^[ \t]*Tick-it session (s_[a-z0-9]{8,40}): work on ([A-Z]{3}-[1-9]\d*) in ([A-Za-z0-9-]+\/[A-Za-z0-9._-]+)\.$/m
 /** The first line of a session Tick-it started to carry on a ticket already In review or Ready to merge (a conflict, failing CI, a failing merge check, a released CI fix, a head no review has seen): the mod takes the ticket into the session without moving its status. Written like START_LINE, indented where a routine session receives it. */
 export const CONTINUE_LINE = /^[ \t]*Tick-it session (s_[a-z0-9]{8,40}): continue ([A-Z]{3}-[1-9]\d*) in ([A-Za-z0-9-]+\/[A-Za-z0-9._-]+)\.$/m
+/** The first line of a merge-only session Tick-it started for a ticket In review whose pull request is behind its base or conflicts with it (tinkerbench-studio/tick-it#TCK-1626): the mod holds the ticket without moving it, and reports done or stopped when the turn ends (TCK-97). Written like CONTINUE_LINE, indented where a routine session receives it. */
+export const MERGE_LINE = /^[ \t]*Tick-it session (s_[a-z0-9]{8,40}): merge-only ([A-Z]{3}-[1-9]\d*) in ([A-Za-z0-9-]+\/[A-Za-z0-9._-]+)\.$/m
 /** The first line of a breakdown session (or a temporary suggestion-analysis or post-deploy check session) Tick-it started: it builds nothing, so the mod does not track it. */
 export const BREAKDOWN_LINE = /^[ \t]*Tick-it session (s_[a-z0-9]{8,40}): (?:break down|analyse suggestions of|check) ([A-Z]{3}-[1-9]\d*)(?: after deploy)? in ([A-Za-z0-9-]+\/[A-Za-z0-9._-]+)\.$/m
 export const BREAKDOWN_KEY = 'breakdown-session'

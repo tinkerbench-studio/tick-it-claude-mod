@@ -17,6 +17,7 @@ const current = atom({ plugin: 'tick-it', key: 'current' } as const, null)
 const baseCommit = atom({ plugin: 'tick-it', key: 'baseCommit' } as const, null)
 const startedSession = atom({ plugin: 'tick-it', key: 'started' } as const, null)
 const pullRequestError = atom({ plugin: 'tick-it', key: 'pullRequestError' } as const, null)
+const pullRequest = atom({ plugin: 'tick-it', key: 'pullRequest' } as const, null)
 const reviews = atom({ plugin: 'tick-it', key: 'reviews' } as const, [])
 const steward = atom({ plugin: 'tick-it', key: 'steward' } as const, null)
 /** The last UI-evidence refusal told to Claude at a turn end: the same one is not sent again, so a session that cannot fix it is not woken every turn. */
@@ -76,7 +77,8 @@ export const registerTurn: Register = on => {
       let onTickit: Awaited<ReturnType<typeof statusOnTickit>>
       try {
         if (toReview === null && building !== undefined) onTickit = await statusOnTickit($, building.id)
-        if (toReview === null && building !== undefined && onTickit === 'In review') {
+        // A merge-only session starts no review: its ticket was reviewed, and its turn ends with done or stopped below.
+        if (toReview === null && building !== undefined && onTickit === 'In review' && (await read($, startedSession))?.mergeOnly !== true) {
           await recordPullRequest($, building.id)
           // A continue session's ticket is already In review: its review starts without an update_ticket, which would overwrite the ticket's changed lines with this session's own.
           const continued = (await read($, startedSession))?.continued === true
@@ -108,10 +110,22 @@ export const registerTurn: Register = on => {
         await refreshDiff($).catch(() => undefined)
         // A continue session's ticket is not moved to review here (it is Ready to merge, say): its turn is the work, so it is done.
         // Only on a status Tick-it confirmed that is not In review: a failed read, or a review that could not start, leaves it working.
-        const done = session.continued === true && onTickit !== undefined && onTickit !== 'In review'
+        if (session.mergeOnly === true) {
+          // Done when Tick-it says the head only merged the base (reviewCarriedOver); otherwise, or when it cannot say, stopped with a person to decide. Never working.
+          const pr = await read($, pullRequest)
+          if (pr !== null && pr.state === 'open' && pr.reviewCarriedOver === true) {
+            await report($, 'done', firstLine(e.answer), true)
+          } else {
+            const why = pr === null ? 'Tick-it could not say whether the review carries over' : 'the pushed head is not one whose review carries over (reviewCarriedOver is not true)'
+            const note = `The merge-only session for ${session.ticket} ended: ${why}.`
+            await report($, 'stopped', note, true, { code: 'other', ...(pr?.headSha === undefined ? {} : { head: pr.headSha }), need: { kind: 'session-stopped', note } })
+          }
+          return done
+        }
+        const ended = session.continued === true && onTickit !== undefined && onTickit !== 'In review'
         // A session waiting on an approval stays waiting through a turn that only read: its changed lines are as they were when it began waiting.
         const onlyRead = session.status === 'waiting' && session.waitingLines === (await read($, diffLines))
-        if (!onlyRead) await report($, done ? 'done' : 'working', firstLine(e.answer), done)
+        if (!onlyRead) await report($, ended ? 'done' : 'working', firstLine(e.answer), ended)
         else {
           // Still waiting, but the turn is over: a throttled report asks Tick-it whether the request has been answered, and an answer that comes back with no turn running is a toast, submitted as a prompt by the approval timer.
           await update($, turnRunning, () => false)

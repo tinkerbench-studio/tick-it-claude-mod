@@ -113,3 +113,15 @@ test('more than 100 waiting runs go in calls of at most 100, and a failed call l
   expect(seen.recorded.map(c => c.args.runs.length)).toEqual([100, 1, 100])
   expect((await run($, 'reviews')).text).toContain('Tick-it has every review run.')
 })
+
+test('Claude may report a merge-only session itself, and a build session is still refused (TCK-97)', async ($, on) => {
+  const seen = engine(on, { lines: 0 })
+  const ticket = seen.server.find(t => t.key === 'TCK-151')
+  if (ticket !== undefined) ticket.status = 'In review'
+  await start($)
+  await $.prompt.submit(typed('Tick-it session s_abc12345: merge-only TCK-151 in acme/web-app.'))
+  const own = await $.tool.check({ tool: 'mcp__plugin_tick-it_tickit__report_session', input: { session: 's_abc12345', status: 'done' } })
+  expect(own.decision).toBe('allow')
+  const other = await $.tool.check({ tool: 'mcp__plugin_tick-it_tickit__report_session', input: { session: 's_other1234', status: 'done' } })
+  expect(other.decision).toBe('deny')
+})

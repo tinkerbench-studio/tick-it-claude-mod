@@ -1,6 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import { MOD_VERSION } from '../hooks/state'
+import type { Net } from './helpers'
 import { SKILLS, engine, start, STARTED, typed, reports, finishTurn } from './helpers'
 
 test("a breakdown session reports for itself, once armed by its first line; every other report_session call stays the mod's", async ($, on) => {
@@ -118,3 +119,30 @@ test("every report_session call the mod makes carries modVersion, the mod's pack
   expect(sent.length).toBeGreaterThan(0)
   for (const r of sent) expect(r.modVersion).toBe(MOD_VERSION)
 })
+
+const MERGE_ONLY = 'Tick-it session s_abc12345: merge-only TCK-151 in acme/web-app.'
+const mergeOnlyTurn = async ($: Parameters<Parameters<typeof test>[1]>[0], on: Parameters<Parameters<typeof test>[1]>[1], pr: Net['pullRequests']) => {
+  const seen = engine(on, { lines: 0 }, true, {}, { pullRequests: pr })
+  const ticket = seen.server.find(t => t.key === 'TCK-151')
+  if (ticket !== undefined) ticket.status = 'In review'
+  await start($)
+  await $.prompt.submit(typed(MERGE_ONLY))
+  await $.turn.complete(finishTurn(undefined, 'Merged main in.'))
+  return seen
+}
+
+test('a merge-only session reports done when its pull request is reviewCarriedOver, and starts no review (TCK-97)', async ($, on) => {
+  const seen = await mergeOnlyTurn($, on, [{ number: 12, state: 'open', draft: false, ci: 'success', reviewCarriedOver: true }])
+  expect(reports(seen).map(r => r.status)).toEqual(['working', 'done'])
+  expect(seen.spawned).toEqual([])
+})
+
+for (const [name, pr] of [['is not carried over', [{ number: 12, state: 'open', draft: false, ci: 'success', reviewCarriedOver: false }]], ['cannot be read', 'unreachable']] as const) {
+  test(`a merge-only session whose review ${name} reports stopped with a session-stopped need, never working (TCK-97)`, async ($, on) => {
+    const seen = await mergeOnlyTurn($, on, pr)
+    const last = reports(seen).at(-1)
+    expect(reports(seen).map(r => r.status)).toEqual(['working', 'stopped'])
+    expect(last).toMatchObject({ status: 'stopped', needsHuman: { kind: 'session-stopped' } })
+    expect(seen.spawned).toEqual([])
+  })
+}

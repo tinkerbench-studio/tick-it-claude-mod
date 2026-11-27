@@ -184,6 +184,8 @@ export type StartedSession = {
   claudeSession?: string
   /** Started by a continue line: the ticket was already In review or Ready to merge and is not moved, so the session is done when its turn ends with the ticket not In review. */
   continued?: boolean
+  /** Started by a merge-only line: the ticket is not moved, and the turn's end reports done or stopped, never working. */
+  mergeOnly?: boolean
 }
 
 /** Where the stewarding of one ticket stands. */
