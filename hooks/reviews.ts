@@ -526,8 +526,8 @@ export async function changedSinceBase($: EngineInterface): Promise<string[] | n
   return [...diff.stdout.split('\0'), ...others.stdout.split('\0')].filter(f => f !== '')
 }
 
-/** What began a round, as the log says it: the done command, the steward command, Claude's own move to In review, or the fix turn ending. */
-export type RoundTrigger = 'done-command' | 'steward-command' | 'moved-by-claude' | 'after-fix' | 'after-stop'
+/** What began a round, as the log says it: the done command, the steward command, Claude's own move to In review, the fix turn ending, or Tick-it saying the head is one no review has seen. */
+export type RoundTrigger = 'done-command' | 'steward-command' | 'moved-by-claude' | 'after-fix' | 'after-stop' | 'head-unseen'
 
 /** The files changed since a commit (the working tree against it, untracked files included), or null when they cannot be listed. */
 export async function changedSince($: EngineInterface, sha: string): Promise<string[] | null> {

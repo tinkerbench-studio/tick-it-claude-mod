@@ -19,6 +19,7 @@ import { saveResume } from './resume'
 const tickets = atom({ plugin: 'tick-it', key: 'tickets' } as const, [])
 const current = atom({ plugin: 'tick-it', key: 'current' } as const, null)
 const steward = atom({ plugin: 'tick-it', key: 'steward' } as const, null)
+const stewardAtom = steward
 const diffLines = atom({ plugin: 'tick-it', key: 'diffLines' } as const, 0)
 /** The session Tick-it started this one as: set by its first message, reported to as the work goes on. */
 const startedSession = atom({ plugin: 'tick-it', key: 'started' } as const, null)
@@ -38,6 +39,11 @@ const reviewNext = atom({ plugin: 'tick-it', key: 'reviewNext' } as const, null)
 const turnRunning = atom({ plugin: 'tick-it', key: 'turnRunning' } as const, false)
 /** Approval answers that reached the session while no turn was running: handed to Claude with the next prompt, once. */
 const approvalAnswers = atom({ plugin: 'tick-it', key: 'approvalAnswers' } as const, [] as string[])
+/** Tick-it answered a report with the unseen-head instruction: the mod starts the review round itself at the turn's end (TCK-94), and the instruction is not handed to Claude. */
+const unseenHead = atom({ plugin: 'tick-it', key: 'unseenHead' } as const, false)
+/** The instructions already handed over (or acted on) for a head while nothing changed: what is kept is the head, the runs so far and the text, so a repeat is told apart from a new answer. */
+const handedOver = atom({ plugin: 'tick-it', key: 'handedOver' } as const, [] as string[])
+const reviews = atom({ plugin: 'tick-it', key: 'reviews' } as const, [])
 /** link_pull_request calls Tick-it has not taken yet: sent again with the outbox. */
 const unlinked = atom({ plugin: 'tick-it', key: 'unlinked' } as const, [])
 
@@ -287,9 +293,13 @@ async function saveStops($: EngineInterface, list: PendingStop[]) {
 }
 
 /** What Tick-it's answer to a report asks of the session: a resume is noted for the next check-in, and instructions (such as resolving a merge conflict) wait for the turn's end, since submitting from inside a hook would wait on the turn the hook holds. */
-async function takeAnswer($: EngineInterface, sent: Called) {
+async function takeAnswer($: EngineInterface, sent: Called, status?: StartedSession['status']) {
   if (resumeIn(sent)) await update($, resumeAsked, () => true)
-  const instructions = instructionsOf(sent).filter(i => !/^resume\b/i.test(i))
+  let instructions = instructionsOf(sent).filter(i => !/^resume\b/i.test(i))
+  // The unseen-head instruction is never handed to Claude, which may not record runs; the answer to a report that stops the session is not judged again, which is how the loop ends.
+  const unseen = instructions.filter(i => UNSEEN_HEAD.test(i))
+  instructions = instructions.filter(i => !unseen.includes(i))
+  if (status !== 'stopped' && unseen.length > 0 && (await onceForHead($, 'unseen-head', unseen.join('\n')))) await update($, unseenHead, () => true)
   // An approval answer that arrives with no turn running is shown and kept for the person's next prompt, not submitted as a turn of its own.
   const answers = (await read($, turnRunning)) ? [] : instructions.filter(i => APPROVAL_MESSAGE.test(i))
   if (answers.length > 0) {
@@ -298,6 +308,32 @@ async function takeAnswer($: EngineInterface, sent: Called) {
   }
   const rest = instructions.filter(i => !answers.includes(i))
   if (rest.length > 0) await update($, pendingInstructions, pending => [...pending, ...rest])
+}
+
+/** Tick-it's instruction for a head no review has seen (its doneUnseenText): the mod runs that round itself. */
+const UNSEEN_HEAD = /\bno review has seen\b/i
+
+/**
+ * Whether an instruction may be acted on for the head checked out: true the first time, false when the same text came for the same head and the same recorded runs (no new commit, run or answer).
+ * A repeat reports the session stopped with a need, so a person sees it instead of the mod asking again every turn (TCK-94).
+ */
+async function onceForHead($: EngineInterface, kind: string, text: string): Promise<boolean> {
+  const head = (await $.process.run(['git', 'rev-parse', 'HEAD']).catch(() => undefined))?.stdout.trim() ?? ''
+  const s = await read($, startedSession)
+  const runs = (await read($, reviews)).filter(r => s !== null && r.ticket === s.ticket).length
+  const key = `${kind}|${head}|${runs}|${text}`
+  if (!(await read($, handedOver)).includes(key)) {
+    await update($, handedOver, list => [...list, key].slice(-20))
+    return true
+  }
+  const why = kind === 'unseen-head' ? 'Tick-it keeps answering that this head is one no review has seen' : 'Tick-it keeps refusing the done report'
+  const note = `${why}, and nothing has changed since the mod acted on it (head ${head.slice(0, 7) || 'unknown'}), so it is not asked again.`
+  const code = kind === 'unseen-head' ? 'unseen-head-repeated' : 'done-refused-repeated'
+  const stop = { code, ...(head === '' ? {} : { head }), need: { kind: 'session-stopped' as const, note } }
+  const steward = await read($, stewardAtom)
+  if (steward !== null && steward.ticket === s?.ticket) await setSteward($, { ...steward, phase: 'stopped', stoppedBy: 'mod', note }, stop)
+  else await report($, 'stopped', note, true, stop)
+  return false
 }
 
 /** Sends the stop reports Tick-it has not taken yet, once each; the ones that fail stay with their need. */
@@ -315,7 +351,7 @@ export async function sendWaitingStops($: EngineInterface): Promise<void> {
     const sent = await callTickit($, REPORT_TOOL, stop.args).catch(() => ({ ok: false as const, why: 'unreachable' }))
     if (sent.ok) {
       await saveStops($, (await read($, unsentStops)).filter(w => w.session !== stop.session))
-      if (mine) await takeAnswer($, sent)
+      if (mine) await takeAnswer($, sent, 'stopped')
     }
   }
 }
@@ -369,7 +405,12 @@ export async function report($: EngineInterface, status: StartedSession['status'
   const waiting = (await read($, unsentStops)).filter(w => w.session !== s.id)
   if (stop !== undefined && !sent.ok) await saveStops($, [...waiting, { repository: s.repository, session: s.id, args }])
   else if ((stop !== undefined || status !== 'stopped') && sent.ok) await saveStops($, waiting)
-  await takeAnswer($, sent)
+  await takeAnswer($, sent, status)
+  // A done report Tick-it refused (behind, conflicting) was only logged: its refusal text is handed to Claude, once for the head (TCK-94).
+  if (!sent.ok && status === 'done' && sent.why !== 'unreachable') {
+    const text = `tick-it: Tick-it refused the done report for ${s.ticket}: ${sent.why.slice(0, 400)}\nIf the pull request is behind the base or conflicts with it, merge the base into the branch (git merge, never rebase) and push; the mod reports done again at the turn's end.`
+    if (await onceForHead($, 'done-refused', sent.why)) await update($, pendingInstructions, pending => (pending.includes(text) ? pending : [...pending, text]))
+  }
 
   return sent
 }
@@ -614,4 +655,11 @@ async function fixAfterStop($: EngineInterface, key: string, e: ToolCallInput, n
   await recordPullRequest($, key).catch(() => undefined)
   await setSteward($, { ticket: key, round: now.round, phase: 'fixing', maxRounds: Math.max(now.maxRounds, now.round + 1), ticking: false, afterStop: true, note: `Reviewing the fix made after stewarding stopped: round ${now.round + 1} starts when this turn ends.` })
   return { ...ran, context: [...(ran.context ?? []), `tick-it: stewarding of ${key} had stopped. Its fix is reviewed once when this turn ends (round ${now.round + 1}); if that still has blocking findings it stops again and a person is asked.`] }
+}
+
+/** Whether Tick-it said the head is one no review has seen: read once, the mod then starts the round itself. */
+export async function takeUnseenHead($: EngineInterface): Promise<boolean> {
+  const asked = await read($, unseenHead)
+  if (asked) await update($, unseenHead, () => false)
+  return asked
 }

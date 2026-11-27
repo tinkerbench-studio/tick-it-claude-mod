@@ -3,7 +3,7 @@ import type { Register } from 'claude-code'
 import type { ReviewRun, ReviewUsage, WorkRun } from '../types'
 import { APPROVAL_MESSAGE, answeredIds, BREAKDOWN_SUGGESTION, MAX_FINDINGS } from './state'
 import { findCurrent, refreshPullRequest, statusOnTickit, showStatus } from './board'
-import { refreshDiff, report, recordPullRequest, firstLine, finish } from './work'
+import { refreshDiff, takeUnseenHead, report, recordPullRequest, firstLine, finish } from './work'
 import { gaveVerdict, withoutStopMarks, costOf, openVerdictLines, readFindings, readVerdicts, parseFinding, saveReviews, setSteward, startRound, settleRound, checkIn } from './reviews'
 import type { CheckIn } from './reviews'
 import { queue, flush } from './outbox'
@@ -152,6 +152,15 @@ export const registerTurn: Register = on => {
         // Before the session goes idle on a ticket In review it reports and reads whose move it is: Tick-it's next step is submitted, or a resume starts the next round.
         const checked = await checkIn($).catch(() => ({}) as CheckIn)
         if (checked.resumed === true) return done
+        // Tick-it says the head is one no review has seen, on a ticket already In review: the mod starts the round itself (the reviews are the mod's to record), instead of handing the session an instruction it cannot meet.
+        if (await takeUnseenHead($)) {
+          const mine = await read($, steward)
+          const t = mine === null ? undefined : (await read($, tickets)).find(one => one.id === mine.ticket)
+          if (t !== undefined && mine?.phase !== 'reviewing') {
+            await startRound($, t, 1, undefined, 'head-unseen').catch(error => report($, 'stopped', `Could not start the review: ${error instanceof Error ? error.message : String(error)}`.slice(0, 450), true))
+            return done
+          }
+        }
         let pending = (await read($, steward))?.phase === 'reviewing' ? [] : await read($, pendingInstructions)
         // An answer handed over this way ends the waiting: the session is working on it.
         if (pending.some(i => APPROVAL_MESSAGE.test(i))) {
