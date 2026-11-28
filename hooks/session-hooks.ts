@@ -24,6 +24,12 @@ const dropped = atom({ plugin: 'tick-it', key: 'dropped' } as const, [])
 const unlinked = atom({ plugin: 'tick-it', key: 'unlinked' } as const, [])
 /** Whether a turn is running: set when a prompt is submitted, cleared when the main loop's turn ends. */
 const turnRunning = atom({ plugin: 'tick-it', key: 'turnRunning' } as const, false)
+/** The prompt the mod submitted to start the turn now running (with the head and changed lines it began at), so the turn's end can tell a plugin prompt from one a person typed (TCK-98). */
+const pluginPrompt = atom({ plugin: 'tick-it', key: 'pluginPrompt' } as const, null as { text: string; head: string; lines: number } | null)
+/** Consecutive plugin-prompt turns that changed nothing, and whether the loop breaker has stopped the prompts until a person types or Tick-it asks to resume. */
+const promptLoop = atom({ plugin: 'tick-it', key: 'promptLoop' } as const, { count: 0, stopped: false })
+/** A tool that writes ran in the turn now running. */
+const wrote = atom({ plugin: 'tick-it', key: 'wrote' } as const, false)
 /** Approval answers that reached the session while no turn was running: submitted as a prompt by the approval timer, or handed to Claude with a prompt typed first, once. */
 const approvalAnswers = atom({ plugin: 'tick-it', key: 'approvalAnswers' } as const, [] as string[])
 const approvalsTaken = atom({ plugin: 'tick-it', key: 'approvalsTaken' } as const, [] as string[])
@@ -129,6 +135,12 @@ export const registerSession: Register = on => {
     // A prompt starts a turn; an approval answer kept while none was running goes with it, once, and the session is working again.
     if (e.command === undefined) {
       await update($, turnRunning, () => true)
+      await update($, wrote, () => false)
+      // A prompt the mod did not submit is a person's: the plugin-prompt loop count starts again, and prompts may follow (TCK-98).
+      if ((await read($, pluginPrompt))?.text !== e.text) {
+        await update($, pluginPrompt, () => null)
+        await update($, promptLoop, () => ({ count: 0, stopped: false }))
+      }
       const answers = await read($, approvalAnswers)
       if (answers.length > 0) {
         await update($, approvalAnswers, () => [])
