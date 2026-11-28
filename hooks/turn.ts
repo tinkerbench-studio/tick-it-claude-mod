@@ -26,7 +26,7 @@ const diffLines = atom({ plugin: 'tick-it', key: 'diffLines' } as const, 0)
 const turnRunning = atom({ plugin: 'tick-it', key: 'turnRunning' } as const, false)
 const pendingInstructions = atom({ plugin: 'tick-it', key: 'pendingInstructions' } as const, [] as string[])
 /** The prompt the mod submitted to start the turn now running (with the head and changed lines it began at), so the turn's end can tell a plugin prompt from one a person typed (TCK-98). */
-const pluginPrompt = atom({ plugin: 'tick-it', key: 'pluginPrompt' } as const, null as { text: string; head: string; lines: number } | null)
+const pluginPrompt = atom({ plugin: 'tick-it', key: 'pluginPrompt' } as const, null as { text: string; head: string; lines: number; started?: boolean } | null)
 /** Consecutive plugin-prompt turns that changed nothing, and whether the loop breaker has stopped the prompts until a person types or Tick-it asks to resume. */
 const promptLoop = atom({ plugin: 'tick-it', key: 'promptLoop' } as const, { count: 0, stopped: false })
 /** The head and changed lines at the last turn-end working report: a turn that leaves both as they were, and wrote nothing, sends none (TCK-98). */

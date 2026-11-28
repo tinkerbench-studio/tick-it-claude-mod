@@ -205,3 +205,31 @@ test('a turn that wrote nothing, changed no lines and moved no HEAD sends no wor
   await $.turn.complete(finishTurn(undefined, 'Wrote a file.'))
   expect(working(seen)).toHaveLength(first + 2)
 })
+
+test('a sessionStopped with a reason shows the reason, not the code', async ($, on) => {
+  const net: Net = { toolResult: JSON.stringify({ sessionStopped: { session: 's_abc12345', code: 'rounds-exhausted', reason: 'Three rounds used' } }) }
+  const seen = await begin($, on, net)
+  await tick($, 1)
+  await $.turn.complete(finishTurn(undefined, 'Ticked.'))
+  expect(sent(seen)[0]).toContain('is stopped (Three rounds used)')
+  expect(sent(seen)[0]).not.toContain('rounds-exhausted')
+})
+
+test('two plugin-prompt turns that change nothing do not stop the session', async ($, on) => {
+  const net: Net = {}
+  const seen = await begin($, on, net)
+  for (let i = 1; i <= 3; i++) await turn($, net, i)
+  expect(sent(seen)).toHaveLength(3)
+  expect(reports(seen).filter(r => r.status === 'stopped' && r.stop !== undefined)).toEqual([])
+})
+
+test('a person typing the text of the mod\'s own prompt a second time is a person', async ($, on) => {
+  const net: Net = {}
+  const seen = await begin($, on, net)
+  for (let i = 1; i <= 2; i++) await turn($, net, i)
+  const own = sent(seen)[1] ?? ''
+  expect(own).not.toBe('')
+  await $.prompt.submit(typed(own))
+  for (let i = 3; i <= 4; i++) await turn($, net, i)
+  expect(reports(seen).filter(r => r.status === 'stopped' && r.stop !== undefined)).toEqual([])
+})

@@ -139,11 +139,13 @@ export const registerSession: Register = on => {
       await update($, turnRunning, () => true)
       await update($, wrote, () => false)
       // A prompt the mod did not submit is a person's: the plugin-prompt loop count starts again, and prompts may follow (TCK-98).
-      if ((await read($, pluginPrompt))?.text !== e.text) {
+      // The mod's own prompt matches once: the same text typed again in that turn is a person's.
+      const mine = await read($, pluginPrompt)
+      if (mine === null || mine.text !== e.text || mine.started === true) {
         await update($, pluginPrompt, () => null)
         await update($, lastPrompt, () => null)
         await update($, promptLoop, () => ({ count: 0, stopped: false }))
-      }
+      } else await update($, pluginPrompt, () => ({ ...mine, started: true }))
       const answers = await read($, approvalAnswers)
       if (answers.length > 0) {
         await update($, approvalAnswers, () => [])

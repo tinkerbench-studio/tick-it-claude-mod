@@ -42,7 +42,7 @@ const approvalsTaken = atom({ plugin: 'tick-it', key: 'approvalsTaken' } as cons
 /** Tick-it answered a report with the unseen-head instruction: the mod starts the review round itself at the turn's end (TCK-94), and the instruction is not handed to Claude. */
 const unseenHead = atom({ plugin: 'tick-it', key: 'unseenHead' } as const, false)
 /** The prompt the mod submitted to start the turn now running (with the head and changed lines it began at), so the turn's end can tell a plugin prompt from one a person typed (TCK-98). */
-const pluginPrompt = atom({ plugin: 'tick-it', key: 'pluginPrompt' } as const, null as { text: string; head: string; lines: number } | null)
+const pluginPrompt = atom({ plugin: 'tick-it', key: 'pluginPrompt' } as const, null as { text: string; head: string; lines: number; started?: boolean } | null)
 /** The last prompt the mod submitted, with the head and changed lines then: the same text is not submitted again until one of them changes or a person types (TCK-98). */
 const lastPrompt = atom({ plugin: 'tick-it', key: 'lastPrompt' } as const, null as { text: string; head: string; lines: number } | null)
 /** Consecutive plugin-prompt turns that changed nothing, and whether the mod has stopped (the loop breaker, or any stopped report): no prompt is submitted until a person types or Tick-it asks to resume. */
