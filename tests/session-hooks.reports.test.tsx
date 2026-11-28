@@ -172,3 +172,15 @@ test("Claude's own move of a merge-only session's ticket to In review starts no 
   expect(reports(seen).map(r => r.status)).not.toContain('reviewing')
   expect(reports(seen).at(-1)).toMatchObject({ status: 'stopped' })
 })
+
+test('a merge-only session whose done report Tick-it refuses reports stopped with the refusal, and hands Claude no stale instruction (TCK-97)', async ($, on) => {
+  const seen = engine(on, { lines: 0 }, true, {}, { pullRequests: [{ number: 12, state: 'open', draft: false, ci: 'success', reviewCarriedOver: true }], doneRefusal: 'The pull request is behind its base.' })
+  const ticket = seen.server.find(t => t.key === 'TCK-151')
+  if (ticket !== undefined) ticket.status = 'In review'
+  await start($)
+  await $.prompt.submit(typed(MERGE_ONLY))
+  await $.turn.complete(finishTurn(undefined, 'Merged main in.'))
+  expect(reports(seen).at(-1)).toMatchObject({ status: 'stopped', needsHuman: { kind: 'session-stopped' } })
+  expect(String((reports(seen).at(-1) as { summary?: string }).summary)).toContain('behind its base')
+  expect(seen.submitted).toEqual([])
+})

@@ -114,7 +114,14 @@ export const registerTurn: Register = on => {
           // Done when Tick-it says the head only merged the base (reviewCarriedOver); otherwise, or when it cannot say, stopped with a person to decide. Never working.
           const pr = await read($, pullRequest)
           if (pr !== null && (await read($, pullRequestError)) === null && pr.state === 'open' && pr.reviewCarriedOver === true) {
-            await report($, 'done', firstLine(e.answer), true)
+            const sent = await report($, 'done', firstLine(e.answer), true)
+            if (sent?.ok !== true) {
+              // Tick-it refused the done (behind, conflicting again) or could not be reached: the session ends stopped with its reason, never left at working. The refusal report() queued for Claude is dropped, as no turn follows.
+              await update($, pendingInstructions, pending => pending.filter(i => !i.startsWith('tick-it: Tick-it refused the done report')))
+              const reason = sent === undefined || sent.ok ? 'Tick-it could not be reached' : sent.why.replace(/[^\x20-\x7e]+/g, ' ').trim().slice(0, 120)
+              const note = `The merge-only session for ${session.ticket} could not report done: ${reason}.`
+              await report($, 'stopped', note, true, { code: 'other', ...(pr.headSha === undefined ? {} : { head: pr.headSha }), need: { kind: 'session-stopped', note } })
+            }
           } else {
             const why = pr === null || (await read($, pullRequestError)) !== null ? 'Tick-it could not say whether the review carries over' : 'the pushed head is not one whose review carries over (reviewCarriedOver is not true)'
             const note = `The merge-only session for ${session.ticket} ended: ${why}.`
