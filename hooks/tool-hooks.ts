@@ -31,26 +31,18 @@ async function nudgeFor($: EngineInterface, ticket: string, file: string, text: 
   return areaNudge(fresh)
 }
 
-/** The prompt the mod submitted to start the turn now running (with the head and changed lines it began at), so the turn's end can tell a plugin prompt from one a person typed (TCK-98). */
-const pluginPrompt = atom({ plugin: 'tick-it', key: 'pluginPrompt' } as const, null as { text: string; head: string; lines: number } | null)
-/** Consecutive plugin-prompt turns that changed nothing, and whether the loop breaker has stopped the prompts until a person types or Tick-it asks to resume. */
-const promptLoop = atom({ plugin: 'tick-it', key: 'promptLoop' } as const, { count: 0, stopped: false })
 /** A tool that writes ran in the turn now running. */
 const wrote = atom({ plugin: 'tick-it', key: 'wrote' } as const, false)
 
 const lineCount = (text: string): number => (text === '' ? 0 : text.split('\n').length)
 
 export const registerTools: Register = on => {
-  // A tool that writes: the plugin-prompt loop breaker counts only turns that wrote nothing (TCK-98).
-  on('tool.call', async ($, e, next) => {
-    if (e.tool === 'Edit' || e.tool === 'Write' || (e.tool as string) === 'MultiEdit' || (e.tool as string) === 'NotebookEdit') await update($, wrote, () => true)
-    return next(e)
-  })
-
   // The size budget: refuse an edit that would take the diff past the ticket's
   // budget. Measuring failures let the edit through (a proof of concept should
   // not block work), so the .catch passes rather than denies.
   on('tool.call', async ($, e, next) => {
+    // A tool that writes: the plugin-prompt loop breaker counts only turns that wrote nothing (TCK-98).
+    if (e.tool === 'Edit' || e.tool === 'Write' || (e.tool as string) === 'MultiEdit' || (e.tool as string) === 'NotebookEdit') await update($, wrote, () => true)
     if (e.tool !== 'Edit' && e.tool !== 'Write' && (e.tool as string) !== 'MultiEdit') return next(e)
     const t = await findCurrent($)
     if (t === undefined) return next(e)
