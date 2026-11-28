@@ -184,7 +184,7 @@ export const registerTurn: Register = on => {
         // Before the session goes idle on a ticket In review it reports and reads whose move it is: Tick-it's next step is submitted, or a resume starts the next round.
         const resumeWas = await read($, resumeAsked)
         const checked = await checkIn($).catch(() => ({}) as CheckIn)
-        if (resumeWas) await update($, promptLoop, () => ({ count: 0, stopped: false }))
+        if (resumeWas || checked.resumeAsked === true) await update($, promptLoop, () => ({ count: 0, stopped: false }))
         if (checked.resumed === true) return done
         // Tick-it says the head is one no review has seen, on a ticket already In review: the mod starts the round itself (the reviews are the mod's to record), instead of handing the session an instruction it cannot meet.
         if (await takeUnseenHead($)) {

@@ -1265,7 +1265,7 @@ async function rerunReviewers($: EngineInterface, s: Steward, runs: ReviewRun[],
 }
 
 /** What the check-in before going idle found: the next round was started (a resume), or Tick-it's `next` to submit as a prompt. */
-export type CheckIn = { resumed?: true; next?: string }
+export type CheckIn = { resumed?: true; next?: string; /** Tick-it's answer asked to resume (the flag is consumed here). */ resumeAsked?: true }
 
 const WAITING_ON = ['session', 'reviewers', 'queue', 'person', 'nothing']
 
@@ -1280,13 +1280,14 @@ export async function checkIn($: EngineInterface): Promise<CheckIn> {
   if (s === null || started === null || started.ticket !== s.ticket || s.phase === 'fixing') return {}
   const sent = await report($, s.phase === 'done' ? 'done' : s.phase === 'stopped' ? 'stopped' : 'reviewing', s.note, true)
   if (sent === undefined || !sent.ok) return {}
-  if (await read($, resumeAsked)) {
+  const asked = await read($, resumeAsked)
+  if (asked) {
     await update($, resumeAsked, () => false)
     const now = await read($, steward)
     if (now?.phase === 'stopped' && now.stoppedBy === 'mod') {
       await log($, 'debug', 'resumed-by-tickit', { ticket: now.ticket, round: now.round })
       await reviewAgain($)
-      return { resumed: true }
+      return { resumed: true, resumeAsked: true }
     }
     if (now?.phase === 'stopped') {
       await update($, steward, v => (v === null ? v : { ...v, note: `Tick-it asked to resume, but you stopped stewarding, so it stays stopped: r starts the next round.` }))
@@ -1297,14 +1298,14 @@ export async function checkIn($: EngineInterface): Promise<CheckIn> {
   const waitingOn = WAITING_ON.find(w => w === sent.value.waitingOn)
   // A value Tick-it did not give (or one the mod does not know) leaves no old one on the pane.
   await update($, steward, v => (v === null ? v : { ...v, ...(waitingOn === undefined ? { waitingOn: undefined } : { waitingOn }) }))
-  if (waitingOn === undefined) return {}
+  if (waitingOn === undefined) return asked ? { resumeAsked: true } : {}
   await showStatus($)
   const next = typeof sent.value.next === 'string' ? sent.value.next.trim().slice(0, 500) : ''
   // Another move than the session's own ends the run of the same next: it may be asked again later.
   if (waitingOn !== 'session') await update($, lastNext, () => null)
-  if (waitingOn !== 'session' || next === '' || next === (await read($, lastNext))) return {}
+  if (waitingOn !== 'session' || next === '' || next === (await read($, lastNext))) return asked ? { resumeAsked: true } : {}
   await update($, lastNext, () => next)
-  return { next }
+  return { next, ...(asked ? { resumeAsked: true as const } : {}) }
 }
 
 export const usd = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 })

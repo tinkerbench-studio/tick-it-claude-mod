@@ -76,7 +76,8 @@ test('a prompt a person types ends the stop and starts the count again', async (
   await $.prompt.submit(typed('Carry on please.'))
   await turn($, net, 6)
   await turn($, net, 7)
-  expect(sent(seen).length).toBe(5)
+  // The typed prompt is in the list too: three, it, then two plugin prompts.
+  expect(sent(seen)).toHaveLength(6)
   expect(reports(seen).filter(r => r.status === 'stopped')).toHaveLength(1)
 })
 
@@ -104,11 +105,11 @@ test('a turn that changed the diff resets the count', async ($, on) => {
 
 test('a turn that moved HEAD resets the count', async ($, on) => {
   const net: Net = {}
-  const diff = { lines: 10, remoteHead: 'cd34'.repeat(10) }
+  const diff: { lines: number; headNow?: string } = { lines: 10 }
   const seen = await begin($, on, net, diff)
   await turn($, net, 1)
   await turn($, net, 2)
-  await $.process.run(['git', 'checkout', '-B', 'tck-143', 'FETCH_HEAD'])
+  diff.headNow = 'cd34'.repeat(10)
   await turn($, net, 3)
   await turn($, net, 4)
   expect(reports(seen).filter(r => r.status === 'stopped')).toEqual([])
@@ -122,4 +123,16 @@ test('a turn with a tool call that writes resets the count', async ($, on) => {
     await turn($, net, i)
   }
   expect(reports(seen).filter(r => r.status === 'stopped')).toEqual([])
+})
+
+test('an answer that asks to resume ends the stop, so prompts follow again', async ($, on) => {
+  const net: Net = {}
+  const seen = await begin($, on, net)
+  for (let i = 1; i <= 4; i++) await turn($, net, i)
+  expect(sent(seen)).toHaveLength(3)
+  // The next turn end reports working again, and Tick-it's answer says to resume.
+  net.reportAnswers = [{ resume: true }]
+  await turn($, net, 5)
+  await turn($, net, 6)
+  expect(sent(seen).length).toBeGreaterThan(3)
 })
