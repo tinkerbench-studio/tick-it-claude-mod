@@ -146,3 +146,29 @@ for (const [name, pr] of [['is not carried over', [{ number: 12, state: 'open', 
     expect(seen.spawned).toEqual([])
   })
 }
+
+test('a merge-only session whose later read of the pull request fails reports stopped, not the stale carried-over done (TCK-97)', async ($, on) => {
+  const net: Net = { pullRequests: [{ number: 12, state: 'open', draft: false, ci: 'success', reviewCarriedOver: true }] }
+  const seen = engine(on, { lines: 0 }, true, {}, net)
+  const ticket = seen.server.find(t => t.key === 'TCK-151')
+  if (ticket !== undefined) ticket.status = 'In review'
+  await start($)
+  await $.prompt.submit(typed(MERGE_ONLY))
+  await $.turn.complete(finishTurn(undefined, 'Merged main in.'))
+  net.pullRequests = 'unreachable'
+  await $.turn.complete(finishTurn(undefined, 'Again.'))
+  expect(reports(seen).at(-1)).toMatchObject({ status: 'stopped', needsHuman: { kind: 'session-stopped' } })
+})
+
+test("Claude's own move of a merge-only session's ticket to In review starts no review, and the turn ends stopped (TCK-97)", async ($, on) => {
+  const seen = engine(on, { lines: 0 }, true, SKILLS, { pullRequests: [{ number: 12, state: 'open', draft: false, ci: 'success', reviewCarriedOver: false }] })
+  const ticket = seen.server.find(t => t.key === 'TCK-151')
+  if (ticket !== undefined) ticket.status = 'In review'
+  await start($)
+  await $.prompt.submit(typed(MERGE_ONLY))
+  await $.tool.call({ tool: 'mcp__plugin_tick-it_tickit__update_ticket', tool_use_id: 'tu-mo', repository: 'acme/web-app', key: 'TCK-151', status: 'In review' } as never)
+  await $.turn.complete(finishTurn(undefined, 'Merged main in.'))
+  expect(seen.spawned).toEqual([])
+  expect(reports(seen).map(r => r.status)).not.toContain('reviewing')
+  expect(reports(seen).at(-1)).toMatchObject({ status: 'stopped' })
+})

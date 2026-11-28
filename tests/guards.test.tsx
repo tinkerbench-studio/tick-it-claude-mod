@@ -114,7 +114,7 @@ test('more than 100 waiting runs go in calls of at most 100, and a failed call l
   expect((await run($, 'reviews')).text).toContain('Tick-it has every review run.')
 })
 
-test('Claude may report a merge-only session itself, and a build session is still refused (TCK-97)', async ($, on) => {
+test("Claude may report a merge-only session itself, and another session's report is still refused (TCK-97)", async ($, on) => {
   const seen = engine(on, { lines: 0 }, true, SKILLS)
   on('tool.check', () => ({ decision: 'allow' as const }))
   const ticket = seen.server.find(t => t.key === 'TCK-151')

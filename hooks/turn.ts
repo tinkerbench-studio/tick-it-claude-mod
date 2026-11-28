@@ -113,10 +113,10 @@ export const registerTurn: Register = on => {
         if (session.mergeOnly === true) {
           // Done when Tick-it says the head only merged the base (reviewCarriedOver); otherwise, or when it cannot say, stopped with a person to decide. Never working.
           const pr = await read($, pullRequest)
-          if (pr !== null && pr.state === 'open' && pr.reviewCarriedOver === true) {
+          if (pr !== null && (await read($, pullRequestError)) === null && pr.state === 'open' && pr.reviewCarriedOver === true) {
             await report($, 'done', firstLine(e.answer), true)
           } else {
-            const why = pr === null ? 'Tick-it could not say whether the review carries over' : 'the pushed head is not one whose review carries over (reviewCarriedOver is not true)'
+            const why = pr === null || (await read($, pullRequestError)) !== null ? 'Tick-it could not say whether the review carries over' : 'the pushed head is not one whose review carries over (reviewCarriedOver is not true)'
             const note = `The merge-only session for ${session.ticket} ended: ${why}.`
             await report($, 'stopped', note, true, { code: 'other', ...(pr?.headSha === undefined ? {} : { head: pr.headSha }), need: { kind: 'session-stopped', note } })
           }

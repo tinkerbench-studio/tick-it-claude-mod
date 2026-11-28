@@ -648,6 +648,9 @@ export async function finishedByClaude($: EngineInterface, e: ToolCallInput, nex
   const t = await findCurrent($)
   if (input.status === 'In review' && typeof input.key === 'string' && t === undefined) return fixAfterStop($, input.key.toUpperCase(), e, next)
   if (input.status !== 'In review' || typeof input.key !== 'string' || t === undefined || input.key.toUpperCase() !== t.id) return next(e)
+  // A merge-only session starts no review: its turn ends with done or stopped (TCK-97).
+  const own = await read($, startedSession)
+  if (own?.mergeOnly === true && own.ticket === t.id) return next(e)
   let unrun: string | undefined
   try {
     await recordPullRequest($, t.id)
