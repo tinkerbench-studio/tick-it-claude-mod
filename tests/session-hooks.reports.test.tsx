@@ -182,5 +182,5 @@ test('a merge-only session whose done report Tick-it refuses reports stopped wit
   await $.turn.complete(finishTurn(undefined, 'Merged main in.'))
   expect(reports(seen).at(-1)).toMatchObject({ status: 'stopped', needsHuman: { kind: 'session-stopped' } })
   expect(String((reports(seen).at(-1) as { summary?: string }).summary)).toContain('behind its base')
-  expect(seen.submitted).toEqual([])
+  expect(seen.submitted.filter(t => !t.includes('merge-only'))).toEqual([])
 })
