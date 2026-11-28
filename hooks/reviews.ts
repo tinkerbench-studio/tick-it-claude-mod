@@ -4,7 +4,7 @@ import type { OutboxRun, PullRequestView, ReviewRun, ReviewUsage, Steward, Ticke
 import { SIZES, REVIEWS_KEY, SKILLS_DIR, OLD_SKILLS_DIR, BASES_DIR, KEEP_REVIEWS, MAX_FINDING_TEXT, PRICES, WARN_AT } from './state'
 import { callTickit, fetchInstructions, fetchModConfig, hasModLimits, madeHere, repositoryHere, reviewBudgetOf, roundLimit } from './tickit'
 import { setStatus, showStatus, refreshPullRequest, servedConfig, RECHECK_LINES } from './board'
-import { report, changedContent, mergeBaseOfDefault, defaultBase } from './work'
+import { report, submitPrompt, changedContent, mergeBaseOfDefault, defaultBase } from './work'
 import type { StopReport } from './work'
 import { queue, flush, plural } from './outbox'
 import { AREA_SKILL_DIR, AREA_NAMES, areaSkill, changesFor, parseChanges, touchedAreas, touchedLine, unknownChanges } from './security-areas'
@@ -30,6 +30,8 @@ const tickitRound = atom({ plugin: 'tick-it', key: 'tickitRound' } as const, nul
 /** The runs Tick-it has not taken yet: settleRound follows Tick-it's verdict only when none of the round's is still here. */
 const outbox = atom({ plugin: 'tick-it', key: 'outbox' } as const, [] as OutboxRun[])
 const resumeAsked = atom({ plugin: 'tick-it', key: 'resumeAsked' } as const, false)
+/** See hooks/work.ts: the mod's own prompts stop while this says stopped. */
+const promptLoop = atom({ plugin: 'tick-it', key: 'promptLoop' } as const, { count: 0, stopped: false })
 const lastNext = atom({ plugin: 'tick-it', key: 'lastNext' } as const, null as string | null)
 
 // ---- Stewarding --------------------------------------------------------------
@@ -873,7 +875,7 @@ export async function reviewAgain($: EngineInterface): Promise<string> {
   const note = `Round ${s.round + 1} starts when this turn ends.`
   await setSteward($, { ...withoutStopMarks(s), phase: 'fixing', ticking: false, maxRounds: Math.max(s.maxRounds, s.round + 1), note })
   // With no fix turn running, nothing would end: a turn of nothing to fix carries the next round in.
-  if (idle) await $.prompt.submit({ text: `tick-it: ${s.ticket} is reviewed again. There is nothing to fix; stop, and round ${s.round + 1} starts when you finish.` })
+  if (idle) await submitPrompt($, `tick-it: ${s.ticket} is reviewed again. There is nothing to fix; stop, and round ${s.round + 1} starts when you finish.`, { person: true })
 
   return `tick-it: ${note}`
 }
@@ -1139,9 +1141,9 @@ export async function settleRound($: EngineInterface, s: Steward, withoutReviewe
       const many = (unticked?.length ?? 0) !== 1
       if (unticked !== null && s.ticking !== true) {
         await setSteward($, { ...s, phase: 'fixing', ticking: true, note: `Clean, but ${unticked.length} acceptance check${many ? 's are' : ' is'} not ticked: asking Claude to tick them.` })
-        await $.prompt.submit({
-          text: [`Round ${s.round} review of ${t.id} found nothing blocking, but ${unticked.length} acceptance check${many ? 's are' : ' is'} not ticked. Tick each one you have met with set_criterion_checked, each with a note on how it is met (add_criterion_note). Do not tick one that is not met: name it in your reply instead. Then stop; tick-it reviews again.`, ...unticked.map(text => `- ${text}`)].join('\n'),
-        })
+        await submitPrompt($,
+          [`Round ${s.round} review of ${t.id} found nothing blocking, but ${unticked.length} acceptance check${many ? 's are' : ' is'} not ticked. Tick each one you have met with set_criterion_checked, each with a note on how it is met (add_criterion_note). Do not tick one that is not met: name it in your reply instead. Then stop; tick-it reviews again.`, ...unticked.map(text => `- ${text}`)].join('\n'),
+        )
         return
       }
       const repository = await repositoryHere($)
@@ -1238,9 +1240,9 @@ export async function settleRound($: EngineInterface, s: Steward, withoutReviewe
   await setSteward($, { ...s, phase: 'fixing', ticking: false, ...(readOnly ? { pullRequestOnly: true } : {}), ...(pastLimit && !readOnly ? { maxRounds: s.round + 1, note: `Still blocking after ${s.round} rounds; round ${s.round + 1} goes past the limit.` } : {}) })
   const served = await servedConfig($)
   const afterFix = served !== null && served.ticket === t.id ? served.briefLines.afterFix : undefined
-  await $.prompt.submit({
-    text: [`Round ${s.round} review of ${t.id} found ${blocking.length} blocking finding${blocking.length === 1 ? '' : 's'}. ` + (readOnly ? `Fix each one within the ticket, then stop. No reviewer round is left (${beyondLimit ? 'the round limit is passed' : 'the review budget has no room'}), so tick-it reads the pull request again when you finish: it is clean when CI passes and the branch is not behind its base.` : 'Fix each one within the ticket, then stop. tick-it reviews again when you finish.') + (pastLimit && !readOnly ? ` The next review, round ${s.round + 1}, is the last: ${limit} rounds are the limit and it goes past it.` : ''), ...blocking.map(line => `- ${line}`), ...(afterFix === undefined ? [] : [afterFix])].join('\n'),
-  })
+  await submitPrompt($,
+    [`Round ${s.round} review of ${t.id} found ${blocking.length} blocking finding${blocking.length === 1 ? '' : 's'}. ` + (readOnly ? `Fix each one within the ticket, then stop. No reviewer round is left (${beyondLimit ? 'the round limit is passed' : 'the review budget has no room'}), so tick-it reads the pull request again when you finish: it is clean when CI passes and the branch is not behind its base.` : 'Fix each one within the ticket, then stop. tick-it reviews again when you finish.') + (pastLimit && !readOnly ? ` The next review, round ${s.round + 1}, is the last: ${limit} rounds are the limit and it goes past it.` : ''), ...blocking.map(line => `- ${line}`), ...(afterFix === undefined ? [] : [afterFix])].join('\n'),
+  )
 }
 
 /** Runs the reviewers Tick-it's `incomplete` round names (those that failed, when it names none) again, each once; false when none can start, and the round is then read by the mod's own rules. */
@@ -1283,6 +1285,7 @@ export async function checkIn($: EngineInterface): Promise<CheckIn> {
   const asked = await read($, resumeAsked)
   if (asked) {
     await update($, resumeAsked, () => false)
+    await update($, promptLoop, () => ({ count: 0, stopped: false }))
     const now = await read($, steward)
     if (now?.phase === 'stopped' && now.stoppedBy === 'mod') {
       await log($, 'debug', 'resumed-by-tickit', { ticket: now.ticket, round: now.round })

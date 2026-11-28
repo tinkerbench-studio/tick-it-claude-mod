@@ -29,6 +29,8 @@ const pluginPrompt = atom({ plugin: 'tick-it', key: 'pluginPrompt' } as const, n
 /** Consecutive plugin-prompt turns that changed nothing, and whether the loop breaker has stopped the prompts until a person types or Tick-it asks to resume. */
 const promptLoop = atom({ plugin: 'tick-it', key: 'promptLoop' } as const, { count: 0, stopped: false })
 /** A tool that writes ran in the turn now running. */
+/** The last prompt the mod submitted (hooks/work.ts): a person's prompt clears it. */
+const lastPrompt = atom({ plugin: 'tick-it', key: 'lastPrompt' } as const, null as { text: string; head: string; lines: number } | null)
 const wrote = atom({ plugin: 'tick-it', key: 'wrote' } as const, false)
 /** Approval answers that reached the session while no turn was running: submitted as a prompt by the approval timer, or handed to Claude with a prompt typed first, once. */
 const approvalAnswers = atom({ plugin: 'tick-it', key: 'approvalAnswers' } as const, [] as string[])
@@ -139,6 +141,7 @@ export const registerSession: Register = on => {
       // A prompt the mod did not submit is a person's: the plugin-prompt loop count starts again, and prompts may follow (TCK-98).
       if ((await read($, pluginPrompt))?.text !== e.text) {
         await update($, pluginPrompt, () => null)
+        await update($, lastPrompt, () => null)
         await update($, promptLoop, () => ({ count: 0, stopped: false }))
       }
       const answers = await read($, approvalAnswers)

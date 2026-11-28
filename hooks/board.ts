@@ -6,6 +6,7 @@ import type { Design } from './ui-evidence'
 import type { Approval, AttachmentRef, MemoryRef, MilestoneView, PullRequestView, Ticket, TicketSize, TicketStatus } from '../types'
 import { PANE, STORE_KEY, STORE_REPOSITORY_KEY, BUDGET, SIZES, MONTHS } from './state'
 import { callTickit, repositoryHere } from './tickit'
+import { submitPrompt } from './work'
 
 // Declared in this file: the engine reads an atom only where it is written (a module cannot use one imported from state.ts).
 const tickets = atom({ plugin: 'tick-it', key: 'tickets' } as const, [])
@@ -395,7 +396,7 @@ export async function fixCi($: EngineInterface): Promise<string> {
   if (pr === null) return `tick-it: ${t.id} has no pull request to fix.`
   if (pr.ci !== 'failure') return `tick-it: CI is not failing on #${pr.number}, so there is nothing to fix.`
   const text = [`tick-it: CI is failing on pull request #${pr.number} for ${t.id}.`, `Read the failing checks with gh (gh pr checks ${pr.number}, then gh run view <run> --log-failed) and fix them.`, `Stay within the ticket's size budget of ${await budgetOf($, t.size)} changed lines, then push to the pull request's branch.`].join(' ')
-  const sent = await $.prompt.submit({ text }).then(
+  const sent = await submitPrompt($, text, { person: true }).then(
     () => undefined,
     (error: unknown) => (error instanceof Error ? error.message : String(error)).slice(0, 150),
   )

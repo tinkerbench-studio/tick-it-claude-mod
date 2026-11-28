@@ -42,6 +42,12 @@ const approvalsTaken = atom({ plugin: 'tick-it', key: 'approvalsTaken' } as cons
 /** Tick-it answered a report with the unseen-head instruction: the mod starts the review round itself at the turn's end (TCK-94), and the instruction is not handed to Claude. */
 const unseenHead = atom({ plugin: 'tick-it', key: 'unseenHead' } as const, false)
 /** The instructions already handed over (or acted on) for a head while nothing changed: what is kept is the kind, the head and the text, so a repeat is told apart from a new commit or answer. */
+/** The prompt the mod submitted to start the turn now running (with the head and changed lines it began at), so the turn's end can tell a plugin prompt from one a person typed (TCK-98). */
+const pluginPrompt = atom({ plugin: 'tick-it', key: 'pluginPrompt' } as const, null as { text: string; head: string; lines: number } | null)
+/** The last prompt the mod submitted, with the head and changed lines then: the same text is not submitted again until one of them changes or a person types (TCK-98). */
+const lastPrompt = atom({ plugin: 'tick-it', key: 'lastPrompt' } as const, null as { text: string; head: string; lines: number } | null)
+/** Consecutive plugin-prompt turns that changed nothing, and whether the mod has stopped (the loop breaker, or any stopped report): no prompt is submitted until a person types or Tick-it asks to resume. */
+const promptLoop = atom({ plugin: 'tick-it', key: 'promptLoop' } as const, { count: 0, stopped: false })
 const handedOver = atom({ plugin: 'tick-it', key: 'handedOver' } as const, [] as string[])
 /** link_pull_request calls Tick-it has not taken yet: sent again with the outbox. */
 const unlinked = atom({ plugin: 'tick-it', key: 'unlinked' } as const, [])
@@ -388,10 +394,37 @@ export async function heardSessionStopped($: EngineInterface, value: unknown): P
     return
   }
   if (!(await firstTime($, 'session-stopped', key))) return
-  const text = `tick-it: Tick-it says this session's Tick-it session${started === null ? '' : ` ${started.id} on ${started.ticket}`} is stopped (${facts.why}), so Tick-it will not merge the ticket yet. Do not tell the person it will merge. To resume it, finish this turn: the mod reports to Tick-it, whose answer starts the next review round, or the person presses r in the stewarding pane.`
+  const text = `tick-it: Tick-it says this session's Tick-it session${started === null ? '' : ` ${started.id} on ${started.ticket}`} is stopped (${facts.why}), so Tick-it will not merge the ticket yet. Do not tell the person it will merge. There is nothing for you to do to resume it: the mod resumes it when Tick-it's answer to its next check-in says so, or the person presses r in the stewarding pane.`
   await update($, pendingInstructions, pending => (pending.includes(text) ? pending : [...pending, text]))
   if ((await read($, steward)) !== null) await update($, steward, v => (v === null ? v : { ...v, tickitStopped: `Tick-it says its session is stopped: ${facts.why}.` }))
   $.ui.toast(`tick-it: Tick-it says its session${started === null ? '' : ` on ${started.ticket}`} is stopped (${facts.why}).`)
+}
+
+/**
+ * The one way the mod submits a prompt of its own (TCK-98): every other call of `$.prompt.submit` is a test failure (tests/submit-gate.test.ts). It submits nothing while the session is stopped (the loop breaker, or any stopped report) until a person types or Tick-it asks to resume, and nothing identical to the last prompt while the head and the changed lines are as they were. A prompt for something a person did (`person`, a pane key) is always submitted and ends the stop. Returns whether it was submitted, or why not.
+ */
+export async function submitPrompt($: EngineInterface, text: string, opts: { person?: boolean; allowStopped?: boolean } = {}): Promise<'sent' | 'held' | 'repeated'> {
+  const head = (await $.process.run(['git', 'rev-parse', 'HEAD']).catch(() => undefined))?.stdout.trim() ?? ''
+  const lines = await read($, diffLines)
+  if (opts.person === true) {
+    await update($, promptLoop, () => ({ count: 0, stopped: false }))
+    await update($, lastPrompt, () => null)
+  } else {
+    if ((await read($, promptLoop)).stopped && opts.allowStopped !== true) {
+      await log($, 'info', 'prompt-held', { why: 'stopped' })
+      return 'held'
+    }
+    const last = await read($, lastPrompt)
+    if (last !== null && last.text === text && last.head === head && last.lines === lines) {
+      await log($, 'info', 'prompt-held', { why: 'repeated' })
+      return 'repeated'
+    }
+    await update($, pluginPrompt, () => ({ text, head, lines }))
+    await update($, lastPrompt, () => ({ text, head, lines }))
+  }
+  await log($, 'debug', 'prompt-submitted', { person: opts.person === true, length: text.length })
+  await $.prompt.submit({ text })
+  return 'sent'
 }
 
 /**
@@ -414,6 +447,8 @@ export async function report($: EngineInterface, status: StartedSession['status'
   }
   const sent = await callTickit($, REPORT_TOOL, args).catch(() => ({ ok: false as const, why: 'unreachable' }))
   await log($, sent.ok ? 'info' : 'warn', 'report', { ticket: s.ticket, session: s.id, claudeSession: s.claudeSession, status, sent: sent.ok, ...(stop === undefined ? {} : { stop: stop.code }) })
+  // A stopped session is final until a person types a prompt or Tick-it asks to resume: no prompt of the mod's own follows (TCK-98).
+  if (status === 'stopped') await update($, promptLoop, v => ({ ...v, stopped: true }))
   const next = { ...s, status, reportedAt: sent.ok ? now : s.reportedAt, ...(status === 'waiting' ? { waitingLines: await read($, diffLines) } : {}) }
   await update($, startedSession, () => next)
   await $.store.set(STARTED_KEY, next)
@@ -453,7 +488,7 @@ async function handOverAnswer($: EngineInterface): Promise<void> {
   await update($, approvalAnswers, () => [])
   await update($, approvalsTaken, taken => [...taken, ...answeredIds(answers)])
   await report($, 'working', 'The approval was answered; continuing.', true)
-  await $.prompt.submit({ text: answers.join('\n\n') })
+  await submitPrompt($, answers.join('\n\n'))
 }
 
 /** While the session is waiting on an approval, once a minute (it also runs with no turn): reports waiting to hear the answer and submits one that comes back. A turn running leaves it to the turn's end. */
