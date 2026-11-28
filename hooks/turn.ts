@@ -29,9 +29,9 @@ const pendingInstructions = atom({ plugin: 'tick-it', key: 'pendingInstructions'
 const pluginPrompt = atom({ plugin: 'tick-it', key: 'pluginPrompt' } as const, null as { text: string; head: string; lines: number } | null)
 /** Consecutive plugin-prompt turns that changed nothing, and whether the loop breaker has stopped the prompts until a person types or Tick-it asks to resume. */
 const promptLoop = atom({ plugin: 'tick-it', key: 'promptLoop' } as const, { count: 0, stopped: false })
-/** A tool that writes ran in the turn now running. */
 /** The head and changed lines at the last turn-end working report: a turn that leaves both as they were, and wrote nothing, sends none (TCK-98). */
 const workingMark = atom({ plugin: 'tick-it', key: 'workingMark' } as const, null as { head: string; lines: number } | null)
+/** A tool that writes ran in the turn now running. */
 const wrote = atom({ plugin: 'tick-it', key: 'wrote' } as const, false)
 /** A report_session answer carried a resume instruction. */
 const resumeAsked = atom({ plugin: 'tick-it', key: 'resumeAsked' } as const, false)
