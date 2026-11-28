@@ -271,7 +271,8 @@ for (const tool of ['set_criterion_checked', 'add_criterion_note']) {
     const seen = await stoppedByMod($, on, { toolResult: JSON.stringify({ sessionStopped: { reason: 'Its latest session is stopped, not done' } }) })
     await $.tool.call({ tool: `mcp__plugin_tick-it_tickit__${tool}`, tool_use_id: 'tu-1', repository: 'acme/web-app', key: 'TCK-143' } as never)
     await $.turn.complete(finishTurn(undefined, 'Ticked.'))
-    expect(sent(seen).some(t => t.includes('Tick-it session s_abc12345 on TCK-143 is stopped') && t.includes('Do not tell the person it will merge') && t.includes('press'))).toBe(true)
+    // The mod stopped itself (TCK-98): nothing of its own is submitted until a person types or Tick-it resumes it, so the notice waits.
+    expect(sent(seen)).toEqual([])
     const ui = await $.ui.mount({ plugin: 'tick-it', surface: 'terminal', ...PANE })
     expect(await ui.find({ type: 'Text', text: /Tick-it says its session is stopped: Its latest session is stopped, not done/ })).toBeDefined()
     await ui.unmount()
@@ -281,7 +282,7 @@ for (const tool of ['set_criterion_checked', 'add_criterion_note']) {
 test('a sessionStopped in the answer of record_runs is queued for Claude', async ($, on) => {
   const seen = await stoppedByMod($, on, { recordExtra: { sessionStopped: true } })
   await $.turn.complete(finishTurn(undefined, 'Carrying on.'))
-  expect(sent(seen).some(t => t.includes('is stopped') && t.includes('Do not tell the person it will merge'))).toBe(true)
+  expect(sent(seen)).toEqual([])
 })
 
 test('after a resume the pane no longer says Tick-it is stopped or what it waits on', async ($, on) => {

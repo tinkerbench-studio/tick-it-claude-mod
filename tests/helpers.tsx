@@ -133,7 +133,7 @@ export type Net = {
 /** The engine beneath the mod: a store, a repo whose diff is `diff.lines` lines, and quiet UI calls. */
 export const engine = (
   on: On,
-  diff: { lines: number; merged?: boolean; byCommit?: Record<string, { lines?: number; numstatZ?: string; patch?: string }>; failDiff?: boolean; branch?: string; defaultBranch?: string; branchThrows?: boolean; siblings?: Record<string, string> | 'unlistable'; pr?: number; origin?: string | null; noCommit?: boolean; numstatZ?: string; failFiles?: boolean; changed?: string[] | null; since?: string[] | null; failUntracked?: boolean; truncateNames?: boolean; bases?: string[]; failNames?: 'exit' | 'throw'; subdir?: string; stored?: Record<string, unknown>; kept?: Map<string, unknown>; refuse?: (model: string | undefined, description: string) => string | undefined; patch?: string; dirty?: boolean; untracked?: Record<string, string>; binary?: Record<string, string>; gh?: (argv: string[]) => { exitCode: number; stdout: string; stderr: string } | undefined; pictures?: { key: string; name: string }[] | 'unreachable' | 'throws' | 'odd'; copies?: { exitCode: number; stdout: string; stderr: string } | 'hang' | 'throw'; required?: { exitCode: number; stdout: string; stderr: string } | 'hang'; ran?: { argv: string[]; stdin: unknown; timeoutMs?: unknown }[]; files?: Record<string, string>; base?: Record<string, string>; ignored?: string[]; throwShow?: boolean; remoteHead?: string; failFetch?: boolean; unpushed?: boolean; localAhead?: boolean },
+  diff: { lines: number; merged?: boolean; byCommit?: Record<string, { lines?: number; numstatZ?: string; patch?: string }>; failDiff?: boolean; branch?: string; defaultBranch?: string; branchThrows?: boolean; siblings?: Record<string, string> | 'unlistable'; pr?: number; origin?: string | null; noCommit?: boolean; numstatZ?: string; failFiles?: boolean; changed?: string[] | null; since?: string[] | null; failUntracked?: boolean; truncateNames?: boolean; bases?: string[]; failNames?: 'exit' | 'throw'; subdir?: string; stored?: Record<string, unknown>; kept?: Map<string, unknown>; refuse?: (model: string | undefined, description: string) => string | undefined; patch?: string; dirty?: boolean; untracked?: Record<string, string>; binary?: Record<string, string>; gh?: (argv: string[]) => { exitCode: number; stdout: string; stderr: string } | undefined; pictures?: { key: string; name: string }[] | 'unreachable' | 'throws' | 'odd'; copies?: { exitCode: number; stdout: string; stderr: string } | 'hang' | 'throw'; required?: { exitCode: number; stdout: string; stderr: string } | 'hang'; ran?: { argv: string[]; stdin: unknown; timeoutMs?: unknown }[]; files?: Record<string, string>; base?: Record<string, string>; ignored?: string[]; throwShow?: boolean; remoteHead?: string; failFetch?: boolean; unpushed?: boolean; localAhead?: boolean; headNow?: string },
   isPlaced = true,
   skills: Record<string, string> = {},
   net: Net = {},
@@ -408,7 +408,7 @@ export const engine = (
             : cmd === 'git' && sub === 'rev-parse' && e.argv.includes('--abbrev-ref')
               ? `${diff.branch ?? 'tck-151-picker'}\n`
               : cmd === 'git' && sub === 'rev-parse'
-                ? `${head}\n`
+                ? `${diff.headNow ?? head}\n`
                 : cmd === 'git' && sub === 'status' && diff.dirty === true
                   ? ' M hooks/reviews.ts\n'
                   : cmd === 'gh' && diff.pr !== undefined

@@ -38,10 +38,13 @@ test('instructions wait while a review round runs, rather than racing its agents
 
 test('instructions the end-of-turn report brings go to Claude in that same turn end', async ($, on) => {
   const net: Net = {}
-  const seen = engine(on, { lines: 0 }, true, {}, net)
+  const diff = { lines: 0 }
+  const seen = engine(on, diff, true, {}, net)
   await start($)
   await $.prompt.submit(typed(STARTED))
   await $.turn.complete(finishTurn(undefined, 'Added the picker.'))
+  // A turn that changed nothing sends no working report (TCK-98), so the turn that brings the instruction changed the diff.
+  diff.lines = 5
   net.reportInstructions = ['Merge main in and resolve the conflict.']
   net.skip = 120_000
   await $.turn.complete(finishTurn(undefined, 'Added tests.'))

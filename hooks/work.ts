@@ -41,6 +41,14 @@ const approvalAnswers = atom({ plugin: 'tick-it', key: 'approvalAnswers' } as co
 const approvalsTaken = atom({ plugin: 'tick-it', key: 'approvalsTaken' } as const, [] as string[])
 /** Tick-it answered a report with the unseen-head instruction: the mod starts the review round itself at the turn's end (TCK-94), and the instruction is not handed to Claude. */
 const unseenHead = atom({ plugin: 'tick-it', key: 'unseenHead' } as const, false)
+/** The prompt the mod submitted to start the turn now running (with the head and changed lines it began at), so the turn's end can tell a plugin prompt from one a person typed (TCK-98). */
+const pluginPrompt = atom({ plugin: 'tick-it', key: 'pluginPrompt' } as const, null as { text: string; head: string; lines: number; started?: boolean } | null)
+/** The last prompt the mod submitted, with the head and changed lines then: the same text is not submitted again until one of them changes or a person types (TCK-98). */
+const lastPrompt = atom({ plugin: 'tick-it', key: 'lastPrompt' } as const, null as { text: string; head: string; lines: number } | null)
+/** Consecutive plugin-prompt turns that changed nothing, and whether the mod has stopped (the loop breaker, or any stopped report): no prompt is submitted until a person types or Tick-it asks to resume. */
+const promptLoop = atom({ plugin: 'tick-it', key: 'promptLoop' } as const, { count: 0, stopped: false })
+/** Tick-it said this session is stopped: the notice is the last prompt the mod submits, and the session is stopped (no prompt, no working report) from then on until a person types or Tick-it asks to resume (TCK-98). */
+const haltAfterNotice = atom({ plugin: 'tick-it', key: 'haltAfterNotice' } as const, false)
 /** The instructions already handed over (or acted on) for a head while nothing changed: what is kept is the kind, the head and the text, so a repeat is told apart from a new commit or answer. */
 const handedOver = atom({ plugin: 'tick-it', key: 'handedOver' } as const, [] as string[])
 /** link_pull_request calls Tick-it has not taken yet: sent again with the outbox. */
@@ -312,18 +320,23 @@ async function takeAnswer($: EngineInterface, sent: Called, status?: StartedSess
 /** Tick-it's instruction for a head no review has seen (its doneUnseenText): the mod runs that round itself. */
 const UNSEEN_HEAD = /\bno review has seen\b/i
 
+/** True the first time a kind and text come for the head checked out (kept in handedOver, the last 20); false for a repeat. */
+async function firstTime($: EngineInterface, kind: string, text: string): Promise<boolean> {
+  const head = (await $.process.run(['git', 'rev-parse', 'HEAD']).catch(() => undefined))?.stdout.trim() ?? ''
+  const key = `${kind}|${head}|${text}`
+  if ((await read($, handedOver)).includes(key)) return false
+  await update($, handedOver, list => [...list, key].slice(-20))
+  return true
+}
+
 /**
  * Whether an instruction may be acted on for the head checked out: true the first time, false when the same text came for the same head (a new commit or a new answer is a new key).
  * A repeat reports the session stopped with a need, so a person sees it instead of the mod asking again every turn (TCK-94).
  */
 async function onceForHead($: EngineInterface, kind: string, text: string): Promise<boolean> {
+  if (await firstTime($, kind, text)) return true
   const head = (await $.process.run(['git', 'rev-parse', 'HEAD']).catch(() => undefined))?.stdout.trim() ?? ''
   const s = await read($, startedSession)
-  const key = `${kind}|${head}|${text}`
-  if (!(await read($, handedOver)).includes(key)) {
-    await update($, handedOver, list => [...list, key].slice(-20))
-    return true
-  }
   const why = kind === 'unseen-head' ? 'Tick-it keeps answering that this head is one no review has seen' : 'Tick-it keeps refusing the done report'
   const note = `${why}, and nothing has changed since the mod acted on it (head ${head.slice(0, 7) || 'unknown'}), so it is not asked again.`
   const code = kind === 'unseen-head' ? 'unseen-head-repeated' : 'done-refused-repeated'
@@ -357,23 +370,70 @@ export async function sendWaitingStops($: EngineInterface): Promise<void> {
 /** Whether Tick-it's answer asks the session to resume: a `resume` field, or an instruction that starts with the word. Such an instruction is not handed to Claude. */
 const resumeIn = (sent: Called): boolean => sent.ok && (sent.value.resume === true || (typeof sent.value.resume === 'string' && sent.value.resume !== '') || instructionsOf(sent).some(i => /^resume\b/i.test(i)))
 
-/** The reason Tick-it's answer gives for a stopped session (a `sessionStopped` that is true, a string or an object with a `reason`/`note`); undefined when it carries none. */
-export const stoppedIn = (value: unknown): string | undefined => {
+/** What Tick-it's answer says of a stopped session: its id when it names one, and why (a `reason`, `note` or the typed `code`; undefined when the answer carries no sessionStopped). */
+const stoppedFacts = (value: unknown): { session?: string; code?: string; why: string } | undefined => {
   const v = typeof value === 'object' && value !== null ? (value as { sessionStopped?: unknown }).sessionStopped : undefined
   if (v === undefined || v === null || v === false) return undefined
-  const why = typeof v === 'string' ? v : typeof v === 'object' ? ((v as { reason?: unknown; note?: unknown }).reason ?? (v as { note?: unknown }).note) : undefined
-  return typeof why === 'string' && why !== '' ? why.slice(0, 200) : 'no reason given'
+  const o = typeof v === 'object' ? (v as { reason?: unknown; note?: unknown; code?: unknown; session?: unknown }) : {}
+  const text = (x: unknown) => (typeof x === 'string' && x !== '' ? x.slice(0, 200) : undefined)
+  const why = typeof v === 'string' ? text(v) : (text(o.reason) ?? text(o.note) ?? text(o.code))
+  return { ...(text(o.session) === undefined ? {} : { session: text(o.session) }), ...(text(o.code) === undefined ? {} : { code: text(o.code) }), why: why ?? 'no reason given' }
 }
 
-/** Tick-it said its session for the ticket is stopped (the answer of set_criterion_checked, add_criterion_note or record_runs): the pane shows it and Claude is told, so it does not say the ticket will merge. */
+/** The reason Tick-it's answer gives for a stopped session (a `sessionStopped` that is true, a string or an object with a `reason`, `note` or `code`); undefined when it carries none. */
+export const stoppedIn = (value: unknown): string | undefined => stoppedFacts(value)?.why
+
+/**
+ * Tick-it said a session for the ticket is stopped (the answer of set_criterion_checked, add_criterion_note or record_runs). Claude is told only when it is this session's own, and once per session, code and head (TCK-98): the answer repeats at every turn end, and a prompt each time loops the session. A sibling session's stop is a toast, once, and nothing is queued.
+ */
 export async function heardSessionStopped($: EngineInterface, value: unknown): Promise<void> {
-  const why = stoppedIn(value)
-  if (why === undefined) return
+  const facts = stoppedFacts(value)
+  if (facts === undefined) return
   const started = await read($, startedSession)
-  const text = `tick-it: Tick-it says this session's Tick-it session${started === null ? '' : ` ${started.id} on ${started.ticket}`} is stopped (${why}), so Tick-it will not merge the ticket yet. Do not tell the person it will merge. To resume it, finish this turn: the mod reports to Tick-it, whose answer starts the next review round, or the person presses r in the stewarding pane.`
+  const key = `${facts.session ?? started?.id ?? ''}|${facts.code ?? facts.why}`
+  if (started !== null && facts.session !== undefined && facts.session !== started.id) {
+    if (await firstTime($, 'sibling-stopped', key)) $.ui.toast(`tick-it: Tick-it says its session ${facts.session} on ${started.ticket} is stopped (${facts.why}); this session ${started.id} is not it.`)
+    return
+  }
+  if (!(await firstTime($, 'session-stopped', key))) return
+  const text = `tick-it: Tick-it says this session's Tick-it session${started === null ? '' : ` ${started.id} on ${started.ticket}`} is stopped (${facts.why}), so Tick-it will not merge the ticket yet. Do not tell the person it will merge. There is nothing for you to do to resume it: the mod resumes it when Tick-it's answer to its next check-in says so, or the person presses r in the stewarding pane.`
   await update($, pendingInstructions, pending => (pending.includes(text) ? pending : [...pending, text]))
-  if ((await read($, steward)) !== null) await update($, steward, v => (v === null ? v : { ...v, tickitStopped: `Tick-it says its session is stopped: ${why}.` }))
-  $.ui.toast(`tick-it: Tick-it says its session${started === null ? '' : ` on ${started.ticket}`} is stopped (${why}).`)
+  await update($, haltAfterNotice, () => true)
+  if ((await read($, steward)) !== null) await update($, steward, v => (v === null ? v : { ...v, tickitStopped: `Tick-it says its session is stopped: ${facts.why}.` }))
+  $.ui.toast(`tick-it: Tick-it says its session${started === null ? '' : ` on ${started.ticket}`} is stopped (${facts.why}).`)
+}
+
+/**
+ * The one way the mod submits a prompt of its own (TCK-98): every other call of `$.prompt.submit` is a test failure (checks/submit-gate.test.mjs). It submits nothing while the session is stopped (the loop breaker, or any stopped report) until a person types or Tick-it asks to resume, and nothing identical to the last prompt while the head and the changed lines are as they were. A prompt for something a person did (`person`, a pane key) is always submitted and ends the stop. Returns whether it was submitted, or why not.
+ */
+export async function submitPrompt($: EngineInterface, text: string, opts: { person?: boolean; allowStopped?: boolean; bounded?: boolean } = {}): Promise<'sent' | 'held' | 'repeated'> {
+  const head = (await $.process.run(['git', 'rev-parse', 'HEAD']).catch(() => undefined))?.stdout.trim() ?? ''
+  const lines = await read($, diffLines)
+  if (opts.person === true) {
+    await update($, promptLoop, () => ({ count: 0, stopped: false }))
+    await update($, lastPrompt, () => null)
+    await update($, haltAfterNotice, () => false)
+  } else {
+    // A bounded prompt is one a review round's limit already bounds (a fix round, the ticking prompt): it is never held, or the steward would wait for a turn that does not start.
+    if ((await read($, promptLoop)).stopped && opts.allowStopped !== true && opts.bounded !== true) {
+      await log($, 'info', 'prompt-held', { why: 'stopped' })
+      return 'held'
+    }
+    const last = await read($, lastPrompt)
+    if (opts.bounded !== true && last !== null && last.text === text && last.head === head && last.lines === lines) {
+      await log($, 'info', 'prompt-held', { why: 'repeated' })
+      return 'repeated'
+    }
+    await update($, pluginPrompt, () => ({ text, head, lines }))
+    await update($, lastPrompt, () => ({ text, head, lines }))
+  }
+  await log($, 'debug', 'prompt-submitted', { person: opts.person === true, length: text.length })
+  await $.prompt.submit({ text })
+  if (opts.person !== true && (await read($, haltAfterNotice))) {
+    await update($, haltAfterNotice, () => false)
+    await update($, promptLoop, v => ({ ...v, stopped: true }))
+  }
+  return 'sent'
 }
 
 /**
@@ -396,6 +456,8 @@ export async function report($: EngineInterface, status: StartedSession['status'
   }
   const sent = await callTickit($, REPORT_TOOL, args).catch(() => ({ ok: false as const, why: 'unreachable' }))
   await log($, sent.ok ? 'info' : 'warn', 'report', { ticket: s.ticket, session: s.id, claudeSession: s.claudeSession, status, sent: sent.ok, ...(stop === undefined ? {} : { stop: stop.code }) })
+  // A stopped session is final until a person types a prompt or Tick-it asks to resume: no prompt of the mod's own follows (TCK-98).
+  if (status === 'stopped') await update($, promptLoop, v => ({ ...v, stopped: true }))
   const next = { ...s, status, reportedAt: sent.ok ? now : s.reportedAt, ...(status === 'waiting' ? { waitingLines: await read($, diffLines) } : {}) }
   await update($, startedSession, () => next)
   await $.store.set(STARTED_KEY, next)
@@ -432,10 +494,11 @@ export function stopWatching(): void {
 async function handOverAnswer($: EngineInterface): Promise<void> {
   const answers = await read($, approvalAnswers)
   if (answers.length === 0) return
+  // Held (the session is stopped): the answers stay, and a prompt a person types carries them.
+  if ((await submitPrompt($, answers.join('\n\n'))) === 'held') return
   await update($, approvalAnswers, () => [])
   await update($, approvalsTaken, taken => [...taken, ...answeredIds(answers)])
   await report($, 'working', 'The approval was answered; continuing.', true)
-  await $.prompt.submit({ text: answers.join('\n\n') })
 }
 
 /** While the session is waiting on an approval, once a minute (it also runs with no turn): reports waiting to hear the answer and submits one that comes back. A turn running leaves it to the turn's end. */

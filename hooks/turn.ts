@@ -3,7 +3,7 @@ import type { Register } from 'claude-code'
 import type { ReviewRun, ReviewUsage, WorkRun } from '../types'
 import { APPROVAL_MESSAGE, answeredIds, BREAKDOWN_SUGGESTION, MAX_FINDINGS } from './state'
 import { findCurrent, refreshPullRequest, statusOnTickit, showStatus } from './board'
-import { refreshDiff, takeUnseenHead, report, recordPullRequest, firstLine, finish } from './work'
+import { refreshDiff, submitPrompt, takeUnseenHead, report, recordPullRequest, firstLine, finish } from './work'
 import { gaveVerdict, withoutStopMarks, costOf, openVerdictLines, readFindings, readVerdicts, parseFinding, saveReviews, setSteward, startRound, settleRound, checkIn } from './reviews'
 import type { CheckIn } from './reviews'
 import { queue, flush } from './outbox'
@@ -25,19 +25,36 @@ const lastUiRefusal = atom({ plugin: 'tick-it', key: 'lastUiRefusal' } as const,
 const diffLines = atom({ plugin: 'tick-it', key: 'diffLines' } as const, 0)
 const turnRunning = atom({ plugin: 'tick-it', key: 'turnRunning' } as const, false)
 const pendingInstructions = atom({ plugin: 'tick-it', key: 'pendingInstructions' } as const, [] as string[])
+/** The prompt the mod submitted to start the turn now running (with the head and changed lines it began at), so the turn's end can tell a plugin prompt from one a person typed (TCK-98). */
+const pluginPrompt = atom({ plugin: 'tick-it', key: 'pluginPrompt' } as const, null as { text: string; head: string; lines: number; started?: boolean } | null)
+/** Consecutive plugin-prompt turns that changed nothing, and whether the loop breaker has stopped the prompts until a person types or Tick-it asks to resume. */
+const promptLoop = atom({ plugin: 'tick-it', key: 'promptLoop' } as const, { count: 0, stopped: false })
+/** The head and changed lines at the last turn-end working report: a turn that leaves both as they were, and wrote nothing, sends none (TCK-98). */
+const workingMark = atom({ plugin: 'tick-it', key: 'workingMark' } as const, null as { head: string; lines: number } | null)
+/** A tool that writes ran in the turn now running. */
+const wrote = atom({ plugin: 'tick-it', key: 'wrote' } as const, false)
+/** A report_session answer carried a resume instruction. */
+const resumeAsked = atom({ plugin: 'tick-it', key: 'resumeAsked' } as const, false)
 const approvalsTaken = atom({ plugin: 'tick-it', key: 'approvalsTaken' } as const, [] as string[])
 /** A ticket Claude moved to In review itself: its review agents start when the turn ends. */
 const reviewNext = atom({ plugin: 'tick-it', key: 'reviewNext' } as const, null)
+
+/** Plugin-prompt turns in a row that change nothing before the mod stops submitting (TCK-98). */
+const LOOP_AT = 3
 
 export const registerTurn: Register = on => {
   // A review agent's run ends here: its time and tokens, its findings, and
   // whether the round is over. The main loop's turn ending while a fix round
   // runs starts the next review round.
   on('turn.complete', async ($, e, next) => {
+    let counted = false
     try {
     const done = await next(e)
     const s = await read($, steward)
     if (e.agentId === undefined) {
+      // The prompt that started this turn, if the mod submitted it: read at every main-loop turn end, so an old one is never counted later (TCK-98).
+      const began = await read($, pluginPrompt)
+      await update($, pluginPrompt, () => null)
       // The pane's pull request and CI are read again at the end of each turn.
       const taken = await findCurrent($)
       if (taken !== undefined) {
@@ -132,7 +149,21 @@ export const registerTurn: Register = on => {
         const ended = session.continued === true && onTickit !== undefined && onTickit !== 'In review'
         // A session waiting on an approval stays waiting through a turn that only read: its changed lines are as they were when it began waiting.
         const onlyRead = session.status === 'waiting' && session.waitingLines === (await read($, diffLines))
-        if (!onlyRead) await report($, ended ? 'done' : 'working', firstLine(e.answer), ended)
+        // A working report keeps Tick-it's 2-hour release away, so a turn that wrote nothing, changed no lines and moved no HEAD sends none (a change of status always goes); a stopped session sends none until a person types or Tick-it resumes it (TCK-98).
+        const headNow = (await $.process.run(['git', 'rev-parse', 'HEAD']).catch(() => undefined))?.stdout.trim() ?? ''
+        const linesNow = await read($, diffLines)
+        const mark = await read($, workingMark)
+        const progressed = mark === null || (await read($, wrote)) || mark.head !== headNow || mark.lines !== linesNow
+        const quiet = !ended && session.status === 'working' && !progressed
+        const halted = !ended && (await read($, promptLoop)).stopped
+        if (!onlyRead) {
+          // A stopped session still polls: Tick-it's answer to a stopped report is how a resume reaches it.
+          if (halted) await report($, 'stopped', firstLine(e.answer), true)
+          else if (!quiet) {
+            await report($, ended ? 'done' : 'working', firstLine(e.answer), ended)
+            if (!ended) await update($, workingMark, () => ({ head: headNow, lines: linesNow }))
+          }
+        }
         else {
           // Still waiting, but the turn is over: a throttled report asks Tick-it whether the request has been answered, and an answer that comes back with no turn running is a toast, submitted as a prompt by the approval timer.
           await update($, turnRunning, () => false)
@@ -164,14 +195,16 @@ export const registerTurn: Register = on => {
         // The offer is a turn of its own: fixing stays true while it runs, as for the stop button, so r then waits for its end rather than queueing a turn of nothing to fix.
         await setSteward($, { ...withoutStopMarks(fixingNow), phase: 'stopped', note, fixing: true })
         await update($, pendingInstructions, pending => pending.filter(i => !i.startsWith(BREAKDOWN_SUGGESTION)))
-        await $.prompt.submit({ text: suggested.join('\n\n') })
+        await submitPrompt($, suggested.join('\n\n'), { allowStopped: true })
       } else if (fixingNow?.phase === 'fixing') {
         const t = (await read($, tickets)).find(one => one.id === fixingNow.ticket)
         if (t !== undefined) await startRound($, t, fixingNow.round + 1, fixingNow.ticking, fixingNow.afterStop === true ? 'after-stop' : 'after-fix')
       } else {
         // What the reports above brought are handed over last, with the session idle; while a review round runs they wait for the next turn's end.
         // Before the session goes idle on a ticket In review it reports and reads whose move it is: Tick-it's next step is submitted, or a resume starts the next round.
+        const resumeWas = await read($, resumeAsked)
         const checked = await checkIn($).catch(() => ({}) as CheckIn)
+        if (resumeWas || checked.resumeAsked === true) await update($, promptLoop, () => ({ count: 0, stopped: false }))
         if (checked.resumed === true) return done
         // Tick-it says the head is one no review has seen, on a ticket already In review: the mod starts the round itself (the reviews are the mod's to record), instead of handing the session an instruction it cannot meet.
         if (await takeUnseenHead($)) {
@@ -183,6 +216,18 @@ export const registerTurn: Register = on => {
           }
           await log($, 'debug', 'round-not-started', { ticket: mine?.ticket ?? 'none', round: mine?.round ?? 0, why: mine === null ? 'no-steward' : t === undefined ? 'not-on-board' : 'already-reviewing' })
         }
+        // The plugin-prompt loop breaker (TCK-98): a plugin prompt's turn that changed nothing counts; three in a row stop the prompts.
+        if (began !== null) await refreshDiff($).catch(() => undefined)
+        const headNow = (await $.process.run(['git', 'rev-parse', 'HEAD']).catch(() => undefined))?.stdout.trim() ?? ''
+        const unchanged = began !== null && !(await read($, wrote)) && began.head === headNow && began.lines === (await read($, diffLines))
+        counted = true
+        await update($, promptLoop, v => ({ ...v, count: unchanged ? v.count + 1 : 0 }))
+        const loop = await read($, promptLoop)
+        if (loop.count >= LOOP_AT && !loop.stopped) {
+          await update($, promptLoop, v => ({ ...v, stopped: true }))
+          const note = `The mod submitted the same kind of prompt ${loop.count} turns in a row and nothing changed (${(began?.text ?? '').split('\n')[0]?.slice(0, 100)}), so it submits no more until a person types a prompt or Tick-it asks to resume.`
+          await report($, 'stopped', note, true, { code: 'prompt-loop', ...(headNow === '' ? {} : { head: headNow }), need: { kind: 'session-stopped', note } })
+        }
         let pending = (await read($, steward))?.phase === 'reviewing' ? [] : await read($, pendingInstructions)
         // An answer handed over this way ends the waiting: the session is working on it.
         if (pending.some(i => APPROVAL_MESSAGE.test(i))) {
@@ -190,8 +235,12 @@ export const registerTurn: Register = on => {
           await report($, 'working', 'The approval was answered; continuing.', true)
           pending = await read($, pendingInstructions)
         }
-        if (pending.length > 0) await update($, pendingInstructions, () => [])
-        if (pending.length > 0 || checked.next !== undefined) await $.prompt.submit({ text: [...pending, ...(checked.next === undefined ? [] : [checked.next])].join('\n\n') })
+        if ((await read($, promptLoop)).stopped) return done
+        if (pending.length > 0 || checked.next !== undefined) {
+          const sent = await submitPrompt($, [...pending, ...(checked.next === undefined ? [] : [checked.next])].join('\n\n'))
+          // Held (stopped): the instructions wait. Repeated: they were handed over for this head already.
+          if (sent !== 'held' && pending.length > 0) await update($, pendingInstructions, () => [])
+        }
       }
       return done
     }
@@ -271,7 +320,11 @@ export const registerTurn: Register = on => {
     return done
     } finally {
       // The turn is over only once its end has been handled, so a report made there still counts as inside it.
-      if (e.agentId === undefined) await update($, turnRunning, () => false)
+      if (e.agentId === undefined) {
+        await update($, turnRunning, () => false)
+        // A turn end that ended in another branch (a review round, a fix, a merge-only end) is not a plugin prompt's idle turn: the count starts again.
+        if (!counted) await update($, promptLoop, v => ({ ...v, count: 0 }))
+      }
     }
   })
 }

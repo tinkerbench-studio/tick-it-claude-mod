@@ -31,6 +31,9 @@ async function nudgeFor($: EngineInterface, ticket: string, file: string, text: 
   return areaNudge(fresh)
 }
 
+/** A tool that writes ran in the turn now running. */
+const wrote = atom({ plugin: 'tick-it', key: 'wrote' } as const, false)
+
 const lineCount = (text: string): number => (text === '' ? 0 : text.split('\n').length)
 
 export const registerTools: Register = on => {
@@ -38,6 +41,8 @@ export const registerTools: Register = on => {
   // budget. Measuring failures let the edit through (a proof of concept should
   // not block work), so the .catch passes rather than denies.
   on('tool.call', async ($, e, next) => {
+    // A tool that writes: the plugin-prompt loop breaker counts only turns that wrote nothing (TCK-98).
+    if (e.tool === 'Edit' || e.tool === 'Write' || (e.tool as string) === 'MultiEdit' || (e.tool as string) === 'NotebookEdit') await update($, wrote, () => true)
     if (e.tool !== 'Edit' && e.tool !== 'Write' && (e.tool as string) !== 'MultiEdit') return next(e)
     const t = await findCurrent($)
     if (t === undefined) return next(e)
