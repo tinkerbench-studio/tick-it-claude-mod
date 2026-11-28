@@ -48,7 +48,7 @@ const unlinked = atom({ plugin: 'tick-it', key: 'unlinked' } as const, [])
 
 /** Whether a report_session call is the breakdown session's own: the mod reports for every other session. */
 export async function reportsForItself($: Parameters<typeof read>[0], input: unknown) {
-  const own = await read($, breakdownSession)
+  const own = (await read($, breakdownSession)) ?? ((s: StartedSession | null) => (s?.mergeOnly === true ? s : null))(await read($, startedSession))
   return own !== null && typeof input === 'object' && input !== null && (input as { session?: unknown }).session === own.id
 }
 
@@ -648,6 +648,9 @@ export async function finishedByClaude($: EngineInterface, e: ToolCallInput, nex
   const t = await findCurrent($)
   if (input.status === 'In review' && typeof input.key === 'string' && t === undefined) return fixAfterStop($, input.key.toUpperCase(), e, next)
   if (input.status !== 'In review' || typeof input.key !== 'string' || t === undefined || input.key.toUpperCase() !== t.id) return next(e)
+  // A merge-only session starts no review: its turn ends with done or stopped (TCK-97).
+  const own = await read($, startedSession)
+  if (own?.mergeOnly === true && own.ticket === t.id) return next(e)
   let unrun: string | undefined
   try {
     await recordPullRequest($, t.id)

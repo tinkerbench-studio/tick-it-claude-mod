@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { RUN, COMPOSE, engine, finishTurn, start, typed } from './helpers'
+import { RUN, COMPOSE, SKILLS, engine, finishTurn, start, typed } from './helpers'
 import type { Net } from './helpers'
 
 const UPDATE = 'mcp__plugin_tick-it_tickit__update_ticket'
@@ -112,4 +112,17 @@ test('more than 100 waiting runs go in calls of at most 100, and a failed call l
   await run($, 'sync')
   expect(seen.recorded.map(c => c.args.runs.length)).toEqual([100, 1, 100])
   expect((await run($, 'reviews')).text).toContain('Tick-it has every review run.')
+})
+
+test("Claude may report a merge-only session itself, and another session's report is still refused (TCK-97)", async ($, on) => {
+  const seen = engine(on, { lines: 0 }, true, SKILLS)
+  on('tool.check', () => ({ decision: 'allow' as const }))
+  const ticket = seen.server.find(t => t.key === 'TCK-151')
+  if (ticket !== undefined) ticket.status = 'In review'
+  await start($)
+  await $.prompt.submit(typed('Tick-it session s_abc12345: merge-only TCK-151 in acme/web-app.'))
+  const own = await $.tool.check({ tool: 'mcp__plugin_tick-it_tickit__report_session', input: { session: 's_abc12345', status: 'done' } })
+  expect(own.decision).toBe('allow')
+  const other = await $.tool.check({ tool: 'mcp__plugin_tick-it_tickit__report_session', input: { session: 's_other1234', status: 'done' } })
+  expect(other.decision).toBe('deny')
 })

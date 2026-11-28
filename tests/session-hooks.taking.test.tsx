@@ -124,3 +124,13 @@ test('Claude moving its ticket to In review with the repository in another lette
   expect(seen.ticketCalls.filter(c => c.tool === 'update_ticket').at(-1)?.args).toMatchObject({ key: 'TCK-147', status: 'In review', changedLines: 12 })
   expect(seen.spawned.map(a => a.description)).toEqual(['tick-it review: principal on TCK-147, round 1'])
 })
+
+test('a merge-only line takes the ticket without moving its status or assignee, where a start line would move it back to In progress (TCK-97)', async ($, on) => {
+  const seen = engine(on, { lines: 0 })
+  const ticket = seen.server.find(t => t.key === 'TCK-151')
+  if (ticket !== undefined) ticket.status = 'In review'
+  await start($)
+  await $.prompt.submit(typed('Tick-it session s_abc12345: merge-only TCK-151 in acme/web-app.'))
+  expect(seen.server.find(t => t.key === 'TCK-151')).toMatchObject({ status: 'In review', assignee: null })
+  expect(seen.ticketCalls.filter(c => c.tool === 'update_ticket')).toEqual([])
+})
