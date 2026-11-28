@@ -47,10 +47,14 @@ export const registerTurn: Register = on => {
   // whether the round is over. The main loop's turn ending while a fix round
   // runs starts the next review round.
   on('turn.complete', async ($, e, next) => {
+    let counted = false
     try {
     const done = await next(e)
     const s = await read($, steward)
     if (e.agentId === undefined) {
+      // The prompt that started this turn, if the mod submitted it: read at every main-loop turn end, so an old one is never counted later (TCK-98).
+      const began = await read($, pluginPrompt)
+      await update($, pluginPrompt, () => null)
       // The pane's pull request and CI are read again at the end of each turn.
       const taken = await findCurrent($)
       if (taken !== undefined) {
@@ -213,11 +217,10 @@ export const registerTurn: Register = on => {
           await log($, 'debug', 'round-not-started', { ticket: mine?.ticket ?? 'none', round: mine?.round ?? 0, why: mine === null ? 'no-steward' : t === undefined ? 'not-on-board' : 'already-reviewing' })
         }
         // The plugin-prompt loop breaker (TCK-98): a plugin prompt's turn that changed nothing counts; three in a row stop the prompts.
-        const began = await read($, pluginPrompt)
-        await update($, pluginPrompt, () => null)
         if (began !== null) await refreshDiff($).catch(() => undefined)
         const headNow = (await $.process.run(['git', 'rev-parse', 'HEAD']).catch(() => undefined))?.stdout.trim() ?? ''
         const unchanged = began !== null && !(await read($, wrote)) && began.head === headNow && began.lines === (await read($, diffLines))
+        counted = true
         await update($, promptLoop, v => ({ ...v, count: unchanged ? v.count + 1 : 0 }))
         const loop = await read($, promptLoop)
         if (loop.count >= LOOP_AT && !loop.stopped) {
@@ -317,7 +320,11 @@ export const registerTurn: Register = on => {
     return done
     } finally {
       // The turn is over only once its end has been handled, so a report made there still counts as inside it.
-      if (e.agentId === undefined) await update($, turnRunning, () => false)
+      if (e.agentId === undefined) {
+        await update($, turnRunning, () => false)
+        // A turn end that ended in another branch (a review round, a fix, a merge-only end) is not a plugin prompt's idle turn: the count starts again.
+        if (!counted) await update($, promptLoop, v => ({ ...v, count: 0 }))
+      }
     }
   })
 }

@@ -1143,6 +1143,7 @@ export async function settleRound($: EngineInterface, s: Steward, withoutReviewe
         await setSteward($, { ...s, phase: 'fixing', ticking: true, note: `Clean, but ${unticked.length} acceptance check${many ? 's are' : ' is'} not ticked: asking Claude to tick them.` })
         await submitPrompt($,
           [`Round ${s.round} review of ${t.id} found nothing blocking, but ${unticked.length} acceptance check${many ? 's are' : ' is'} not ticked. Tick each one you have met with set_criterion_checked, each with a note on how it is met (add_criterion_note). Do not tick one that is not met: name it in your reply instead. Then stop; tick-it reviews again.`, ...unticked.map(text => `- ${text}`)].join('\n'),
+          { bounded: true },
         )
         return
       }
@@ -1242,6 +1243,7 @@ export async function settleRound($: EngineInterface, s: Steward, withoutReviewe
   const afterFix = served !== null && served.ticket === t.id ? served.briefLines.afterFix : undefined
   await submitPrompt($,
     [`Round ${s.round} review of ${t.id} found ${blocking.length} blocking finding${blocking.length === 1 ? '' : 's'}. ` + (readOnly ? `Fix each one within the ticket, then stop. No reviewer round is left (${beyondLimit ? 'the round limit is passed' : 'the review budget has no room'}), so tick-it reads the pull request again when you finish: it is clean when CI passes and the branch is not behind its base.` : 'Fix each one within the ticket, then stop. tick-it reviews again when you finish.') + (pastLimit && !readOnly ? ` The next review, round ${s.round + 1}, is the last: ${limit} rounds are the limit and it goes past it.` : ''), ...blocking.map(line => `- ${line}`), ...(afterFix === undefined ? [] : [afterFix])].join('\n'),
+    { bounded: true },
   )
 }
 

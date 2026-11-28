@@ -41,13 +41,13 @@ const approvalAnswers = atom({ plugin: 'tick-it', key: 'approvalAnswers' } as co
 const approvalsTaken = atom({ plugin: 'tick-it', key: 'approvalsTaken' } as const, [] as string[])
 /** Tick-it answered a report with the unseen-head instruction: the mod starts the review round itself at the turn's end (TCK-94), and the instruction is not handed to Claude. */
 const unseenHead = atom({ plugin: 'tick-it', key: 'unseenHead' } as const, false)
-/** The instructions already handed over (or acted on) for a head while nothing changed: what is kept is the kind, the head and the text, so a repeat is told apart from a new commit or answer. */
 /** The prompt the mod submitted to start the turn now running (with the head and changed lines it began at), so the turn's end can tell a plugin prompt from one a person typed (TCK-98). */
 const pluginPrompt = atom({ plugin: 'tick-it', key: 'pluginPrompt' } as const, null as { text: string; head: string; lines: number } | null)
 /** The last prompt the mod submitted, with the head and changed lines then: the same text is not submitted again until one of them changes or a person types (TCK-98). */
 const lastPrompt = atom({ plugin: 'tick-it', key: 'lastPrompt' } as const, null as { text: string; head: string; lines: number } | null)
 /** Consecutive plugin-prompt turns that changed nothing, and whether the mod has stopped (the loop breaker, or any stopped report): no prompt is submitted until a person types or Tick-it asks to resume. */
 const promptLoop = atom({ plugin: 'tick-it', key: 'promptLoop' } as const, { count: 0, stopped: false })
+/** The instructions already handed over (or acted on) for a head while nothing changed: what is kept is the kind, the head and the text, so a repeat is told apart from a new commit or answer. */
 const handedOver = atom({ plugin: 'tick-it', key: 'handedOver' } as const, [] as string[])
 /** link_pull_request calls Tick-it has not taken yet: sent again with the outbox. */
 const unlinked = atom({ plugin: 'tick-it', key: 'unlinked' } as const, [])
@@ -401,21 +401,22 @@ export async function heardSessionStopped($: EngineInterface, value: unknown): P
 }
 
 /**
- * The one way the mod submits a prompt of its own (TCK-98): every other call of `$.prompt.submit` is a test failure (tests/submit-gate.test.ts). It submits nothing while the session is stopped (the loop breaker, or any stopped report) until a person types or Tick-it asks to resume, and nothing identical to the last prompt while the head and the changed lines are as they were. A prompt for something a person did (`person`, a pane key) is always submitted and ends the stop. Returns whether it was submitted, or why not.
+ * The one way the mod submits a prompt of its own (TCK-98): every other call of `$.prompt.submit` is a test failure (checks/submit-gate.test.mjs). It submits nothing while the session is stopped (the loop breaker, or any stopped report) until a person types or Tick-it asks to resume, and nothing identical to the last prompt while the head and the changed lines are as they were. A prompt for something a person did (`person`, a pane key) is always submitted and ends the stop. Returns whether it was submitted, or why not.
  */
-export async function submitPrompt($: EngineInterface, text: string, opts: { person?: boolean; allowStopped?: boolean } = {}): Promise<'sent' | 'held' | 'repeated'> {
+export async function submitPrompt($: EngineInterface, text: string, opts: { person?: boolean; allowStopped?: boolean; bounded?: boolean } = {}): Promise<'sent' | 'held' | 'repeated'> {
   const head = (await $.process.run(['git', 'rev-parse', 'HEAD']).catch(() => undefined))?.stdout.trim() ?? ''
   const lines = await read($, diffLines)
   if (opts.person === true) {
     await update($, promptLoop, () => ({ count: 0, stopped: false }))
     await update($, lastPrompt, () => null)
   } else {
-    if ((await read($, promptLoop)).stopped && opts.allowStopped !== true) {
+    // A bounded prompt is one a review round's limit already bounds (a fix round, the ticking prompt): it is never held, or the steward would wait for a turn that does not start.
+    if ((await read($, promptLoop)).stopped && opts.allowStopped !== true && opts.bounded !== true) {
       await log($, 'info', 'prompt-held', { why: 'stopped' })
       return 'held'
     }
     const last = await read($, lastPrompt)
-    if (last !== null && last.text === text && last.head === head && last.lines === lines) {
+    if (opts.bounded !== true && last !== null && last.text === text && last.head === head && last.lines === lines) {
       await log($, 'info', 'prompt-held', { why: 'repeated' })
       return 'repeated'
     }
@@ -485,10 +486,11 @@ export function stopWatching(): void {
 async function handOverAnswer($: EngineInterface): Promise<void> {
   const answers = await read($, approvalAnswers)
   if (answers.length === 0) return
+  // Held (the session is stopped): the answers stay, and a prompt a person types carries them.
+  if ((await submitPrompt($, answers.join('\n\n'))) === 'held') return
   await update($, approvalAnswers, () => [])
   await update($, approvalsTaken, taken => [...taken, ...answeredIds(answers)])
   await report($, 'working', 'The approval was answered; continuing.', true)
-  await submitPrompt($, answers.join('\n\n'))
 }
 
 /** While the session is waiting on an approval, once a minute (it also runs with no turn): reports waiting to hear the answer and submits one that comes back. A turn running leaves it to the turn's end. */
