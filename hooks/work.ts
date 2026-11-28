@@ -47,6 +47,8 @@ const pluginPrompt = atom({ plugin: 'tick-it', key: 'pluginPrompt' } as const, n
 const lastPrompt = atom({ plugin: 'tick-it', key: 'lastPrompt' } as const, null as { text: string; head: string; lines: number } | null)
 /** Consecutive plugin-prompt turns that changed nothing, and whether the mod has stopped (the loop breaker, or any stopped report): no prompt is submitted until a person types or Tick-it asks to resume. */
 const promptLoop = atom({ plugin: 'tick-it', key: 'promptLoop' } as const, { count: 0, stopped: false })
+/** Tick-it said this session is stopped: the notice is the last prompt the mod submits, and the session is stopped (no prompt, no working report) from then on until a person types or Tick-it asks to resume (TCK-98). */
+const haltAfterNotice = atom({ plugin: 'tick-it', key: 'haltAfterNotice' } as const, false)
 /** The instructions already handed over (or acted on) for a head while nothing changed: what is kept is the kind, the head and the text, so a repeat is told apart from a new commit or answer. */
 const handedOver = atom({ plugin: 'tick-it', key: 'handedOver' } as const, [] as string[])
 /** link_pull_request calls Tick-it has not taken yet: sent again with the outbox. */
@@ -396,6 +398,7 @@ export async function heardSessionStopped($: EngineInterface, value: unknown): P
   if (!(await firstTime($, 'session-stopped', key))) return
   const text = `tick-it: Tick-it says this session's Tick-it session${started === null ? '' : ` ${started.id} on ${started.ticket}`} is stopped (${facts.why}), so Tick-it will not merge the ticket yet. Do not tell the person it will merge. There is nothing for you to do to resume it: the mod resumes it when Tick-it's answer to its next check-in says so, or the person presses r in the stewarding pane.`
   await update($, pendingInstructions, pending => (pending.includes(text) ? pending : [...pending, text]))
+  await update($, haltAfterNotice, () => true)
   if ((await read($, steward)) !== null) await update($, steward, v => (v === null ? v : { ...v, tickitStopped: `Tick-it says its session is stopped: ${facts.why}.` }))
   $.ui.toast(`tick-it: Tick-it says its session${started === null ? '' : ` on ${started.ticket}`} is stopped (${facts.why}).`)
 }
@@ -409,6 +412,7 @@ export async function submitPrompt($: EngineInterface, text: string, opts: { per
   if (opts.person === true) {
     await update($, promptLoop, () => ({ count: 0, stopped: false }))
     await update($, lastPrompt, () => null)
+    await update($, haltAfterNotice, () => false)
   } else {
     // A bounded prompt is one a review round's limit already bounds (a fix round, the ticking prompt): it is never held, or the steward would wait for a turn that does not start.
     if ((await read($, promptLoop)).stopped && opts.allowStopped !== true && opts.bounded !== true) {
@@ -425,6 +429,10 @@ export async function submitPrompt($: EngineInterface, text: string, opts: { per
   }
   await log($, 'debug', 'prompt-submitted', { person: opts.person === true, length: text.length })
   await $.prompt.submit({ text })
+  if (opts.person !== true && (await read($, haltAfterNotice))) {
+    await update($, haltAfterNotice, () => false)
+    await update($, promptLoop, v => ({ ...v, stopped: true }))
+  }
   return 'sent'
 }
 

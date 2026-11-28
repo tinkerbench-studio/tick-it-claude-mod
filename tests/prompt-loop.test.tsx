@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { STARTED, engine, finishTurn, reports, start, typed } from './helpers'
+import { PRINCIPAL_ONLY, RUN, STARTED, engine, finishTurn, reports, start, typed } from './helpers'
 import type { Net } from './helpers'
 
 // TCK-98: a stopped session is told to Claude only when it is this session, and once; plugin prompts that change nothing stop after three.
@@ -20,10 +20,18 @@ const begin = async ($: Ctx, on: On, net: Net = {}, diff: { lines: number; remot
   return seen
 }
 
-/** A turn that ends after Tick-it answered a tick with a new instruction, as any future loop would. */
+/** A session whose ticket is In review: its turn ends check in with Tick-it, whose answer can hand over a `next` instruction every time. */
+const beginS = async ($: Ctx, on: On, net: Net = {}, diff: { lines: number; headNow?: string } = { lines: 10 }) => {
+  const seen = engine(on, diff, true, PRINCIPAL_ONLY, net)
+  await start($)
+  await $.prompt.submit(typed(STARTED.replace('TCK-151', 'TCK-143')))
+  await $.command.run({ ...RUN, command: 'tick-it', args: 'done' })
+  return seen
+}
+
+/** A turn that ends after Tick-it's check-in answer brought a new instruction, as any future loop would. */
 const turn = async ($: Ctx, net: Net, n: number) => {
-  net.toolResult = stopped(`code-${n}`)
-  await tick($, n)
+  net.reportAnswers = [{ waitingOn: 'session', next: `Do thing ${n}.` }]
   await $.turn.complete(finishTurn(undefined, `Nothing has changed ${n}.`))
 }
 
@@ -59,18 +67,18 @@ test('the stopped notice names the code Tick-it sends when there is no reason or
 
 test('three plugin-prompt turns in a row that change nothing stop the session and submit no more', async ($, on) => {
   const net: Net = {}
-  const seen = await begin($, on, net)
+  const seen = await beginS($, on, net)
   for (let i = 1; i <= 6; i++) await turn($, net, i)
   // The first turn was the person's start prompt; the next three began with a plugin prompt, and the third of them stopped the loop.
   expect(sent(seen)).toHaveLength(3)
   const stops = reports(seen).filter(r => r.status === 'stopped' && r.stop !== undefined)
   expect(stops).toHaveLength(1)
-  expect(stops[0]).toMatchObject({ stop: { code: 'prompt-loop' }, needsHuman: { kind: 'session-stopped', note: expect.stringContaining('Tick-it says this session') } })
+  expect(stops[0]).toMatchObject({ stop: { code: 'prompt-loop' }, needsHuman: { kind: 'session-stopped', note: expect.stringContaining('Do thing') } })
 })
 
 test('a prompt a person types ends the stop and starts the count again', async ($, on) => {
   const net: Net = {}
-  const seen = await begin($, on, net)
+  const seen = await beginS($, on, net)
   for (let i = 1; i <= 5; i++) await turn($, net, i)
   expect(sent(seen)).toHaveLength(3)
   await $.prompt.submit(typed('Carry on please.'))
@@ -83,7 +91,7 @@ test('a prompt a person types ends the stop and starts the count again', async (
 
 test('a turn a person started resets the count, so two loops either side of it do not stop', async ($, on) => {
   const net: Net = {}
-  const seen = await begin($, on, net)
+  const seen = await beginS($, on, net)
   for (let i = 1; i <= 3; i++) await turn($, net, i)
   await $.prompt.submit(typed('What is going on?'))
   await turn($, net, 4)
@@ -94,7 +102,7 @@ test('a turn a person started resets the count, so two loops either side of it d
 test('a turn that changed the diff resets the count', async ($, on) => {
   const net: Net = {}
   const diff = { lines: 10 }
-  const seen = await begin($, on, net, diff)
+  const seen = await beginS($, on, net, diff)
   for (let i = 1; i <= 8; i++) {
     diff.lines += 5
     await turn($, net, i)
@@ -106,7 +114,7 @@ test('a turn that changed the diff resets the count', async ($, on) => {
 test('a turn that moved HEAD resets the count', async ($, on) => {
   const net: Net = {}
   const diff: { lines: number; headNow?: string } = { lines: 10 }
-  const seen = await begin($, on, net, diff)
+  const seen = await beginS($, on, net, diff)
   await turn($, net, 1)
   await turn($, net, 2)
   diff.headNow = 'cd34'.repeat(10)
@@ -117,7 +125,7 @@ test('a turn that moved HEAD resets the count', async ($, on) => {
 
 test('a turn with a tool call that writes resets the count', async ($, on) => {
   const net: Net = {}
-  const seen = await begin($, on, net)
+  const seen = await beginS($, on, net)
   for (let i = 1; i <= 8; i++) {
     await $.tool.call({ tool: 'NotebookEdit', tool_use_id: `nb${i}`, notebook_path: '/repo/a.ipynb' } as never)
     await turn($, net, i)
@@ -127,13 +135,12 @@ test('a turn with a tool call that writes resets the count', async ($, on) => {
 
 test('an answer that asks to resume ends the stop, so prompts follow again', async ($, on) => {
   const net: Net = {}
-  const seen = await begin($, on, net)
+  const seen = await beginS($, on, net)
   for (let i = 1; i <= 4; i++) await turn($, net, i)
   expect(sent(seen)).toHaveLength(3)
-  // The next turn end reports working again, and Tick-it's answer says to resume.
-  net.reportAnswers = [{ resume: true }]
-  await turn($, net, 5)
-  await turn($, net, 6)
+  // The check-in's answer says to resume.
+  net.reportAnswers = [{ resume: true, waitingOn: 'session', next: 'Do thing 5.' }]
+  await $.turn.complete(finishTurn(undefined, 'Nothing has changed 5.'))
   expect(sent(seen).length).toBeGreaterThan(3)
 })
 
@@ -170,9 +177,9 @@ test('the same prompt is not submitted again until the diff, HEAD or a typed pro
   expect(count()).toBe(4)
 })
 
-test('a stopped session sends no working report and no prompt, only a stopped poll, until a person types', async ($, on) => {
+test('a stopped session submits no prompt and sends no working report until a person types', async ($, on) => {
   const net: Net = {}
-  const seen = await begin($, on, net)
+  const seen = await beginS($, on, net)
   for (let i = 1; i <= 4; i++) await turn($, net, i)
   const before = { working: working(seen).length, sent: sent(seen).length }
   net.skip = 120_000
@@ -181,10 +188,8 @@ test('a stopped session sends no working report and no prompt, only a stopped po
   expect(working(seen)).toHaveLength(before.working)
   expect(sent(seen)).toHaveLength(before.sent)
   await $.prompt.submit(typed('Carry on.'))
-  net.skip = 120_000
-  await edit($, 10)
-  await $.turn.complete(finishTurn(undefined, 'Carried on.'))
-  expect(working(seen).length).toBeGreaterThan(before.working)
+  await turn($, net, 6)
+  expect(sent(seen).length).toBeGreaterThan(before.sent + 1)
 })
 
 test('a turn that wrote nothing, changed no lines and moved no HEAD sends no working report; progress sends one', async ($, on) => {
@@ -217,7 +222,7 @@ test('a sessionStopped with a reason shows the reason, not the code', async ($, 
 
 test('two plugin-prompt turns that change nothing do not stop the session', async ($, on) => {
   const net: Net = {}
-  const seen = await begin($, on, net)
+  const seen = await beginS($, on, net)
   for (let i = 1; i <= 3; i++) await turn($, net, i)
   expect(sent(seen)).toHaveLength(3)
   expect(reports(seen).filter(r => r.status === 'stopped' && r.stop !== undefined)).toEqual([])
@@ -225,11 +230,30 @@ test('two plugin-prompt turns that change nothing do not stop the session', asyn
 
 test('a person typing the text of the mod\'s own prompt a second time is a person', async ($, on) => {
   const net: Net = {}
-  const seen = await begin($, on, net)
+  const seen = await beginS($, on, net)
   for (let i = 1; i <= 2; i++) await turn($, net, i)
   const own = sent(seen)[1] ?? ''
   expect(own).not.toBe('')
   await $.prompt.submit(typed(own))
   for (let i = 3; i <= 4; i++) await turn($, net, i)
   expect(reports(seen).filter(r => r.status === 'stopped' && r.stop !== undefined)).toEqual([])
+})
+
+test('after Tick-it says this session is stopped and the notice went out, no prompt and no working report follow until a person types', async ($, on) => {
+  const net: Net = { toolResult: stopped('rounds-exhausted') }
+  const seen = await begin($, on, net)
+  await tick($, 1)
+  await edit($, 1)
+  await $.turn.complete(finishTurn(undefined, 'Ticked.'))
+  expect(sent(seen).filter(t => t.includes('is stopped'))).toHaveLength(1)
+  const workingBefore = working(seen).length
+  net.reportInstructions = ['Merge main in and resolve the conflict.']
+  net.skip = 120_000
+  await edit($, 2)
+  await $.turn.complete(finishTurn(undefined, 'Wrote more.'))
+  expect(sent(seen).filter(t => t.includes('Merge main'))).toEqual([])
+  expect(working(seen)).toHaveLength(workingBefore)
+  await $.prompt.submit(typed('Carry on.'))
+  await again($, net, 3)
+  expect(sent(seen).filter(t => t.includes('Merge main')).length).toBeGreaterThan(0)
 })
